@@ -3,7 +3,32 @@
 from scipy import optimize 
 from numpy import *
 
-#    assert n==len(alpha)==len(gamma)==len(phi)
+def check_args(p,alpha,gamma,phi):
+    """
+    Perform sanity check on inputs.  Supply default values if these are missing.
+    """
+    n=len(p)
+
+    if len(alpha)==1<n:
+        alpha=ones(n)*alpha
+    else:
+        if not alpha.all():
+            raise ValueError
+
+    if len(gamma)==1<n:
+        gamma=ones(n)*gamma
+    else:
+        if not gamma.all():
+            raise ValueError
+    
+    if len(phi)==1<n:
+        phi=ones(n)*phi
+    else:
+        if not phi.all():
+            phi=zeros(n)
+
+    return (n,alpha,gamma,phi)
+
 
 def derivative(f):
     """
@@ -22,7 +47,8 @@ def frischdemands(lbda,p,alpha,gamma,phi):
     returns a list of $n$ quantities demanded, conditional on 
     preference parameters (alpha,gamma,phi).
     """
-    n = len(p)
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+
     x=[((alpha[i]/(p[i]*lbda))**(1/gamma[i]) - phi[i]) for i in range(n)]
 
     return x
@@ -32,7 +58,7 @@ def frischV(lbda,p,alpha,gamma,phi):
     Returns value of Frisch Indirect Utility function
     evaluated at (lbda,p) given preference parameters (alpha,gamma,phi).
     """
-    n=len(p)
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     x=frischdemands(lbda,p,alpha,gamma,phi)
 
@@ -50,7 +76,9 @@ def excess_expenditures(y,p,alpha,gamma,phi):
     """
     Return a function which will tell excess expenditures associated with a lambda.
     """
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     n = len(p)
+
     def f(lbda):
 
         lbda=abs(lbda)
@@ -66,6 +94,8 @@ def excess_utility(U,p,alpha,gamma,phi):
     """
     Return a function which will tell excess utility associated with a lambda.
     """
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     n = len(p)
     def f(lbda):
 
@@ -79,6 +109,8 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10):
     (alpha,gamma,phi), find the marginal utility of income lbda.
     """
 
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+
     f = excess_expenditures(y,p,alpha,gamma,phi)
 
     try:
@@ -87,6 +119,8 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10):
         return lambdavalue(y,p,alpha,gamma,phi,ub*2.0)
 
 def marshalliandemands(y,p,alpha,gamma,phi):
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     lbda=lambdavalue(y,p,alpha,gamma,phi)
 
@@ -98,6 +132,8 @@ def indirectutility(y,p,alpha,gamma,phi):
     Returns utils associated with income y and prices p.
     """
 
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+
     lbda=lambdavalue(y,p,alpha,gamma,phi)
 
     return frischV(lbda,p,alpha,gamma,phi)
@@ -107,6 +143,8 @@ def lambdaforU(U,p,alpha,gamma,phi,ub=10):
     Given level of utility U, prices p, and preference parameters
     (alpha,gamma,phi), find the marginal utility of income lbda.
     """
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     f = excess_utility(U,p,alpha,gamma,phi)
 
@@ -120,7 +158,7 @@ def lambdaforU(U,p,alpha,gamma,phi,ub=10):
 
 def expenditurefunction(U,p,alpha,gamma,phi):
 
-    n=len(p)
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     x=hicksiandemands(U,p,alpha,gamma,phi)
 
@@ -129,12 +167,14 @@ def expenditurefunction(U,p,alpha,gamma,phi):
 
 def hicksiandemands(U,p,alpha,gamma,phi):
 
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     lbda=lambdaforU(U,p,alpha,gamma,phi)
 
     return frischdemands(lbda,p,alpha,gamma,phi)
 
 def expenditures(y,p,alpha,gamma,phi):
-    n=len(p)
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     
     x=marshalliandemands(y,p,alpha,gamma,phi)
 
@@ -142,7 +182,7 @@ def expenditures(y,p,alpha,gamma,phi):
 
 def budgetshares(y,p,alpha,gamma,phi):
     
-    n=len(p)
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     
     x=expenditures(y,p,alpha,gamma,phi)
 
@@ -153,7 +193,7 @@ def share_income_elasticity(y,p,alpha,gamma,phi):
     Expenditure-share elasticity with respect to total expenditures.
     """
 
-    n=len(p)
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     def w(xbar):
         return budgetshares(xbar,p,alpha,gamma,phi)
