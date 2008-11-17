@@ -7,6 +7,25 @@ def check_args(p,alpha,gamma,phi):
     """
     Perform sanity check on inputs.  Supply default values if these are missing.
     """
+
+    # Make sure all args are of type array:
+    p=array(p)
+
+    try: 
+        len(alpha) # If len() not defined, then must be a singleton
+        alpha=array(alpha)
+    except TypeError: alpha=array([alpha])
+
+    try:
+        len(gamma) # If len() not defined, then must be a singleton
+        gamma=array(gamma)
+    except TypeError: gamma=array([gamma])
+
+    try:
+        len(phi) # If len() not defined, then must be a singleton
+        phi=array(phi)
+    except TypeError: phi=array([phi])
+
     n=len(p)
 
     if len(alpha)==1<n:
