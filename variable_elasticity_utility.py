@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from scipy import optimize 
-from numpy import *
+from numpy import array, ones, zeros, sum
 
 def check_args(p,alpha,gamma,phi):
     """
@@ -135,6 +135,7 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10):
     try:
         return optimize.bisect(f,1e-20,ub)
     except ValueError:
+#        print "Doubling upper bound of %f" % ub
         return lambdavalue(y,p,alpha,gamma,phi,ub*2.0)
 
 def marshalliandemands(y,p,alpha,gamma,phi):
