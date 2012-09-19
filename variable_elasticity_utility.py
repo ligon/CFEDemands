@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from scipy import optimize 
-from numpy import array, ones, zeros, sum
+from numpy import array, ones, zeros, sum, log
 
 def check_args(p,alpha,gamma,phi):
     """
@@ -192,6 +192,14 @@ def hicksiandemands(U,p,alpha,gamma,phi):
 
     return frischdemands(lbda,p,alpha,gamma,phi)
 
+def hicksianbudgetshares(U,p,alpha,gamma,phi):
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+    h=hicksiandemands(U,p,alpha,gamma,phi)
+    y=expenditurefunction(U,p,alpha,gamma,phi)
+
+    return array([p[i]*h[i]/y for i in range(n)])
+    
 def expenditures(y,p,alpha,gamma,phi):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
