@@ -1,0 +1,1011 @@
+:SETUP:
+#+TITLE: Notes on Estimating Subsistence Parameters
+#+AUTHOR: Ethan Ligon
+#+OPTIONS: texht:t
+#+LATEX_CLASS: amsart
+#+LATEX_CLASS_OPTIONS: [12pt]
+#+LATEX_HEADER: \usemintedstyle{emacs}
+#+LATEX_HEADER: \newcommand{\E}{\ensuremath{\mbox{E}}}
+#+LATEX_HEADER_EXTRA: \newminted{python}{fontsize=\footnotesize}
+#+LATEX_HEADER_EXTRA: \renewcommand{\vec}[1]{\mathbf{#1}}
+#+LATEX_HEADER_EXTRA: \DeclareMathOperator{\argmin}{arg~min}\DeclareMathOperator{\argmax}{arg~max}
+:END:
+
+* Introduction
+We're interested in exploring different methods of estimating the
+unknown parameters $z$, $a$, $b$ in the estimating equation
+\[
+  \log(y+z) = a + b x + e.
+\]
+We begin by defining a function to serve as a simple data generating
+process, with $e$ distributed $N(0,s^2)$.  We have in mind that data
+is observed for $N$ households over $T$ periods, so that in general
+we have panel data; it will sometimes be useful to be explicit about
+the indexing of our variables, so that we have
+\[
+  \log(y_{it}+z) = a_i + b x_{it} + e_{it}.
+\]
+
+#+NAME: dgp
+#+begin_src python :exports code :results silent
+import numpy as np
+from numpy import exp,log,ones,sqrt,ceil,floor
+from scipy import optimize
+import pylab as pl
+import pandas as pd
+
+vec=lambda x: x.reshape((-1,1))
+
+def dgp(T,N,a,b,s,z):
+
+    if a==None:
+        a=np.tile(2*np.random.randn(1,N),(T,1))
+
+    e=np.random.normal(0,s,size=(T,N))
+
+    # Prices are supposed to be common:
+    logp=np.tile(np.random.randn(T,1),N)
+
+    if np.isscalar(z):
+
+        y=np.exp(a + b*logp + e)-z
+
+        return y,exp(logp)
+    else: # Allow for household size
+        n=np.tile(np.randint(1,7,size=(1,N)),(T,1))
+
+        y=np.exp(a + b*logp + e)-z[0]-z[1]*n
+
+        return y,exp(logp),n
+#+end_src
+
+Of course, when $z$ is known the resulting estimation problem is
+linear, so we can estimate it using ordinary least squares.  But we
+have a serious problem when $z$ is unknown; in this case it may be
+quite difficult to identify $z$ separately from $a$.
+
+* Identifying subsistence where the intercept is zero
+With our panel dataset, we may be able to exploit some differencing
+tricks to estimate $z$.  For example, if we difference across time
+across time, then we obtain
+\[
+   \Delta\log(y_{it} + z) = b\Delta x_{it} + \Delta e_{it}.
+\]
+Note the absence of a constant terms $a_i$ in this expression.  So one
+simple strategy for estimating $\phi$ is search over possible values of
+$\phi$, and find the value of $\phi$ which makes the intercept in the
+estimating equation equal to zero.
+
+We attempt this in the following example.  We begin by generating
+some artificial data from our =dgp=:
+
+#+name: data
+#+begin_src python :exports code 
+  <<dgp>>
+  
+  T,N=(4,1000)
+  x,p=dgp(T,N,None,2,.1,-1.)
+#+end_src
+
+#+name: zero_intercept
+#+BEGIN_SRC python :exports both :noweb no-export :results output :tangle zero_intercept.py :cache yes
+  <<data>>
+  
+  def regression_data(z,x,p,delta=1e-1):
+      """
+      Taking arrays of consumption x, prices p, and a translation
+      parameter $z$, return differenced, translated data suitable for
+      use in a regression.
+      """
+      y=np.maximum(x+z,delta)
+      y=np.diff(log(y)).reshape(-1)
+      X=np.diff(log(p)).reshape(-1)
+      X=np.vstack([np.ones(len(X)),X]).T
+  
+      return X,y
+  
+  def intercept(X,y):
+      b=np.linalg.lstsq(X,y)
+      return b[0][0]
+  
+  x0=0.
+  zhat=optimize.fmin(lambda z : intercept(*regression_data(z,x,p))**2,x0)
+  
+  print zhat
+
+  a=lambda z: intercept(*regression_data(z,x,p))
+
+  Z=pl.linspace(-3,3,50)
+  pl.plot(Z,[a(z) for z in Z])
+  pl.xlabel('$z$')
+  pl.ylabel('$a(z)$')
+
+  pl.savefig('../Figures/zero_intercept.png')
+#+END_SRC
+
+#+results[cab9aab3945e6c5b0128a9149938c628efb59f63]: zero_intercept
+: Warning: Maximum number of function evaluations has been exceeded.
+: [  4.47207443e+15]
+
+
+As can be seen from the output from this example, this strategy seems
+to have some problems!  While the true value of the parameter of
+interest is equal to 1, the routine which finds the smallest value of
+the criterion function tends to wander off toward very large or small
+values.
+
+#+NAME: fig:zero_intercept
+#+CAPTION: Estimated intercept for different values of $z$.
+[[../Figures/zero_intercept.png]]
+Despite the fact that the criterion function seems poorly behaved, it
+does exhibit an interesting and possibly useful feature: beginning at
+almost precisely the true value of $z$ and continuing to the right,
+the intercept function $a(z)$ is smooth and nicely behaved; to the
+left, it's irregular and erratic.  
+
+Possibly this erratic behavior is due to the fact
+that for values of $z<1$ the quantity $x+z$ may be non-positive, and
+so the quantity $\log(x+z)$ ill-behaved.  The way we've dealt with
+this problem in =zero_intercept()= is to replace such values with a
+negative constant, but there's little to recommend this procedure
+save its simplicity.  As an alternative, consider replacing the log
+function with the inverse hyperbolic sine:
+
+#+NAME: asinh
+#+BEGIN_SRC python :export code
+asinh=lambda z: log(z+sqrt(1+z**2))
+#+END_SRC
+
+This is sometimes used as a replacement for the natural logarithm.
+Note that in levels the approximation is improved over most of the
+positive real line by subtracting $\log(2)$.
+
+#+NAME: zero_intercept_asinh
+#+BEGIN_SRC python :noweb no-export :exports none :results silent
+from pylab import linspace, log, plot, xlabel, ylabel, savefig, sqrt
+
+<<asinh>>
+
+X=linspace(1e-2,1e2,1000)
+plot(log(X),[asinh(x)-log(2) for x in X])
+plot([-1,6],[-1,6],linewidth=.5)
+xlabel(r'$\log(x)$')
+ylabel(r'$asinh(x)-\log(2)$')
+
+savefig('../Figures/asinh_vs_log.png')
+#+END_SRC
+
+[[../Figures/asinh_vs_log.png]]
+Instead of replacing our substitution of $\log(x+z)$ by
+$\log(max(x+z,\delta))$, we use the alternative inverse hyperbolic
+sine.  This yields results:
+#+BEGIN_SRC python :exports results :noweb no-export :results output :tangle zero_intercept.py :cache yes
+  <<data>>
+  <<asinh>>
+  
+  def regression_data(z,x,p,delta=1e-1):
+      """
+      Taking arrays of consumption x, prices p, and a translation
+      parameter $z$, return differenced, translated data suitable for
+      use in a regression.
+      """
+      y=np.diff(asinh(x+z)).reshape(-1)
+      X=np.diff(asinh(p)).reshape(-1)
+      X=np.vstack([np.ones(len(X)),X]).T
+  
+      return X,y
+  
+  def intercept(X,y):
+      b=np.linalg.lstsq(X,y)
+      return b[0][0]
+  
+  x0=0.
+  zhat=optimize.fmin(lambda z : intercept(*regression_data(z,x,p))**2,x0)
+  
+  print zhat
+
+  a=lambda z: intercept(*regression_data(z,x,p))
+
+  Z=pl.linspace(-3,3,50)
+  pl.plot(Z,[a(z) for z in Z])
+  pl.xlabel('$z$')
+  pl.ylabel('$a(z)$')
+
+  pl.savefig('../Figures/zero_intercept_asinh.png')
+#+END_SRC
+
+#+results[fae2d061c125631d1ec3908afa813dbfa7bebdba]:
+: Warning: Maximum number of function evaluations has been exceeded.
+: [  2.61243963e+14]
+
+[[../Figures/zero_intercept_asinh.png]]
+
+Using the inverse hyperbolic sine smooths out the function $a(z)$, as
+we wanted.  But if anything it seems to reduce our ability to
+identify the parameter $z_0$---in the figure above there /may/ be a
+slight inflection point near $z_0=1$, but it certainly doesn't seem
+that this is a useful way to identify subsistence parameter $z$.
+This shouldn't be surprising---the feature that allows the inverse
+hyperbolic sine to gracefully accommodate non-positive arguments
+means that at consumptions close to $z$ marginal utility no longer
+goes to plus infinity.
+
+
+* Identifying linear parameters when subsistence is unimportant
+
+The idea we've just explored involves finding situations in which
+(under the null hypothesis) the intercept $a=0$, and then using this
+setting to estimate $z$.  An alternative idea is to find
+situations in which $z$ is known to be equal to zero, and then estimating the
+linear parameters $(a,b)$.  
+
+We don't know of any such situations exactly, but nevertheless the
+spirit of the idea may be worth pursuing.  So in this spirit, notice
+that in the limit as $y\rightarrow\infty$ the quantity $z$ falls out
+of the estimating equation.  So, order households according to $y$,
+and use only households in the uppermost quantile to estimate
+$(a,b)$, assuming that for these households $z$ is negligible.
+
+#+NAME: b_for_quantile
+#+BEGIN_SRC python :noweb :export code
+def b_for_quantile(x,y,n=0,z=0,rho=(0.,1.)):
+    """OLS estimates of b, using only the set of households with consumption in the (rho[0],rho[1]) quantile.
+    """
+
+    # Sort y,x by values in y
+    idx=y.mean(axis=0).argsort()
+    Y=y[:,idx]
+    X=x[:,idx]
+    if not np.isscalar(z):
+        N=n[:,idx]
+        z=z[0]+z[1]*N
+
+    # Take log and within transformations
+    wlogy=log(Y+z)-log(Y+z).mean(axis=0)
+    wlogx=log(X)-log(X).mean(axis=0)
+    
+    # Extract quantile
+    k=y.shape[1]
+    
+    wlogy=wlogy[:,floor(rho[0]*k):ceil(rho[1]*k)]
+    wlogx=wlogx[:,floor(rho[0]*k):ceil(rho[1]*k)]
+
+    return np.linalg.lstsq(vec(wlogx),vec(wlogy))
+#+END_SRC
+
+#+name: b_for_top_decile
+#+begin_src  python :noweb no-export :export both :results value table :tangle b_for_top_decile.py
+<<data>>
+<<b_for_quantile>>
+
+result=b_for_quantile(p,x,rho=(0.9,1.))[0][0]
+
+return [r'$\hat{b}$',result[0]]
+#+end_src
+
+#+results: b_for_top_decile
+| $\hat{b}$ | 1.9838491630671784 |
+
+Compare this with a similar result for the bottom decile:
+#+name: b_for_bottom_decile
+#+begin_src  python :noweb no-export :export both :results value :tangle b_for_bottom_decile.py
+<<data>>
+<<b_for_quantile>>
+
+result=b_for_quantile(p,x,rho=(0.,.1))[0][0]
+
+return [r'$\hat{b}$',result[0]]
+#+end_src
+
+#+results: b_for_bottom_decile
+| \hat{$b$} | 0.15356912424293076 |
+
+Both of these estimates are lower than the true estimate of $b_0=2$,
+but the bias is greater for poorer households, as expected.  Now,
+consider searching over the set of $z$ which makes the estimates of
+$b$ equal for the topmost and bottom-most deciles:
+
+#+name: match_b
+#+begin_src python :noweb no-export :export both :results output table :tangle match_b.py
+  <<data>>
+  <<b_for_quantile>>
+  
+  def match_b_criterion(z):
+  
+      return (b_for_quantile(p,x,rho=(0.,.1),z=z)[0][0]-b_for_quantile(p,x,rho=(0.9,1.),z=z)[0][0])**2
+  
+  zhat=optimize.fmin(match_b_criterion,0.)  
+
+  print [[r"$\hat{z}", zhat[0]],[r"$\hat{b}=%6.4f$",b_for_quantile(p,x,z=zhat)[0][0][0]]]
+#+end_src
+
+#+results: match_b
+: Optimization terminated successfully.
+:          Current function value: 0.000015
+:          Iterations: 29
+:          Function evaluations: 58
+: [['$\\hat{z}', -0.99993750000000081], ['$\\hat{b}=%6.4f$', 1.9978876497877427]]
+
+When it works, this seems to work beautifully, with very precise
+estimates of both $z$ and $b$.  However, on some occasions the problem
+diverges, delivering estimates of $z$ that go off to plus infinity,
+and estimates of $b$ that go to zero.  The following graph indicates a
+typical criterion function:
+
+#+begin_src python :noweb no-export :export both :results silent
+  <<data>>
+  <<b_for_quantile>>
+  import pylab as pl
+  
+  def match_b_criterion(z):
+  
+      return (b_for_quantile(p,x,rho=(0.,.5),z=z)[0][0]-b_for_quantile(p,x,rho=(0.5,1.),z=z)[0][0])**2
+  
+  Z=pl.linspace(-10,10,100)
+  
+  pl.clf()
+  pl.plot(Z,[match_b_criterion(z) for z in Z])
+
+  pl.savefig('../Figures/match_b_criterion.png')
+#+end_src
+
+#+CAPTION: Example criterion function for the "matching $b$" estimator.
+#+ATTR_LATEX: width=0.5\textwidth
+[[../Figures/match_b_criterion.png]]
+Here we see the source of the problem.  At some point the criterion
+function reaches a maximum.  In one direction lies the true value of
+$z$; in the other the function asymptotes to zero.  If a
+hill-descending minimizing function starts on the wrong side of this
+"hill" it will wander off to plus infinity.
+
+One approach to solving this problem is to simply start the search as
+very close to (minus) the smallest observed value in the dataset:
+
+#+begin_src python :noweb no-export :export both :results value table 
+  <<data>>
+  <<b_for_quantile>>
+  
+  def match_b_criterion(z):
+  
+      return (b_for_quantile(p,x,rho=(0.,.1),z=z)[0][0]-b_for_quantile(p,x,rho=(0.9,1.),z=z)[0][0])**2
+
+  x0=-x.min()+1e-10  
+  zhat=optimize.fmin(match_b_criterion,x0)  
+
+  return [[r"\min x",x.min()],[r"$\hat{z}", zhat[0]],[r"$\hat{b}=%6.4f$",b_for_quantile(p,x,z=zhat)[0][0][0]]]
+#+end_src
+
+#+results:
+| \min x          |  1.0000304373096367 |
+| $\hat{z}        | -1.0000182298068387 |
+| $\hat{b}=%6.4f$ |  2.0033889806534115 |
+
+
+** A more realistic measurement error process
+
+However, this approach of relying on the smallest value of an
+observed variable points out a possible problem with our analysis:
+our data-generating process so far is constructed so that the observed
+$x+z$ is never negative.  As a consequence /another/ estimator which
+would work well would simply be to take $z=-\min x$.
+
+More realistically, we can easily imagine that, say, food consumption recorded
+on a survey might easily be far below the food required to survive
+due to measurement error of some sort.  Consider an additive error
+process, with an observed $\tilde{x}=x+e$, with $e$ normally
+distributed.  This can yield values of $\tilde{x}+z$ which are
+negative, as in the following data-generating process:
+
+#+NAME: dgp_additive
+#+begin_src python :exports code :results silent
+import numpy as np
+from numpy import exp,log,ones,sqrt,ceil,floor
+from scipy import optimize
+import pylab as pl
+import pandas as pd
+
+vec=lambda x: x.reshape((-1,1))
+
+def dgp(T,N,a,b,s,z):
+
+    if a==None:
+        a=np.tile(2*np.random.randn(1,N),(T,1))
+
+    e=np.random.normal(0,s,size=(T,N))
+
+    # Prices are supposed to be common:
+    logp=np.tile(np.random.randn(T,1),N)
+
+    if np.isscalar(z):
+
+        y=np.exp(a + b*logp)- z + e
+
+        return y,exp(logp)
+    else: # Allow for household size
+        n=np.tile(np.random.randint(1,7,size=(1,N)),(T,1))
+
+        y=np.exp(a + b*logp + e)-z[0]-z[1]*n
+
+        return y,exp(logp),n
+#+end_src
+
+More generally, we could allow for three different sources of error:
+one which scales $y+z$; and another which is additive; and a third
+which scales $y$; thus, we have $\log(ye^{e_3}+z+e_2)+e_1$.
+
+#+NAME: dgp_general
+#+begin_src python :exports code :results silent
+import numpy as np
+from numpy import exp,log,ones,sqrt,ceil,floor,array,r_,c_,tile
+from scipy import optimize
+import pylab as pl
+from itertools import product
+
+vec=lambda x: x.reshape((-1,1))
+
+def dgp(T,N,a,b,c,s):
+
+    if a==None:
+        a=np.tile(2*np.random.randn(1,N),(T,1))
+
+    e=[]
+    for sigma in s:
+        if sigma>0:
+            e.append(np.random.normal(0,sigma,size=(T,N)))
+        else:
+            e.append(0)
+
+    # Prices are supposed to be common:
+    logp=np.tile(np.random.randn(T,1),N)
+    logp=logp.reshape(T,N,1)
+    
+    c=array(c,ndmin=2).T
+
+    z=ones(logp.shape)
+
+    if len(c)>1: # Add something like household size
+        z=c_[z,np.tile(np.random.randint(1,7,size=(1,N,1)),(T,1,1))]
+
+    Xb=0
+    for i in range(len(b)):
+        Xb+=b[i]*logp[:,:,i]
+
+    Zc=0
+    for i in range(len(c)):
+        Zc+=c[i]*z[:,:,i]
+
+    y=exp(a + Xb + e[0]) - Zc + e[1]
+
+    return y*exp(e[2]),exp(logp),z
+#+end_src
+
+If we use the lowest
+
+#+begin_src python :noweb no-export :export both :results value table :tangle foo.py
+<<dgp>>
+
+T,N=(4,1000)
+x,p,n=dgp(T,N,None,2,.1,z=(-1.,0.))
+
+<<b_for_quantile>>
+
+def match_b_criterion(z):
+
+    b0=b_for_quantile(p,x,n,rho=(0.5,.75),z=z)[0][0]
+    b1=b_for_quantile(p,x,n,rho=(0.75,1.),z=z)[0][0]
+
+    y=(b0-b1)**2
+
+    if any(np.isnan(y)):
+        return (1e2+np.linalg.norm(z))**2
+    else:
+        return y
+
+x0=np.array([-x.min()+1e-10,0.]) # 
+x0=np.array([0.2,-1.])
+#zhat=optimize.brute(match_b_criterion,((-x.min()+1e-10,x.mean()/2),(-2.,2)),finish=None,full_output=False)
+zhat=optimize.fmin(match_b_criterion,x0)
+
+print  [[r"\min x",x.min()],
+        [r"$\hat{z_0}", zhat[0]],
+        [r"$\hat{z_1}", zhat[1]],
+        [r"$f(\hat{z})$",match_b_criterion(zhat)[0]],
+        [r"$\hat{b}=%6.4f$",b_for_quantile(p,x,n,rho=(0.5,0.6),z=zhat)[0][0][0]]]
+#+end_src
+
+#+results:
+| \min x          |   1.0000464232814785 |
+| $\hat{z_0}      |   3.4353432457464566 |
+| $\hat{z_1}      |  -1.5789473684210527 |
+| $f(\hat{z})$    | 0.015025993026436079 |
+| $\hat{b}=%6.4f$ |                  nan |
+
+
+
+
+* Description of the Estimator
+
+Let $x\in\R$ and $z\in\R^\ell$. We have 
+#
+\[
+    \log(y+c'z) = a + bx + e.
+\]
+#
+We wish to find $(a,b,c)$ such that $\E(e|x,z)=0$.
+
+Conditional on $c$, this is a simple linear least squares problem; we
+obtain $\hat{b}(c)=(X'X)^{-1}X'Y(c)$, where $X$ is the matrix of
+observations $(x_1',x_2',\dots,x_N')$, and where
+$Y(c)=[\log(y+c'z)]$. 
+
+Let $\mathcal{Q}=\{q_1,q_2,\dots,q_Q\}$ be an ordered partition of the
+population, with $y_i\leq y_j$ for all $i\in q_{n}$, $j\in q_{n+1}$.  
+
+Now, let $q\in\mathcal{Q}$ denote a particular quantile of $y$, and let
+$b_q(c)=(X_q'X_q)^{-1}X_q'Y_q(c)$, where the $q$ subscripts
+indicate the matrices of data $(X_q,Y_q)$ just for households in the
+quantile $q$.  Let $\vec{b}(c)=[b_1(c),b_2(c),\dots,b_Q(c)]$ be the
+$Q$-vector of least-squares estimates of $b$ conditional on $c$ for
+each quantile in $\mathcal{Q}$. 
+
+We're interested in the difference in estimated $b(c)$ across
+different quantiles.   Accordingly, construct  vector
+$D(c)=[b_q(c)-b_r(c)]_{(q,r)\in\mathcal{Q}^2}$ of length $Q^2$.  Let
+$\vec{S}$ be a selection matrix having dimension $Q^2\times L$;
+different choices for this matrix then allow us to focus on
+differences between different quantiles.  At a minimum the selection
+matrix $S$ should remove all differences of $b_q(c)-b_q(c)$, so the
+maximum dimension of $L$ is $Q(Q-1)$.
+
+Let the vector of comparisons then be a column vector of length $L$
+$\vec{g}(c)=\vec{S}'D(c)$; note that for the 'true' $c_0$ we want
+$\E\vec{g}(c_0)=0$. 
+
+We take a minimum distance approach to estimating $c_0$, constructing
+a quadratic criterion function
+\[
+    J_W(c)=\vec{g}(c)'\vec{W}\vec{g}(c)
+\]
+for some fixed, positive definite matrix $\vec{W}$.
+
+
+* Using =cvxopt.solvers.cp= to solve for $c$
+
+Now, in a standard approach, we define the minimum distance estimator
+of $c$ by 
+#
+\[ 
+   \hat{c}^\mathcal{T}_W=\argmin_{c\in\mathcal{T}} J_W(c) 
+\] 
+#
+for a compact parameter space $\mathcal{T}$.  However, were one to
+attempt to numerically solve this unconstrained optimization problem,
+a difficulty would emerge: if there exists an observation $i$ for
+which $c'x_i\geq -y_i$ for some $c\in\mathcal{T}$ then the criterion
+function will not be well-defined.  
+
+To get around this problem, we prefer to solve a /constrained/
+minimization problem
+#
+\[
+\hat{c}^\delta_W=\argmin_{c\in\mathcal{T}} J_W(c) 
+\]
+such that $c'x_i\geq \delta-y_i$ for all $i=1,\dots,N$.  
+
+#+name: estimator
+#+begin_src python :noweb no-export
+import cvxopt
+from numpy import linalg,array
+
+a=lambda X,y: linalg.solve(X.T*X,X.T*y)
+
+def bee(c,Data=Data):
+    """
+    OLS estimates of b conditional on c, by quantile.
+    Data is a list of triples (X_q,y_q,z_q), one triple for each quantile. 
+
+    Returns a kxQ array.
+    """
+    
+    Q=len(Data)
+    T,N,k=Data[0][0].shape
+    Tz,Nz,l=Data[0][2].shape
+    assert Tz==T
+    assert Nz==N
+
+    B=[]
+    for X,y,Z in Data:
+        # Use data z and parameters c to translate y
+        Y=log(y+Z.dot(c).sum(axis=2))
+        X=(X-X.mean(axis=0)).reshape((T*N,k),order='F')
+        Y=(Y-Y.mean(axis=0)).reshape((T*N,1),order='F')
+        B.append(linalg.lstsq(X,Y)[0].reshape((k,1)))
+
+    return B
+
+def Dbee(c,Data=Data):
+    """
+    Gradient of OLS b w.r.t the vector of parameters c, for each quantile in Data.
+    Returns a list of length Q, each element a kxl array.
+    """
+    
+    T,N,k=Data[0][0].shape
+    Tz,Nz,l=Data[0][2].shape
+    assert Tz==T
+    assert Nz==N
+
+    DB=[]
+    for X,y,Z in Data:
+        # Use data z and parameters c to calculate gradient of Y wrt c.
+        dY=Z/tile((y+Z.dot(c).sum(axis=2)).reshape((T,N,1)),(1,1,l))
+        X=(X-X.mean(axis=0)).reshape((T*N,k),order='F')
+        dY=(dY-dY.mean(axis=0)).reshape((T*N,l),order='F')
+        DB.append(linalg.lstsq(X,dY)[0])
+
+    assert DB[0].shape==(k,l)
+
+    return DB
+
+def Hbee(c,Data=Data):
+    """
+    Hessian of OLS b w.r.t the vector of parameters c.
+    Returns a list of length Q, each element a kxlxl array.
+    """
+    
+    T,N,k=Data[0][0].shape
+    Tz,Nz,l=Data[0][2].shape
+    assert Tz==T
+    assert Nz==N
+
+    # Use data z and parameters c to translate y
+    HB=[]
+    for (X,y,Z) in Data:
+        # Use data z and parameters c to calculate gradient of Y wrt c.
+        den=-tile(1/(y+Z.dot(c).sum(axis=2)).reshape((T,N,1)),(1,1,l))**2
+        d2Y=array([tile(Z[:,:,i].reshape((T,N,1),order='F'),(1,1,l))*Z*den 
+                   for i in range(l)]).reshape((N,T,l*l),order='F')
+        X=(X-X.mean(axis=0)).reshape((T*N,k),order='F')
+        d2Y=(d2Y-d2Y.mean(axis=0)).reshape((T*N,l*l),order='F')
+        HB.append(linalg.lstsq(X,d2Y)[0].reshape((k,l,l)))
+
+    return HB
+
+def diffbee(c,Data=Data):
+    """
+    Produce $Q^2\times k$ vector of differences in b_q across quantiles.
+    """
+    T,N,k=Data[0][0].shape
+    b=bee(c,Data)
+    return cvxopt.matrix(array([(bq-br) for (bq,br) in product(b,b)]).reshape((len(Data)**2,k)))
+#+end_src
+
+#+name: gmm_criterion
+#+begin_src python :noweb no-export
+<<estimator>>
+
+def Jay(c,Q=Q,W=W,Data=Data):
+    """
+    GMM criterion function evaluated at c.
+ 
+    Q and W should be cvxopt matrices.
+    """
+    c=cvxopt.matrix(c)
+
+    m=diffbee(c)
+    return m.T*Q*W*Q.T*m
+
+def DJay(c,Q=Q,W=W,Data=Data,m=None):
+    """
+    Gradient of Jay with respect to c.
+    """
+    T,N,l=Data[0][2].shape
+
+    if m is None:
+        m=diffbee(c)
+
+    diffDbee=array([dbq - dbr for (dbq,dbr) in product(*tuple([Dbee(c,Data)]*2))]).reshape((-1,l))
+
+    return (2*cvxopt.matrix(diffDbee).T*Q*W*Q.T*m)
+
+def HJay(c,Q=Q,W=W,Data=Data,m=None):
+    """
+    Hessian of Jay (with respect to c).  Returns an lxl matrix.
+    """
+
+    T,N,l=Data[0][2].shape
+
+    if m is None:
+        m=diffbee(c)
+
+    diffDbee=cvxopt.matrix(array([dbq - dbr for (dbq,dbr) in product(*tuple([Dbee(c,Data)]*2))]).reshape((-1,l)))
+
+    diffHbee=array([d2bq - d2br for (d2bq,d2br) in product(*tuple([Hbee(c,Data)]*2))]).reshape((Q.size[0],-1))
+    HQbee=np.reshape(cvxopt.matrix(diffHbee).T*Q*W*Q.T*m,(l,l),order='F')
+
+    return 2*(HQbee + diffDbee.T*Q*W*Q.T*diffDbee)
+    
+#+end_src
+
+#+name: exp_gmm_criterion
+#+begin_src python :noweb no-export
+"""
+Define an alternate criterion function exp(Jay); this will be convex
+in some regions where Jay is concave, and may give better numerical
+results.
+"""
+<<estimator>>
+
+def Jay(c,Q=Q,W=W,Data=Data):
+    """
+    GMM criterion function evaluated at c.
+ 
+    Q and W should be cvxopt matrices.
+    """
+    c=cvxopt.matrix(c)
+
+    m=diffbee(c)
+    return cvxopt.matrix(exp(m.T*Q*W*Q.T*m))
+
+def DJay(c,Q=Q,W=W,Data=Data,m=None):
+    """
+    Gradient of Jay with respect to c.
+    """
+    T,N,l=Data[0][2].shape
+
+    if m is None:
+        m=diffbee(c)
+
+    diffDbee=array([dbq - dbr for (dbq,dbr) in product(*tuple([Dbee(c,Data)]*2))]).reshape((-1,l))
+
+    return cvxopt.matrix((2*cvxopt.matrix(diffDbee).T*Q*W*Q.T*m)*exp(m.T*Q*W*Q.T*m))
+
+def HJay(c,Q=Q,W=W,Data=Data,m=None):
+    """
+    Hessian of Jay (with respect to c).  Returns an lxl matrix.
+    """
+
+    T,N,l=Data[0][2].shape
+
+    if m is None:
+        m=diffbee(c)
+
+    diffDbee=cvxopt.matrix(array([dbq - dbr for (dbq,dbr) in product(*tuple([Dbee(c,Data)]*2))]).reshape((-1,l)))
+
+    diffHbee=array([d2bq - d2br for (d2bq,d2br) in product(*tuple([Hbee(c,Data)]*2))]).reshape((Q.size[0],-1))
+    HQbee=np.reshape(cvxopt.matrix(diffHbee).T*Q*W*Q.T*m,(l,l),order='F')
+
+    H=2*exp(m.T*Q*W*Q.T*m)*(HQbee + diffDbee.T*Q*W*Q.T*diffDbee + 2*diffDbee.T*Q*W*Q.T*m*m.T*Q*W*Q.T*diffDbee)
+    return cvxopt.matrix(H)
+    
+#+end_src
+
+#+name: objective_for_cvxopt.cp
+#+begin_src python :noweb no-export
+det=np.linalg.det
+
+def in_domain(x):
+    """
+    cvxopt requires the criterion function to be convex, but ours may
+    not be outside some neighborhood of the minimum.  So evaluate the
+    Hessian; if it's not positive semi-definite assert that x isn't in
+    the domain of interest.
+    """
+
+    return True
+
+    H=HJay(x)
+    l=H.size[0]
+    
+    # Evaluate whether Hessian is positive definite using Sylvester's criterion
+    s=1
+    for i in range(1,l+1):
+        if det(H[:i,:i])<0:
+            i=0
+            break
+
+    if i>0:
+        return True
+    else:
+        return False
+
+def F(x=None,z=None,x0=x0,max=False):
+    """
+    Use cvxopt.solvers.cp to solve stage1 problem.
+    """
+    if x is None and z is None:
+        if x0 is None:
+            x0=[0.]*Data[0][2].shape[2]
+        return 0,cvxopt.matrix(x0)
+    elif z is None:
+        try:
+            if in_domain(x):
+                if max:
+                    return -Jay(x),-DJay(x).T
+                else: return Jay(x),DJay(x).T
+        except FloatingPointError:
+            return None # For case where x not in dom(J).
+    else:
+        try:
+            if in_domain(x):
+                if max:
+                    return -Jay(x),-DJay(x).T,-z[0]*cvxopt.matrix(HJay(x))
+                else:
+                    return Jay(x),DJay(x).T,z[0]*cvxopt.matrix(HJay(x))
+        except FloatingPointError:
+            return None
+#+end_src
+
+#+name: stage1
+#+begin_src python :noweb no-export 
+from cvxopt import solvers
+
+<<exp_gmm_criterion>>
+
+def stage1(Q,W,delta,Data,x0=None):
+    """
+    Stage 1 of a GMM formulation of the problem of estimating (a,b,c)
+    given weighting matrix W, quantile selection matrix Q, and bound
+    delta.  Data is a list of triples (X_q,y_q,z_q), one triple for
+    each quantile.
+    """
+
+    def positive_net_consumption(delta,Data):
+        """
+        Build Nxl matrix G and Nx1 vector h of inequality constraints Gx\leq h
+        """
+        T,N,l=Data[0][2].shape
+
+        G=array([]).reshape((0,l))
+        h=array([]).reshape((0,1))
+        for (X,y,z) in Data:
+            G=np.r_[G,z.reshape((T*N,l),order='F')]
+            h=np.r_[h,y.reshape((T*N,1),order='F')]
+
+        G=-cvxopt.matrix(G)
+        h=-(delta-cvxopt.matrix(h))
+
+        return G,h
+
+    def upper_bound_on_subsistence(delta,Data,cbar=None):
+        """
+        Requirement that subsistence c'z not exceed a proportion delta of Proj(y|z).
+
+        Returns an Nxl matrix G and an Nx1 vector h such that Gx\leq h.
+        """
+        T,N,l=Data[0][2].shape
+
+        Z=array([]).reshape((0,l))
+        Y=array([]).reshape((0,1))
+        for (x,y,z) in Data:
+            Z=np.r_[Z,z.reshape((T*N,l),order='F')]
+            Y=np.r_[Y,y.reshape((T*N,1),order='F')]
+
+        if cbar is None:
+            cbar=linalg.lstsq(Z,Y)[0]
+
+        h=cvxopt.matrix(delta*Z.dot(cbar))
+
+        G=cvxopt.matrix(Z)
+
+        return G,h
+
+    G0,h0=positive_net_consumption(delta[0],Data)
+    G1,h1=upper_bound_on_subsistence(delta[1],Data)
+
+    G=cvxopt.matrix(np.r_[G0,G1])
+    h=cvxopt.matrix(np.r_[h0,h1])
+
+    rslt=solvers.cp(F,G=G0,h=h0)
+
+    if any(np.array(G*rslt['x']-h)>np.sqrt(delta[0])):
+        raise ValueError
+
+    return rslt
+
+#+end_src
+
+#+name: within_transformation
+#+begin_src python :noweb no-export 
+def within_transformation(X,axis=0):
+    """
+    Transform the array X by subtracting X.mean(axis=axis).  
+
+    If X.shape==(T,N,K), where T is a number of periods, N a number of
+    households, and K a number of distinct variables in X, then this is 
+    the usual balanced panel data "within" transformation that subtracts
+    household time-series means from X.
+    """
+    return X-X.mean(axis=axis)
+    
+#+end_src
+
+#+name: construct_quantiles
+#+begin_src python :noweb no-export 
+def construct_quantiles(Qs,idx,*data):
+    """
+    Given a list of quantiles Qs and an index idx with which to order observations, return a list of tuples (X_q,y_q,z_q).
+    """
+
+    X,y,Z=data
+
+    assert len(idx)==y.shape[1]
+
+    q=idx.argsort()
+    X=X[:,q,:]
+    y=y[:,q]
+    Z=Z[:,q,:]
+
+    n=len(idx)
+
+    Data=[]
+    for q in Qs:
+        Data.append((X[:,floor(q[0]*n):ceil(q[1]*n),:],
+                     y[:,floor(q[0]*n):ceil(q[1]*n)],
+                     Z[:,floor(q[0]*n):ceil(q[1]*n),:]))
+
+    return Data
+#+end_src
+
+Some code to construct numerical estimates of derivatives, to use as
+a check on our calculation of the analytical derivatives:
+
+#+name: numerical_gradient
+#+begin_src python :noweb no-export :tangle test.py
+def numerical_gradient(f,x,dx=.05,tol=1e-4):
+    olddf=array([1.])
+    df=array([0.])
+    while sum(abs(df-olddf))>tol:
+        olddf=df
+        df=(f(x+dx/2)-f(x-dx/2))/dx
+        dx=dx/2
+    return df
+#+end_src
+
+Construct a simple test using =cvxopt=.
+#+name: test
+#+begin_src python :noweb no-export :tangle test.py
+import cvxopt
+from cvxopt import solvers
+
+<<dgp_general>>
+<<construct_quantiles>>
+<<within_transformation>>
+<<numerical_gradient>>
+
+np.seterr(invalid='raise',divide='raise')
+
+T,N=(4,1000)
+y,x,z=dgp(T,N,None,[2],[0.,-1.],[0.1,0.,0.])
+
+qs=((0.,.25),(0.25,0.5),(0.5,0.75),(0.75,1.))
+
+idx=y.mean(axis=0)
+
+Data=construct_quantiles(qs,idx,x,y,z)  
+
+Q=cvxopt.matrix([[0,1,1,1,
+                  0,0,1,1,
+                  0,0,0,1,
+                  0,0,0,0]]) # Select all non-redundant comparisons
+W=1.
+
+<<stage1>>
+
+delta=[0.00001,0.5]
+x0=cvxopt.matrix([0.,0.])
+
+<<objective_for_cvxopt.cp>>
+
+print "Initial valuation of criterion function: %g" % F(x0)[0][0]
+
+rslt=stage1(Q,W,delta,Data)
+
+#+end_src
+
+With a first-stage estimate in hand, we can proceed to estimate the
+covariance matrix of the moments of interest, computed using the
+estimator of \cite{Newey-West87}.
+#+name: newey-west
+#+begin_src python :noweb no-export :exports code
+def Omega(j,Data):
+#+end_src
