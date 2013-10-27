@@ -526,7 +526,6 @@ print  [[r"\min x",x.min()],
 * Description of the Estimator
 
 Let $x\in\R$ and $z\in\R^\ell$. We have 
-#
 \[
     \log(y+c'z) = a + bx + e.
 \]
