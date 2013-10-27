@@ -2,6 +2,7 @@
 
 from scipy import optimize 
 from numpy import array, ones, zeros, sum, log
+from root_with_precision import root_with_precision 
 
 def check_args(p,alpha,gamma,phi):
     """
@@ -49,14 +50,14 @@ def check_args(p,alpha,gamma,phi):
     return (n,alpha,gamma,phi)
 
 
-def derivative(f):
+def derivative(f,h=2e-5):
     """
     Computes the numerical derivative of a function with a single scalar argument.
 
     BUGS: Would be better to actually take a limit, instead of assuming that h 
     is infinitesimal.  
     """
-    def df(x, h=2e-5):
+    def df(x, h=h):
         return ( f(x+h/2) - f(x-h/2) )/h
     return df
 
@@ -109,6 +110,25 @@ def excess_expenditures(y,p,alpha,gamma,phi):
 
     return f
 
+def excess_expenditures_derivative(p,alpha,gamma,phi):
+    """
+    Return a function which will tell excess expenditures associated with a lambda.
+    """
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+    n = len(p)
+    d=1/gamma
+
+    def df(lbda):
+
+        lbda=abs(lbda)
+        y=0.0
+        for i in range(n):
+            y += -d[i]*p[i]*(alpha[i]/(p[i]))**(d[i])*lbda**-(1+d[i])
+
+        return y 
+
+    return df
+
 def excess_utility(U,p,alpha,gamma,phi):
     """
     Return a function which will tell excess utility associated with a lambda.
@@ -122,7 +142,7 @@ def excess_utility(U,p,alpha,gamma,phi):
 
     return f
 
-def lambdavalue(y,p,alpha,gamma,phi,ub=10):
+def lambdavalue(y,p,alpha,gamma,phi,ub=10,method='root_with_precision'):
     """
     Given income y, prices p and preference parameters
     (alpha,gamma,phi), find the marginal utility of income lbda.
@@ -132,11 +152,19 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10):
 
     f = excess_expenditures(y,p,alpha,gamma,phi)
 
-    try:
-        return optimize.bisect(f,1e-20,ub)
-    except ValueError:
-#        print "Doubling upper bound of %f" % ub
-        return lambdavalue(y,p,alpha,gamma,phi,ub*2.0)
+    if method=='bisect':
+        try:
+            return optimize.bisect(f,1e-20,ub)
+        except ValueError:
+            return lambdavalue(y,p,alpha,gamma,phi,ub*2.0)
+    elif method=='newton':
+        df = excess_expenditures_derivative(p,alpha,gamma,phi)
+        return optimize.newton(f,ub/2.,fprime=df)
+    elif method=='root_with_precision':
+        return root_with_precision(f,[0,1,1e20],1e-12,open_interval=True)
+    else:
+        raise ValueError, "Method not defined."
+
 
 def marshalliandemands(y,p,alpha,gamma,phi):
 
@@ -172,7 +200,8 @@ def lambdaforU(U,p,alpha,gamma,phi,ub=10):
     # isn't in this interval, optimize.bisect will raise a ValueError;
     # in this case, try again, but with a larger upper bound.
     try:
-        return optimize.bisect(f,1e-20,ub)
+        #return optimize.bisect(f,1e-20,ub)
+        return root_with_precision(f,[0,ub,Inf],1e-12,open_interval=True)
     except ValueError:
         return lambdaforU(U,p,alpha,gamma,phi,ub*2.0)
 
@@ -235,13 +264,7 @@ def income_elasticity(y,p,alpha,gamma,phi):
     return array(share_income_elasticity(y,p,alpha,gamma,phi))+1.0
     
 
-def main():
-
-    y=6
-    p=array([10.0,15.0])
-    alpha=array([0.25,0.75])
-    gamma=array([2.0,0.5])
-    phi=array([1.0,0.0])
+def main(y,p,alpha,gamma,phi):
 
     print indirectutility(y,p,alpha,gamma,phi)
     print budgetshares(y,p,alpha,gamma,phi)
@@ -263,4 +286,10 @@ def main():
         print "dV=%f; lambda=%f" % (dV(y),lbda)
 
 if __name__=="__main__":
-    main()
+    y=6
+    p=array([10.0,15.0])
+    alpha=array([0.25,0.75])
+    gamma=array([2.0,0.5])
+    phi=array([1.0,0.0])
+
+    main(y,p,alpha,gamma,phi)
