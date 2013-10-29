@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from scipy import optimize 
-from numpy import array, ones, zeros, sum, log
+from numpy import array, ones, zeros, sum, log, Inf
 from root_with_precision import root_with_precision 
 
 def check_args(p,alpha,gamma,phi):
@@ -43,9 +43,6 @@ def check_args(p,alpha,gamma,phi):
     
     if len(phi)==1<n:
         phi=ones(n)*phi
-    else:
-        if not phi.all():
-            phi=zeros(n)
 
     return (n,alpha,gamma,phi)
 
@@ -161,7 +158,7 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10,method='root_with_precision'):
         df = excess_expenditures_derivative(p,alpha,gamma,phi)
         return optimize.newton(f,ub/2.,fprime=df)
     elif method=='root_with_precision':
-        return root_with_precision(f,[0,1,1e20],1e-12,open_interval=True)
+        return root_with_precision(f,[0,ub,Inf],1e-12,open_interval=True)
     else:
         raise ValueError, "Method not defined."
 
@@ -266,30 +263,40 @@ def income_elasticity(y,p,alpha,gamma,phi):
 
 def main(y,p,alpha,gamma,phi):
 
-    print indirectutility(y,p,alpha,gamma,phi)
-    print budgetshares(y,p,alpha,gamma,phi)
-    print share_income_elasticity(y,p,alpha,gamma,phi)
+    n=len(p)
+    print 'lambda=%f' % lambdavalue(y,p,alpha,gamma,phi)
+    print 'budget shares '+'%6.5f '*n % tuple(budgetshares(y,p,alpha,gamma,phi))
+    print 'share income elasticities '+'%6.5f'*n % tuple(share_income_elasticity(y,p,alpha,gamma,phi))
+    print 'indirect utility=%f' % indirectutility(y,p,alpha,gamma,phi)
     
     # Here's a test of the connections between different demand
     # representations:
+    print "Testing identity relating expenditures and indirect utility...",
     assert abs(y-expenditurefunction(indirectutility(y,p,alpha,gamma,phi),p,alpha,gamma,phi))<1e-6
-
+    print "passed."
+    
     def V(xbar):
         return indirectutility(xbar,p,alpha,gamma,phi)
 
     dV=derivative(V)
 
+    tol=1e-6
+
     try:
+        print "Evaluating lambda-V'''...",
         lbda=lambdavalue(y,p,alpha,gamma,phi)
-        assert abs(dV(y)-lbda)<1e-6
+        assert abs(dV(y)-lbda)<tol
+        print "within tolerance %f" % tol
     except AssertionError:
         print "dV=%f; lambda=%f" % (dV(y),lbda)
 
 if __name__=="__main__":
+    main(6,[1],[1],[1],[2.])
+
     y=6
     p=array([10.0,15.0])
     alpha=array([0.25,0.75])
     gamma=array([2.0,0.5])
-    phi=array([1.0,0.0])
+    phi=array([-.1,0.0])
 
     main(y,p,alpha,gamma,phi)
