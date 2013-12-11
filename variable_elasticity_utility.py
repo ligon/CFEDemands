@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 from scipy import optimize 
-from numpy import array, ones, zeros, sum, log, Inf
-from root_with_precision import root_with_precision 
+from numpy import array, ones, zeros, sum, log, Inf, dot, nan
+from root_with_precision import root_with_precision
+import warnings
 
 def check_args(p,alpha,gamma,phi):
     """
@@ -58,7 +59,7 @@ def derivative(f,h=2e-5):
         return ( f(x+h/2) - f(x-h/2) )/h
     return df
 
-def frischdemands(lbda,p,alpha,gamma,phi):
+def frischdemands(lbda,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Given marginal utility of income lbda and prices, 
     returns a list of $n$ quantities demanded, conditional on 
@@ -68,16 +69,19 @@ def frischdemands(lbda,p,alpha,gamma,phi):
 
     x=[((alpha[i]/(p[i]*lbda))**(1/gamma[i]) - phi[i]) for i in range(n)]
 
+    if not NegativeDemands:
+        x=[max(x[i],0.) for i in range(n)]        
+
     return x
 
-def frischV(lbda,p,alpha,gamma,phi):
+def frischV(lbda,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Returns value of Frisch Indirect Utility function
     evaluated at (lbda,p) given preference parameters (alpha,gamma,phi).
     """
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    x=frischdemands(lbda,p,alpha,gamma,phi)
+    x=frischdemands(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     U=0
     for i in range(n):
@@ -89,19 +93,22 @@ def frischV(lbda,p,alpha,gamma,phi):
     return U
 
  
-def excess_expenditures(y,p,alpha,gamma,phi):
+def excess_expenditures(y,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Return a function which will tell excess expenditures associated with a lambda.
     """
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     n = len(p)
 
-    def f(lbda):
 
+    def f(lbda):
         lbda=abs(lbda)
+
+        x=frischdemands(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+
         d=0.0
         for i in range(n):
-            d += ((alpha[i]/(p[i]*lbda))**(1/gamma[i]) - phi[i])*p[i]
+            d += x[i]*p[i]
 
         return d - y
 
@@ -109,7 +116,7 @@ def excess_expenditures(y,p,alpha,gamma,phi):
 
 def excess_expenditures_derivative(p,alpha,gamma,phi):
     """
-    Return a function which will tell excess expenditures associated with a lambda.
+    Return derivative of excess expenditures function with respect to lambda
     """
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     n = len(p)
@@ -126,7 +133,7 @@ def excess_expenditures_derivative(p,alpha,gamma,phi):
 
     return df
 
-def excess_utility(U,p,alpha,gamma,phi):
+def excess_utility(U,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Return a function which will tell excess utility associated with a lambda.
     """
@@ -135,11 +142,11 @@ def excess_utility(U,p,alpha,gamma,phi):
     n = len(p)
     def f(lbda):
 
-        return U - frischV(abs(lbda),p,alpha,gamma,phi)
+        return U - frischV(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     return f
 
-def lambdavalue(y,p,alpha,gamma,phi,ub=10,method='root_with_precision'):
+def lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
     """
     Given income y, prices p and preference parameters
     (alpha,gamma,phi), find the marginal utility of income lbda.
@@ -147,13 +154,22 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10,method='root_with_precision'):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    f = excess_expenditures(y,p,alpha,gamma,phi)
+    if NegativeDemands:
+        subsistence=sum([p[i]*phi[i] for i in range(n)])
+    else:
+        subsistence=sum([p[i]*phi[i] for i in range(n) if phi[i]<0])
+        
+    if y+subsistence<0: # Income too low to satisfy subsistence demands
+        warnings.warn('Income too small to cover subsistence phis (%f < %f)' % (y,subsistence))
+        return nan
+
+    f = excess_expenditures(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     if method=='bisect':
         try:
             return optimize.bisect(f,1e-20,ub)
         except ValueError:
-            return lambdavalue(y,p,alpha,gamma,phi,ub*2.0)
+            return lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands,ub=ub*2.0)
     elif method=='newton':
         df = excess_expenditures_derivative(p,alpha,gamma,phi)
         return optimize.newton(f,ub/2.,fprime=df)
@@ -163,27 +179,27 @@ def lambdavalue(y,p,alpha,gamma,phi,ub=10,method='root_with_precision'):
         raise ValueError, "Method not defined."
 
 
-def marshalliandemands(y,p,alpha,gamma,phi):
+def marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=True):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    lbda=lambdavalue(y,p,alpha,gamma,phi)
+    lbda=lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-    return frischdemands(lbda,p,alpha,gamma,phi)
+    return frischdemands(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
 
-def indirectutility(y,p,alpha,gamma,phi):
+def indirectutility(y,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Returns utils associated with income y and prices p.
     """
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    lbda=lambdavalue(y,p,alpha,gamma,phi)
+    lbda=lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-    return frischV(lbda,p,alpha,gamma,phi)
+    return frischV(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-def lambdaforU(U,p,alpha,gamma,phi,ub=10):
+def lambdaforU(U,p,alpha,gamma,phi,NegativeDemands=True,ub=10):
     """
     Given level of utility U, prices p, and preference parameters
     (alpha,gamma,phi), find the marginal utility of income lbda.
@@ -191,7 +207,7 @@ def lambdaforU(U,p,alpha,gamma,phi,ub=10):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    f = excess_utility(U,p,alpha,gamma,phi)
+    f = excess_utility(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     # Our root-finder looks within an interval [1e-20,ub].  If root
     # isn't in this interval, optimize.bisect will raise a ValueError;
@@ -200,49 +216,50 @@ def lambdaforU(U,p,alpha,gamma,phi,ub=10):
         #return optimize.bisect(f,1e-20,ub)
         return root_with_precision(f,[0,ub,Inf],1e-12,open_interval=True)
     except ValueError:
-        return lambdaforU(U,p,alpha,gamma,phi,ub*2.0)
+        return lambdaforU(U,p,alpha,gamma,phi,NegativeDemands=True,ub=ub*2.0)
 
-def expenditurefunction(U,p,alpha,gamma,phi):
+def expenditurefunction(U,p,alpha,gamma,phi,NegativeDemands=True):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
-    x=hicksiandemands(U,p,alpha,gamma,phi)
+    x=hicksiandemands(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     return sum(array([p[i]*x[i] for i in range(n)]))
 
 
-def hicksiandemands(U,p,alpha,gamma,phi):
+def hicksiandemands(U,p,alpha,gamma,phi,NegativeDemands=True):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
-    lbda=lambdaforU(U,p,alpha,gamma,phi)
+    lbda=lambdaforU(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-    return frischdemands(lbda,p,alpha,gamma,phi)
+    return frischdemands(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-def hicksianbudgetshares(U,p,alpha,gamma,phi):
+def hicksianbudgetshares(U,p,alpha,gamma,phi,NegativeDemands=True):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
-    h=hicksiandemands(U,p,alpha,gamma,phi)
-    y=expenditurefunction(U,p,alpha,gamma,phi)
+    
+    h=hicksiandemands(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    y=expenditurefunction(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     return array([p[i]*h[i]/y for i in range(n)])
     
-def expenditures(y,p,alpha,gamma,phi):
+def expenditures(y,p,alpha,gamma,phi,NegativeDemands=True):
 
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     
-    x=marshalliandemands(y,p,alpha,gamma,phi)
+    x=marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     return array([p[i]*x[i] for i in range(n)])
 
-def budgetshares(y,p,alpha,gamma,phi):
+def budgetshares(y,p,alpha,gamma,phi,NegativeDemands=True):
     
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
     
-    x=expenditures(y,p,alpha,gamma,phi)
+    x=expenditures(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     return array([x[i]/y for i in range(n)])
 
-def share_income_elasticity(y,p,alpha,gamma,phi):
+def share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=True):
     """
     Expenditure-share elasticity with respect to total expenditures.
     """
@@ -250,33 +267,35 @@ def share_income_elasticity(y,p,alpha,gamma,phi):
     n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
 
     def w(xbar):
-        return budgetshares(xbar,p,alpha,gamma,phi)
+        return budgetshares(xbar,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     dw=derivative(w)
 
     return [dw(y)[i]*(y/w(y)[i]) for i in range(n)]
 
-def income_elasticity(y,p,alpha,gamma,phi):
+def income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=True):
 
-    return array(share_income_elasticity(y,p,alpha,gamma,phi))+1.0
+    return array(share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))+1.0
     
 
-def main(y,p,alpha,gamma,phi):
+def main(y,p,alpha,gamma,phi,NegativeDemands=True):
 
     n=len(p)
-    print 'lambda=%f' % lambdavalue(y,p,alpha,gamma,phi)
-    print 'budget shares '+'%6.5f '*n % tuple(budgetshares(y,p,alpha,gamma,phi))
-    print 'share income elasticities '+'%6.5f'*n % tuple(share_income_elasticity(y,p,alpha,gamma,phi))
-    print 'indirect utility=%f' % indirectutility(y,p,alpha,gamma,phi)
+    print 'lambda=%f' % lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    print 'budget shares '+'%6.5f\t'*n % tuple(budgetshares(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
+    print 'share income elasticities '+'%6.5f\t'*n % tuple(share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
+    print 'indirect utility=%f' % indirectutility(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
     
     # Here's a test of the connections between different demand
     # representations:
     print "Testing identity relating expenditures and indirect utility...",
-    assert abs(y-expenditurefunction(indirectutility(y,p,alpha,gamma,phi),p,alpha,gamma,phi))<1e-6
+    V=indirectutility(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    X=expenditurefunction(V,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    assert abs(y-X)<1e-6
     print "passed."
     
     def V(xbar):
-        return indirectutility(xbar,p,alpha,gamma,phi)
+        return indirectutility(xbar,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
     dV=derivative(V)
 
@@ -284,14 +303,30 @@ def main(y,p,alpha,gamma,phi):
 
     try:
         print "Evaluating lambda-V'''...",
-        lbda=lambdavalue(y,p,alpha,gamma,phi)
+        lbda=lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
         assert abs(dV(y)-lbda)<tol
         print "within tolerance %f" % tol
     except AssertionError:
         print "dV=%f; lambda=%f" % (dV(y),lbda)
 
 if __name__=="__main__":
-    main(6,[1],[1],[1],[2.])
+    print "Single good; negative phi"
+    main(1.,[1],[1],[1],[-2.],NegativeDemands=False)
+
+    print "Passed."
+    print
+
+    print "Two goods; phis of different signs; no negative demands"
+    main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=False)
+
+    print "Passed."
+    print
+
+    print "Two goods; phis of different signs; negative demands allowed"
+    main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=True)
+
+    print "Passed."
+    print
 
     y=6
     p=array([10.0,15.0])
