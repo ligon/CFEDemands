@@ -10,6 +10,7 @@ import pylab as pl
 import sys
 sys.path.append('../Computation')
 import variable_elasticity_utility as ves
+import engel_curves as engel
 
 def pandas2vic(*dfs):
     """
@@ -44,8 +45,11 @@ def proj(y,x,returnb=False):
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
-        myX[k]=df[list(v)].sum(axis=1)
-
+        try:
+            myX[k]=df[list(v)].sum(axis=1)
+        except IndexError:
+            myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
+            
     return myX
             
 def order_by_expenditures(X,groups=None,Z=None,method='rank'):
@@ -87,7 +91,10 @@ def order_by_expenditures(X,groups=None,Z=None,method='rank'):
     return (R+1.)/len(R),myX
 
 
+def engel_curves(rslt,ybounds=[0,10],fname=None):
     
+    return engel.plot(rslt['Price'],rslt['alpha'],rslt['gamma'],rslt['phi'],
+                                 labels=rslt.index,ybounds=ybounds,fname=fname)    
     
 
 def fake_hhsize(N,T,p0=1./3,p1=.9):
