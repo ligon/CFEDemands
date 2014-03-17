@@ -42,6 +42,14 @@ def proj(y,x,returnb=False):
     else:
         return pd.DataFrame(np.dot(vicx[0],b),index=vicx[1],columns=vicy[2])
 
+def ols(x,y):
+    b=linalg.lstsq(x,y)[0]
+
+    u=y-np.dot(x,b)
+    v=np.cov(u)*np.mat(np.dot(x.T,x)).I
+
+    return b,np.sqrt(np.diag(v))
+
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
