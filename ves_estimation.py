@@ -36,11 +36,12 @@ def proj(y,x,returnb=False):
     vicx,vicy=pandas2vic(x,y)
 
     b=linalg.lstsq(vicx[0],vicy[0])[0]
+    b=pd.DataFrame(b.T,index=y.columns,columns=x.columns)
 
     if returnb:
-        return pd.DataFrame(np.dot(vicx[0],b),index=vicx[1],columns=vicy[2]),b
+        return pd.DataFrame(np.dot(vicx[0],b.T),index=vicx[1],columns=vicy[2]),b.T
     else:
-        return pd.DataFrame(np.dot(vicx[0],b),index=vicx[1],columns=vicy[2])
+        return pd.DataFrame(np.dot(vicx[0],b.T),index=vicx[1],columns=vicy[2])
 
 def ols(x,y):
     b=linalg.lstsq(x,y)[0]
@@ -59,7 +60,247 @@ def group_expenditures(df,groups):
             myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
             
     return myX
+
+def difference_over_time(df):
+    mydf=df.copy()
+    mydf.sortlevel(inplace=True)
+    
+    Rounds=df.index.levels[0]
+    T=len(Rounds)
+    N=len(df.index.levels[1])
+
+    mydf.reset_index(level='Year',inplace=True)
+
+    for t in range(len(Rounds[1:])):
+        ddf=mydf[mydf['Year']==Rounds[t]] - mydf[mydf['Year']==Rounds[t-1]]
+
+        ddf['Year']=Rounds[t]
+
+    ddf.reset_index(inplace=True)
+    ddf.set_index(['Year','HH'],inplace=True)
+
+    return ddf
+
+
+def estimate(x,z,p=None,phi=1e-4):
+    """
+    Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
+    of household characteristics, estimate parameters gamma and
+    alphabar.
+
+    Dataframes are indexed by (Year,hh), with columns in x
+    corresponding to expenditure types (no other variables should
+    appear), and columns in z corresponding to characteristics.
+
+    """
+
+    logx = np.log(x+phi)
+    if p:
+        logp=np.log(p)
+
+    # Step 1: Demean over households j and periods t.
+
+    barlogx = logx.mean(axis=0)
+    lhs1 = logx - barlogx
+    barz =  z.mean(axis=0)
+    rhsz1 = z - barz
+    if p:
+        rhsp1 = logp - logp.mean(axis=0) 
+        
+
+    # Step 2: assume normalizations:
+    #   * mean(log(p_i))=0 for i=1,...,n;
+    #   * mean(log\lambda^j_t)=0
+    #   * mean(\epsilon_i)=0 for i=1,...,n.
+
+    if p:
+        logalphabar_hat = lambda gammas, deltas: barlogx.dot(gammas) + logp.mean(axis=0).dot(1-gammas) - barz.dot(deltas)
+    else:
+        logalphabar_hat = lambda gammas, deltas: barlogx.dot(gammas) - barz.dot(deltas)
+
+    # Step 3: Demean over periods t.
+    barlogxij = logx.groupby(level='HH').mean()
+    barzj =  z.groupby(level='HH').mean()
+    rhsz3 = (z.reset_index(level='Year') - barzj).reset_index().set_index(['Year','HH'])
+    if p:
+        rhsp3 = logp - logp.mean(axis=0)  # Assumes common prices across households
+
+    # Expected average \log\lambda^j
+    def barloglambdaj_hat(gammas,deltas,p=p):
+        gl=(barlogx - barlogxij) - barzj.dot(deltas/gammas) 
+        if p:
+            gl = gl - logp.mean(axis=0).dot(1-1/gammas)
             
+        u,s,v=linalg.svd(gl)
+        S=np.zeros((u.shape[1],v.shape[0]))
+        S[0,0]=s[0]
+        gwT = np.dot(np.dot(u,S),v.T).T
+
+        gwT=gwT/abs(gwT[0,0])
+
+        barloglambdas=pd.Series(gwT[0,:],index=Y.index)
+
+        gs=pd.Series(abs(gwT[:,0])/np.mean(abs(gwT[:,0])),index=Y.columns)
+
+        return barloglambdas,gs
+
+
+    # Step 4:
+    barlogxit = logx.groupby(level='Year').mean()
+    barzt =  z.groupby(level='Year').mean()
+    if not p:
+        logp = lambda gammas,deltas: (barlogxit - barlogx).dot(gammas/(gammas-1.)) - barzt.dot(deltas/(gammas-1.))
+
+    
+
+    # Step 5: Difference out fixed stuff and effect of changes in z
+    
+    logx_deviations=(logx.reset_index(level='HH').loc[:,barlogxit.columns] - barlogxit).reset_index()
+    logx_deviations['HH']=np.tile(logx.index.levels[1].values,(2,))
+    logx_deviations.set_index(['Year','HH'],inplace=True)
+    Y = difference_over_time(logx_deviations)
+
+    Yhat,d = proj(Y,difference_over_time(z),returnb=True)
+    Y = Y - Yhat
+
+    # Step 6: Use svd to obtain gammas, dloglambdas
+    u,s,v=linalg.svd(Y)
+    print "Singular values of gwT"
+    print s
+
+    S=np.zeros((u.shape[1],v.shape[0]))
+    S[0,0]=s[0]
+    gwT = np.dot(np.dot(u,S),v.T).T
+
+    gwT=gwT/abs(gwT[0,0])
+
+    G=abs(gwT[:,0])
+    gammas=pd.Series(1/G,index=Y.columns)
+    deltas = d/G
+    dloglambdas=pd.Series(gwT[0,:]-np.mean(gwT[0,:]),index=Y.index)
+             
+    #assert(abs(np.mean(barloglambdaj_hat(gammas,deltas))) < 1e-10) # Check normalization of lambdas
+
+    barloglambdaj,gs=barloglambdaj_hat(gammas,deltas)
+
+    householddf={'loglambdas':np.array(np.r_[barloglambdaj-dloglambdas/2.,
+                                             barloglambdaj+dloglambdas/2.])}
+
+    goodsdf=deltas.T.to_dict()
+    logalphabars=logalphabar_hat(gammas,deltas)
+    goodsdf.update({'1/gamma':gs,'gammas':gammas,'logalphabar':logalphabars-logalphabars.mean()})
+
+    return pd.DataFrame(householddf,index=x.index),pd.DataFrame(goodsdf,index=deltas.columns)
+
+    
+def estimate_gamma_alpha(expdf,rhsdf,phi=1e-4):
+    """
+    Given a pd.Dataframe df of expenditure data, estimate parameters gamma and alpha.
+
+    Dataframe is indexed by (Year,hh), with columns corresponding to
+    expenditure types (no other variables should appear).
+    """
+    expdf.sortlevel(inplace=True)
+    Rounds=expdf.index.levels[0]
+    T=len(Rounds)
+    N=len(expdf.index.levels[1])
+    n=len(expdf.columns)
+    ANOVA={}
+    ANOVA['Total_var*2']=2*np.log(expdf+phi).var()
+    # First difference across years
+    try:
+        expdf=expdf.reset_index(level=0)
+    except ValueError:
+        expdf=expdf.reset_index(level=0,drop=True)  # Avoid collision
+
+    rhsdf['Constant']=1
+
+    try:
+        z=rhsdf.copy()
+        rhsdf=rhsdf.reset_index(level=0)
+    except ValueError:
+        rhsdf=rhsdf.reset_index(level=0,drop=True)
+    
+    for t in range(len(Rounds[1:])):
+        dz=rhsdf[rhsdf['Year']==Rounds[t]] - rhsdf[rhsdf['Year']==Rounds[t-1]]
+
+        # Here we add candidate phi before taking logs
+        dy=np.log(expdf[expdf['Year']==Rounds[t]]+phi)-np.log(expdf[expdf['Year']==Rounds[t-1]]+phi)
+
+        dy['Year']=Rounds[t]
+        dz['Year']=Rounds[t]
+
+    dy.reset_index(inplace=True)
+    dz.reset_index(inplace=True)
+    dy.set_index(['Year','HH'],inplace=True)
+    dz.set_index(['Year','HH'],inplace=True)
+
+    ANOVA['dy_var']=dy.var(numeric_only=True)
+    ANOVA['alpha_var']=ANOVA['Total_var*2']-ANOVA['dy_var']
+
+    # Reduced form is y=a_it + d_i*z_j; first, difference out the a_i=ybar-d_i*zbar
+    ybar=dy.mean(axis=0,numeric_only=True)
+    diffs=dy-ybar
+    dz['Constant']=1
+    dzbar=dz.mean(axis=0,numeric_only=True)
+    dz=dz-dzbar
+    dz['Constant']=1 # Put back differenced-out constant term
+    dzbar['Constant']=1
+
+    ANOVA['Price_var']=ybar**2
+    ANOVA['ddy_var']=diffs.var(numeric_only=True)
+
+    diffshat,d=proj(diffs,dz,returnb=True)
+
+    ANOVA['dddy_var']=diffs.var()-diffshat.var()
+    ANOVA['lambda_var']=diffshat.var()
+    ANOVA['error_var']=(diffs-diffshat).var()
+
+    # Ratios of gammas can be obtained from ratios of dz's, but to
+    # extract individual gammas we need some normalization.
+
+    diffshatbar=np.abs(np.dot(dzbar.values,d))
+    myG=np.mean(np.outer(diffshatbar,1/diffshatbar),axis=0) 
+
+    Y=(diffs-diffshat).dropna()
+    
+    u,s,v=linalg.svd(Y)
+    print s
+        
+    S=np.zeros((u.shape[1],v.shape[0]))
+    S[0,0]=s[0]
+    gwT = np.dot(np.dot(u,S),v.T).T
+
+    gwT=gwT/abs(gwT[0,0])
+
+    G=abs(gwT[:,0])
+    gammas=pd.Series(1/G,index=Y.columns)
+
+    # Set crazy values to NaN
+    gammas.where(gammas<100,inplace=True)
+    G=1/gammas
+    
+    # Construct the alphabar
+    alphabar=np.log(expdf[diffs.columns]+phi).mean(axis=0)
+
+    # Get rid of 1/gamma_i and take antilog to get the alphabars we want
+    alphabar=(alphabar/G)
+
+    # Now back out price change; normalize period 1 prices to 1.
+    ait=expdf.groupby(level=0).mean()-np.tile(expdf.mean(axis=0),(N,1)) - z.groupby(level=0).mean().dot(d)
+    dlogpt=ait/(1-G)
+
+    n,alphabar,gamma,phi = ves.check_args(np.exp(dlogpt),alphabar,1/G,phi)
+    alphabar=pd.Series(np.exp(alphabar),index=Y.columns)
+
+    ANOVA.update({'Price':np.exp(dlogpt),'alpha':alphabar,'gamma':gammas,'phi':phi})
+
+    dloglambdas=pd.Series(gwT[0,:]-np.mean(gwT[0,:]),index=Y.index)
+
+    deltas=pd.DataFrame({z.columns[i]:d.ix[i]/G for i in range(len(z.columns))})
+    
+    return pd.DataFrame(ANOVA,index=diffs.columns),dloglambdas,deltas
+
 def order_by_expenditures(X,groups=None,Z=None,method='rank'):
     """
     Construct a wealth ordering of households based on an NxD pandas DataFrame of expenditures X.
@@ -102,8 +343,52 @@ def order_by_expenditures(X,groups=None,Z=None,method='rank'):
 def engel_curves(rslt,ybounds=[0,10],fname=None):
     
     return engel.plot(rslt['Price'],rslt['alpha'],rslt['gamma'],rslt['phi'],
-                                 labels=rslt.index,ybounds=ybounds,fname=fname)    
-    
+                                 labels=rslt.index,ybounds=ybounds,fname=fname)
+
+def CRRA_adjustment(X,g):
+    """
+    Given an NTxn dataframe of expenditures X on n goods and a vector g=[1/gamma_i]_i,
+    calculate the factor by which relative risk aversion differs from
+    what it would if gamma_i=gamma for each household-period.
+    """
+    RRA=(X*g).dropna(axis=1,how='all').dropna(axis=0,how='any').sum(axis=1)
+    ell=g/g
+    RRA=g.mean()*(X*ell).dropna(axis=1,how='all').dropna(axis=0,how='any').sum(axis=1)/RRA
+
+    return RRA
+
+def bootstrap(df,lhsvar,rhsvar,reps=100):
+    """
+    Bootstrap reps draws of estimate using df.
+    """
+    Gammas=[]
+    Rounds=list(set(df.index.levels[0]))
+    T=len(Rounds)
+    hhs=list(set(df.index.levels[1]))
+    N=len(hhs) # Number of households
+    for i in range(reps):
+        print "Draw %d" % i
+        use=[]
+        bootdf=pd.DataFrame(columns=df.columns,dtype='float64')
+        k=0
+        while k<N:
+            hh=hhs[np.random.random_integers(0,N-1,1)] # Draw single household
+            try:  
+                obs=pd.DataFrame([df.loc[(t,hh)] for t in Rounds],dtype='float64')
+                obs.rename(index={(t,hh):(t,k) for t in Rounds},inplace=True)
+                k+=1
+            except KeyError: # Not a full set of rounds for household?
+                pass
+            use.append(obs)
+        bootdf=bootdf.append(use)
+        bootdf.index = pd.MultiIndex.from_tuples(bootdf.index,names=['Year','HH'])
+        g=estimate(bootdf.loc[:,lhsvar],bootdf.loc[:,rhsvar])[1]['gammas']
+        g=g/np.mean(g)
+        Gammas.append(g)
+
+    return pd.DataFrame(Gammas,index=range(reps))
+
+        
 
 def fake_hhsize(N,T,p0=1./3,p1=.9):
     """
@@ -121,12 +406,14 @@ def fake_hhsize(N,T,p0=1./3,p1=.9):
         xt=np.c_[t*np.ones((N,1)),np.arange(N).reshape((-1,1)),xt]
         X=np.r_[X,xt]
 
-    return X
+    return X.astype(np.int32)
 
 def fake_prices(K,T,sigma=1./4):
     """
-    Generate time-varying household sizes for K goods over T periods.
+    Generate time-varying prices for K goods over T periods.
     Martingale process with multiplicative log-normal innovations.
+
+    First column is an indicator of the round.
     """
     p=np.random.random(size=K).reshape((1,-1)) # Initial prices
     X=np.c_[np.zeros((1,1)),p]
@@ -152,26 +439,28 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
 
     # Let alphas be a function of hhsize
     alphabar=np.random.random(size=K).reshape((1,K))*x[:,-1].reshape((-1,1))
+    alphabar=np.random.random(size=K).reshape((1,K))*x[:,-1].reshape((-1,1))
     alpha=alphabar*np.exp(np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape)))
 
     # Generate phis from a double geometric; make proportional to household size
     phi=0.25*(np.random.geometric(2./3,size=(1,K))-np.random.geometric(2./K,size=(1,K)))*x[:,-1].reshape((-1,1))
+    phi=1e-4*np.ones((K,))
 
     gamma=np.arange(1.,K+1)/K*3
 
     prices=fake_prices(K,T)
 
-    ystar=np.exp(np.random.normal(10,3,size=N))
-    i=0
+    ystar=np.exp(np.random.normal(10,3,size=(N,T)))
     X=[]
     Y=[]
+    L=[]
     for t in range(T):
         for j in range(N):
-            y=ystar[j]-sum(prices[t,1:]*phi[i,:])
+            y=ystar[j,t]-sum(prices[t,1:]*phi)
             Y.append(y)
-            X.append(ves.marshalliandemands(y,prices[t,1:],alpha[i,:],gamma,phi[i,:]))
-            i+=1
-            print (t,j)
+            L.append(ves.lambdavalue(y,prices[t,1:],alpha[j,:],gamma,phi))
+            X.append(ves.frischdemands(L[-1],prices[t,1:],alpha[j,:],gamma,phi))
+        print "Period %d" % t
 
     X=np.array(X)
 
@@ -180,12 +469,14 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
         d['x%d' % k]=X[:,k]
 
     df=pd.DataFrame(d)
-    df.set_index(['Year','HH'],inplace=True,drop=False)
+    df.set_index(['Year','HH'],inplace=True,drop=True)
 
-    return df
+    return df,{'gamma':gamma,'prices':prices[:,1:],'phi':phi,'alphabar':alphabar,'lambda':L}
                      
         
 if __name__=='__main__':
-    df=fake_data()
+    df,truevalues=fake_data(size=(2,1500,12),alphasigma=0.01)
     #test=pd.DataFrame({'x1':[1,2,3,4],'x2':[2,3,4,6],'hhsize':[1,1,2,2]})
     #Ex=proj(test[['x1','x2']],test[['hhsize']])
+    #hhdf,goodsdf=estimate(df.loc[:,["x%d" % i for i in range(12)]],df.loc[:,['HHSize']])
+    Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
