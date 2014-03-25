@@ -85,13 +85,12 @@ def difference_over_time(df):
 def estimate(x,z,p=None,phi=1e-4):
     """
     Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
-    of household characteristics, estimate parameters gamma and
-    alphabar.
+    of household characteristics, estimate parameters gamma, alphabar,
+    and lambdas.
 
     Dataframes are indexed by (Year,hh), with columns in x
     corresponding to expenditure types (no other variables should
     appear), and columns in z corresponding to characteristics.
-
     """
 
     logx = np.log(x+phi)
@@ -109,14 +108,27 @@ def estimate(x,z,p=None,phi=1e-4):
         
 
     # Step 2: assume normalizations:
-    #   * mean(log(p_i))=0 for i=1,...,n;
+    #   * p_i0=1 for i=1,...,n;
     #   * mean(log\lambda^j_t)=0
     #   * mean(\epsilon_i)=0 for i=1,...,n.
+    #   * mean(1/gamma_i)=1
 
     if p:
-        logalphabar_hat = lambda gammas, deltas: barlogx.dot(gammas) + logp.mean(axis=0).dot(1-gammas) - barz.dot(deltas)
+        def logalphabar_hat(gammas, deltas, barlogx=barlogx):
+            keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
+            barlogx=barlogx.iloc[keep]
+            deltas=deltas.iloc[:,keep]
+            gammas=gammas.iloc[keep]
+
+            return barlogx*gammas - barz.dot(deltas) + (1-gamma)*logp.mean(axis=0) 
     else:
-        logalphabar_hat = lambda gammas, deltas: barlogx.dot(gammas) - barz.dot(deltas)
+        def logalphabar_hat(gammas, deltas, barlogx=barlogx):
+            keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
+            barlogx=barlogx.iloc[keep]
+            deltas=deltas.iloc[:,keep]
+            gammas=gammas.iloc[keep]
+
+            return barlogx*gammas - barz.dot(deltas) + (1-gammas)*logp(gammas,deltas).mean(axis=0) 
 
     # Step 3: Demean over periods t.
     barlogxij = logx.groupby(level='HH').mean()
@@ -126,21 +138,36 @@ def estimate(x,z,p=None,phi=1e-4):
         rhsp3 = logp - logp.mean(axis=0)  # Assumes common prices across households
 
     # Expected average \log\lambda^j
-    def barloglambdaj_hat(gammas,deltas,p=p):
+    def barloglambdaj_hat(gammas,deltas,p=p,barlogx=barlogx,barlogxij=barlogxij):
+        #assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
+        keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
+        barlogx=barlogx.iloc[keep]
+        barlogxij=barlogxij.iloc[:,keep]
+        deltas=deltas.iloc[:,keep]
+        gammas=gammas.iloc[keep]
+        
         gl=(barlogx - barlogxij) - barzj.dot(deltas/gammas) 
         if p:
-            gl = gl - logp.mean(axis=0).dot(1-1/gammas)
-            
+            gl = gl - logp.iloc[:,keep].mean(axis=0).dot(1-1/gammas)
+
+        gl=gl.dropna()
+        
         u,s,v=linalg.svd(gl)
         S=np.zeros((u.shape[1],v.shape[0]))
         S[0,0]=s[0]
         gwT = np.dot(np.dot(u,S),v.T).T
 
-        gwT=gwT/abs(gwT[0,0])
+        # Temporary normalization (if prices unobserved): first weight equal to 1 (w[0,0]=1).
+        barloglambdas=pd.Series(gwT[0,:]/abs(gwT[0,0]),index=gl.index)  
 
-        barloglambdas=pd.Series(gwT[0,:],index=Y.index)
+        gs=pd.Series(abs(gwT[:,0]),index=gl.columns)
 
-        gs=pd.Series(abs(gwT[:,0])/np.mean(abs(gwT[:,0])),index=Y.columns)
+        if not p: # Free to normalize gammas
+            gsbar = np.mean(gs)
+            gs = gs/gsbar # Normalization
+            barloglambdas = barloglambdas*gsbar # Normalization
+
+        assert(max(abs(gs-1/gammas))<1e-3)
 
         return barloglambdas,gs
 
@@ -149,8 +176,13 @@ def estimate(x,z,p=None,phi=1e-4):
     barlogxit = logx.groupby(level='Year').mean()
     barzt =  z.groupby(level='Year').mean()
     if not p:
-        logp = lambda gammas,deltas: (barlogxit - barlogx).dot(gammas/(gammas-1.)) - barzt.dot(deltas/(gammas-1.))
+        def logp(gammas,deltas):
+            lnp=(barlogxit - barlogx)*(gammas/(gammas-1.)) - barzt.dot(deltas/(gammas-1.))
+            # Deal with case where gamma=1
+            lnp.where(np.isfinite(lnp),0,inplace=True)
 
+            #lnp = lnp - lnp.iloc[0,:] # Normalization
+            return lnp
     
 
     # Step 5: Difference out fixed stuff and effect of changes in z
@@ -161,7 +193,7 @@ def estimate(x,z,p=None,phi=1e-4):
     Y = difference_over_time(logx_deviations)
 
     Yhat,d = proj(Y,difference_over_time(z),returnb=True)
-    Y = Y - Yhat
+    Y = (Y - Yhat).dropna()
 
     # Step 6: Use svd to obtain gammas, dloglambdas
     u,s,v=linalg.svd(Y)
@@ -172,25 +204,72 @@ def estimate(x,z,p=None,phi=1e-4):
     S[0,0]=s[0]
     gwT = np.dot(np.dot(u,S),v.T).T
 
-    gwT=gwT/abs(gwT[0,0])
-
     G=abs(gwT[:,0])
-    gammas=pd.Series(1/G,index=Y.columns)
+
+    # Eliminate goods if they deliver non-positive gammas
+    keep=(G>0)
+    G=G[keep]
+    d=d.ix[:,keep]
+
+    dloglambdas=pd.Series((gwT[0,:])/abs(gwT[0,0]),index=Y.index).unstack(level='Year') # Temporary normalization
+
+    if not p:
+        gbar=np.mean(G)
+        G=G/gbar  # Normalization of gamma (mean(1/gamma)=1)
+        dloglambdas = dloglambdas*gbar
+
+    gammas=pd.Series(1/G,index=Y.columns[keep])
     deltas = d/G
-    dloglambdas=pd.Series(gwT[0,:]-np.mean(gwT[0,:]),index=Y.index)
+    assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
+
+    #dloglambdas=pd.Series((gwT[0,:]-np.mean(gwT[0,:]))*np.mean(G),index=Y.index).unstack(level='Year') #Normalization
              
     #assert(abs(np.mean(barloglambdaj_hat(gammas,deltas))) < 1e-10) # Check normalization of lambdas
 
     barloglambdaj,gs=barloglambdaj_hat(gammas,deltas)
 
-    householddf={'loglambdas':np.array(np.r_[barloglambdaj-dloglambdas/2.,
-                                             barloglambdaj+dloglambdas/2.])}
 
+    householdd={2005:(barloglambdaj - dloglambdas.T/2).T.dropna()}
+    householdd[2010]=(barloglambdaj + dloglambdas.rename(columns={2005:2010}).T/2).T.dropna()
+
+    householddf=pd.DataFrame(householdd[2005])
+    householddf[2010]=householdd[2010]
+    
     goodsdf=deltas.T.to_dict()
     logalphabars=logalphabar_hat(gammas,deltas)
-    goodsdf.update({'1/gamma':gs,'gammas':gammas,'logalphabar':logalphabars-logalphabars.mean()})
+    logalphabars=logalphabars-np.mean(logalphabars)  # Normalization
+    
+    goodsdf.update({'1/gamma':gs,'gamma':gammas, 'alphabar':np.exp(logalphabars),'phi':phi})
 
-    return pd.DataFrame(householddf,index=x.index),pd.DataFrame(goodsdf,index=deltas.columns)
+    prices=np.exp(logp(gammas,deltas))
+
+    return householddf,pd.DataFrame(goodsdf,index=deltas.columns), prices
+
+def predicted_expenditures(goodsdf,hhdf,prices):
+    """Yields predicted expenditures.  The pd.DataFrame goodsdf should
+    have columns 'gamma', 'delta', and 'alphabar'.  The hhdf should
+    have a column 'lambdas', and other columns corresponding to
+    columns in goodsdf['deltas'].  The priceseries should have
+    prices by good, period.
+    """
+    N,T=(len(hhdf),len(hhdf.columns))
+    alpha=goodsdf['alphabar']
+    
+    for v in set(goodsdf.columns).intersection(set(hhdf.columns)): # Names of household characteristics in z
+        alpha += hhdf[v].dot(goodsdf[v])
+
+    X=[]
+    idx=[]
+    for t in range(T):
+        for j in range(N):
+            idx+=[(t,j)]
+            hhlambda=np.exp(hhdf.iloc[j,t])
+            hhalpha = goodsdf['alphabar'] # plus zdelta!
+            p=prices.iloc[t,:]
+            c=np.array(ves.frischdemands(hhlambda,p,hhalpha,goodsdf['gamma'].as_matrix(),goodsdf['phi'].as_matrix()))
+            X.append(c*p)
+
+    return pd.DataFrame(X,index=idx,columns=goodsdf.index)
 
     
 def estimate_gamma_alpha(expdf,rhsdf,phi=1e-4):
@@ -339,6 +418,14 @@ def order_by_expenditures(X,groups=None,Z=None,method='rank'):
 
     return (R+1.)/len(R),myX
 
+def balance_panel(df):
+    """Drop households that aren't observed in all rounds."""
+    pnl=df.to_panel()
+    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
+    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
+    df.index.names=pd.core.base.FrozenList(['Year','HH'])
+    
+    return df
 
 def engel_curves(rslt,ybounds=[0,10],fname=None):
     
@@ -382,7 +469,7 @@ def bootstrap(df,lhsvar,rhsvar,reps=100):
             use.append(obs)
         bootdf=bootdf.append(use)
         bootdf.index = pd.MultiIndex.from_tuples(bootdf.index,names=['Year','HH'])
-        g=estimate(bootdf.loc[:,lhsvar],bootdf.loc[:,rhsvar])[1]['gammas']
+        g=estimate(bootdf.loc[:,lhsvar],bootdf.loc[:,rhsvar],phi=1e-14)[1]['gammas']
         g=g/np.mean(g)
         Gammas.append(g)
 
@@ -397,11 +484,11 @@ def fake_hhsize(N,T,p0=1./3,p1=.9):
     The parameter p0 governs the initial (geometric) size distribution (smaller p0 means bigger sizes),
     while the parameter p1 governs the rate at which these household sizes evolve over time.
     """
-    hhsize=np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
+    hhsize=np.ones((N,1)) #np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
     X=np.c_[np.zeros((N,1)),np.arange(N).reshape((-1,1)),hhsize]
     for t in range(1,T):
-        xt=hhsize + np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
-        hhsize=xt
+        xt=hhsize #+ np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
+        hhsize=xt # xt
         xt=np.choose(xt>0,[1,xt]) # Minimum hhsize should be 1
         xt=np.c_[t*np.ones((N,1)),np.arange(N).reshape((-1,1)),xt]
         X=np.r_[X,xt]
@@ -415,7 +502,7 @@ def fake_prices(K,T,sigma=1./4):
 
     First column is an indicator of the round.
     """
-    p=np.random.random(size=K).reshape((1,-1)) # Initial prices
+    p=np.ones(K).reshape((1,-1)) # Initial prices; normalize to 1
     X=np.c_[np.zeros((1,1)),p]
     for t in range(1,T):
         pt=p*np.exp(np.random.normal(-(sigma**2/2),sigma,size=(1,K)))
@@ -432,25 +519,34 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
     T,N,K=size
 
     d={}
-    x=fake_hhsize(N,T)
+    x = fake_hhsize(N,T)
     d['HHSize']=x[:,-1]
     d['Year']=x[:,0]
     d['HH']=x[:,1]
 
     # Let alphas be a function of hhsize
-    alphabar=np.random.random(size=K).reshape((1,K))*x[:,-1].reshape((-1,1))
-    alphabar=np.random.random(size=K).reshape((1,K))*x[:,-1].reshape((-1,1))
-    alpha=alphabar*np.exp(np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape)))
+    alphabar=np.random.random(size=K)
+    alphabar=np.exp(np.log(alphabar) - np.mean(np.log(alphabar))) # Normalization
+    # alphabar=alphabar.reshape((1,K))*x[:,-1].reshape((-1,1)) 
+    #alpha=alphabar*np.exp(np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape)))
+    alpha=alphabar.reshape((1,K))*np.ones((x.shape[0],1)).reshape((-1,1))
 
     # Generate phis from a double geometric; make proportional to household size
-    phi=0.25*(np.random.geometric(2./3,size=(1,K))-np.random.geometric(2./K,size=(1,K)))*x[:,-1].reshape((-1,1))
-    phi=1e-4*np.ones((K,))
+    #phi=0.25*(np.random.geometric(2./3,size=(1,K))-np.random.geometric(2./K,size=(1,K)))*x[:,-1].reshape((-1,1))
 
-    gamma=np.arange(1.,K+1)/K*3
+    # Eliminate dependence of phi on household size.
+    phi=1e-14*np.ones((K,))
 
-    prices=fake_prices(K,T)
+    gammainv=1./np.arange(1.,K+1)/K*3
+    gammainv=gammainv/np.mean(gammainv)  # Normalization
+    gamma=1/gammainv
+    
 
-    ystar=np.exp(np.random.normal(10,3,size=(N,T)))
+    prices=fake_prices(K,T,sigma=1e-15)
+
+    #ystar=np.exp(np.random.normal(10,3,size=(N,T)))
+    ystar=np.exp(np.random.normal(size=(N,T)))
+    ystar=1+np.arange(N*T).reshape(N,T)
     X=[]
     Y=[]
     L=[]
@@ -459,8 +555,16 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
             y=ystar[j,t]-sum(prices[t,1:]*phi)
             Y.append(y)
             L.append(ves.lambdavalue(y,prices[t,1:],alpha[j,:],gamma,phi))
-            X.append(ves.frischdemands(L[-1],prices[t,1:],alpha[j,:],gamma,phi))
         print "Period %d" % t
+
+    
+    L=np.array(L).reshape((N,T),order='F')
+    L=np.exp(np.log(L) - np.log(L).mean(axis=0))
+    
+    for t in range(T):
+        for j in range(N):
+            X.append(ves.frischdemands(L[j,t],prices[t,1:],alpha[j,:],gamma,phi))
+
 
     X=np.array(X)
 
@@ -470,13 +574,18 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
 
     df=pd.DataFrame(d)
     df.set_index(['Year','HH'],inplace=True,drop=True)
+    truegoodsdf=pd.DataFrame({'gamma':gamma,'phi':phi,'alphabar':alphabar},index=['x%d' %k for k in range(K)])
+    truehhdf=pd.DataFrame({'lambda':np.log(L).reshape(-1,order='F')},index=df.index).unstack('Year')
+    prices=pd.DataFrame(prices[:,1:],columns=truegoodsdf.index,index=range(T))
 
-    return df,{'gamma':gamma,'prices':prices[:,1:],'phi':phi,'alphabar':alphabar,'lambda':L}
+    return df,{'goods':truegoodsdf,'lambda':truehhdf,'prices':prices}
                      
         
 if __name__=='__main__':
-    df,truevalues=fake_data(size=(2,1500,12),alphasigma=0.01)
+    (n,N,T)=(2,3,2)
+    df,truevalues=fake_data(size=(T,N,n),alphasigma=1e-12)
     #test=pd.DataFrame({'x1':[1,2,3,4],'x2':[2,3,4,6],'hhsize':[1,1,2,2]})
     #Ex=proj(test[['x1','x2']],test[['hhsize']])
-    #hhdf,goodsdf=estimate(df.loc[:,["x%d" % i for i in range(12)]],df.loc[:,['HHSize']])
-    Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
+    hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
+    #Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
+    exphat=predicted_expenditures(goodsdf,hhdf,prices)
