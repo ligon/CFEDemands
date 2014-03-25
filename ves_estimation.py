@@ -5,6 +5,7 @@ This is a module with functions which implement various aspects of estimation of
 
 import pandas as pd
 from numpy import linalg
+from numpy.linalg import norm
 import numpy as np
 import pylab as pl
 import sys
@@ -484,10 +485,10 @@ def fake_hhsize(N,T,p0=1./3,p1=.9):
     The parameter p0 governs the initial (geometric) size distribution (smaller p0 means bigger sizes),
     while the parameter p1 governs the rate at which these household sizes evolve over time.
     """
-    hhsize=np.ones((N,1)) #np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
+    hhsize = np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
     X=np.c_[np.zeros((N,1)),np.arange(N).reshape((-1,1)),hhsize]
     for t in range(1,T):
-        xt=hhsize #+ np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
+        xt=hhsize + np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
         hhsize=xt # xt
         xt=np.choose(xt>0,[1,xt]) # Minimum hhsize should be 1
         xt=np.c_[t*np.ones((N,1)),np.arange(N).reshape((-1,1)),xt]
@@ -512,11 +513,11 @@ def fake_prices(K,T,sigma=1./4):
 
     return X
 
-def fake_data(size=(2,100,4),alphasigma=0.1):
+def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1):
     """
     Generate a fake dataset for for K goods for N households over T periods.
     """
-    T,N,K=size
+    T,N,n=size
 
     d={}
     x = fake_hhsize(N,T)
@@ -525,28 +526,28 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
     d['HH']=x[:,1]
 
     # Let alphas be a function of hhsize
-    alphabar=np.random.random(size=K)
-    alphabar=np.exp(np.log(alphabar) - np.mean(np.log(alphabar))) # Normalization
-    # alphabar=alphabar.reshape((1,K))*x[:,-1].reshape((-1,1)) 
-    #alpha=alphabar*np.exp(np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape)))
-    alpha=alphabar.reshape((1,K))*np.ones((x.shape[0],1)).reshape((-1,1))
-
+    alphabar=np.random.random(size=n)
+    alphabar=np.log(alphabar) - np.mean(np.log(alphabar)) # Normalization
+    alphabar=alphabar.reshape((1,n)) 
+    alpha=alphabar + delta*x[:,-1].reshape((-1,1)) + np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape))
+    alpha=np.exp(alpha)
+    
     # Generate phis from a double geometric; make proportional to household size
     #phi=0.25*(np.random.geometric(2./3,size=(1,K))-np.random.geometric(2./K,size=(1,K)))*x[:,-1].reshape((-1,1))
 
     # Eliminate dependence of phi on household size.
-    phi=1e-14*np.ones((K,))
+    phi=1e-14*np.ones((n,))
 
-    gammainv=1./np.arange(1.,K+1)/K*3
+    gammainv=1./np.arange(1.,n+1)/n*3
     gammainv=gammainv/np.mean(gammainv)  # Normalization
     gamma=1/gammainv
     
 
-    prices=fake_prices(K,T,sigma=1e-15)
+    prices=fake_prices(n,T,sigma=1e-15)
 
     #ystar=np.exp(np.random.normal(10,3,size=(N,T)))
     ystar=np.exp(np.random.normal(size=(N,T)))
-    ystar=1+np.arange(N*T).reshape(N,T)
+    #ystar=1+np.arange(N*T).reshape(N,T) # Use this to eliminate randomness in total expenditures
     X=[]
     Y=[]
     L=[]
@@ -569,23 +570,93 @@ def fake_data(size=(2,100,4),alphasigma=0.1):
     X=np.array(X)
 
     d['y']=Y
-    for k in range(K):
+    for k in range(n):
         d['x%d' % k]=X[:,k]
 
     df=pd.DataFrame(d)
     df.set_index(['Year','HH'],inplace=True,drop=True)
-    truegoodsdf=pd.DataFrame({'gamma':gamma,'phi':phi,'alphabar':alphabar},index=['x%d' %k for k in range(K)])
-    truehhdf=pd.DataFrame({'lambda':np.log(L).reshape(-1,order='F')},index=df.index).unstack('Year')
+    
+    truegoodsdf=pd.DataFrame({'gamma':gamma,'phi':phi,'alphabar':np.exp(alphabar[0])},index=['x%d' %k for k in range(n)])
+    hhdf={'lambda':np.log(L).reshape(-1,order='F')}
+    hhdf.update({'alpha_%d' % i:alpha[:,i] for i in range(n)})
+    truehhdf=pd.DataFrame(hhdf,index=df.index).unstack('Year')
     prices=pd.DataFrame(prices[:,1:],columns=truegoodsdf.index,index=range(T))
 
     return df,{'goods':truegoodsdf,'lambda':truehhdf,'prices':prices}
-                     
-        
-if __name__=='__main__':
-    (n,N,T)=(2,3,2)
-    df,truevalues=fake_data(size=(T,N,n),alphasigma=1e-12)
+
+def test0():
+    """
+    Small, (almost) deterministic test.  No household characteristics to affect alpha.
+    """
+    (n,N,T)=(2,4,2)
+    df,truevalues=fake_data(size=(T,N,n),delta=0.,alphasigma=1e-16)
+
+    # Note zeroing out of household characteristics:
+    hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],0*df.loc[:,['HHSize']],phi=1e-14)
+
+    exphat=predicted_expenditures(goodsdf,hhdf,prices)
+    mse=((df-exphat)**2).mean().dropna()
+    try:
+        print goodsdf['alphabar']
+        assert(mse.max()<1e-4) # bound on mse
+    except AssertionError:
+        print "true expenditures",
+        print df
+        print "MSE"
+        print mse
+        print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
+        raise AssertionError
+            
+
+def test1():
+    """
+    Small, (almost) deterministic test.  Add household characteristics
+    """
+    (n,N,T)=(2,100,2)
+    df,truevalues=fake_data(size=(T,N,n),delta=1.,alphasigma=1e-16)
     #test=pd.DataFrame({'x1':[1,2,3,4],'x2':[2,3,4,6],'hhsize':[1,1,2,2]})
     #Ex=proj(test[['x1','x2']],test[['hhsize']])
     hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
     #Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
     exphat=predicted_expenditures(goodsdf,hhdf,prices)
+    mse=((df-exphat)**2).mean().dropna()
+    try:
+        assert(mse.max()<1e-4) # bound on mse
+    except AssertionError:
+        print "true expenditures",
+        print df
+        print "MSE"
+        print mse
+        print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
+        raise AssertionError
+
+def test2():
+    """
+    Full-size dataset in terms of households, but only two goods and no characteristics.  Still almost deterministic.
+    """
+    (n,N,T)=(2,1800,2)
+    df,truevalues=fake_data(size=(T,N,n),delta=1.,alphasigma=1e-16)
+    #test=pd.DataFrame({'x1':[1,2,3,4],'x2':[2,3,4,6],'hhsize':[1,1,2,2]})
+    #Ex=proj(test[['x1','x2']],test[['hhsize']])
+    hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
+    #Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
+    exphat=predicted_expenditures(goodsdf,hhdf,prices)
+    mse=((df-exphat)**2).mean().dropna()
+    try:
+        assert(mse.max()<1e-4) # bound on mse
+    except AssertionError:
+        print "true expenditures",
+        print df
+        print "MSE"
+        print mse
+        print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
+        raise AssertionError
+
+        
+if __name__=='__main__':
+    #test0()
+    #test1() # Fails
+    test2()
