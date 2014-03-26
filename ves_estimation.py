@@ -3,6 +3,7 @@
 This is a module with functions which implement various aspects of estimation of VES demand systems.
 """
 
+from warnings import warn
 import pandas as pd
 from numpy import linalg
 from numpy.linalg import norm
@@ -85,7 +86,6 @@ def difference_over_time(df):
 
     return ddf
 
-
 def estimate(x,z,p=None,phi=1e-4):
     """
     Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
@@ -117,22 +117,17 @@ def estimate(x,z,p=None,phi=1e-4):
     #   * mean(\epsilon_i)=0 for i=1,...,n.
     #   * mean(1/gamma_i)=1
 
-    if p:
-        def logalphabar_hat(gammas, deltas, barlogx=barlogx):
-            keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
-            barlogx=barlogx.iloc[keep]
-            deltas=deltas.iloc[:,keep]
-            gammas=gammas.iloc[keep]
+    def logalphabar_hat(gammas, deltas, barlogx=barlogx, p=p):
+        # Zero out elements of delta which aren't finite:
+        deltas.where(np.isfinite(deltas),0,inplace=True)
+        
+        if p:
+            candidate=barlogx*gammas - barz.dot(deltas) + (1-gamma)*logp.mean(axis=0)
+        else:
+            candidate=barlogx*gammas - barz.dot(deltas) + (1-gammas)*logp(gammas,deltas).mean(axis=0)
 
-            return barlogx*gammas - barz.dot(deltas) + (1-gamma)*logp.mean(axis=0) 
-    else:
-        def logalphabar_hat(gammas, deltas, barlogx=barlogx):
-            keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
-            barlogx=barlogx.iloc[keep]
-            deltas=deltas.iloc[:,keep]
-            gammas=gammas.iloc[keep]
+        return candidate
 
-            return barlogx*gammas - barz.dot(deltas) + (1-gammas)*logp(gammas,deltas).mean(axis=0) 
 
     # Step 3: Demean over periods t.
     barlogxij = logx.groupby(level='HH').mean()
@@ -143,18 +138,13 @@ def estimate(x,z,p=None,phi=1e-4):
 
     # Expected average \log\lambda^j
     def barloglambdaj_hat(gammas,deltas,p=p,barlogx=barlogx,barlogxij=barlogxij):
-        #assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
-        keep=(np.isfinite(deltas)).all(axis=0).nonzero()[0]
-        barlogx=barlogx.iloc[keep]
-        barlogxij=barlogxij.iloc[:,keep]
-        deltas=deltas.iloc[:,keep]
-        gammas=gammas.iloc[keep]
+        # Zero out elements of delta which aren't finite:
+        deltas.where(np.isfinite(deltas),0,inplace=True)
 
-        
         gl=(barlogx - barlogxij) - barzj.dot(deltas/gammas)
 
         if p:
-            gl = gl - logp.iloc[:,keep].mean(axis=0).dot(1-1/gammas)
+            gl = gl - logp.mean(axis=0).dot(1-1/gammas)
 
         gl=gl.dropna()
         
@@ -162,7 +152,7 @@ def estimate(x,z,p=None,phi=1e-4):
         S=np.zeros((u.shape[1],v.shape[0]))
 
         # Check on decomposition
-        if False:
+        if True:
             Sfull=S + 0.
             for i in range(len(s)): Sfull[i,i]=s[i]
             glhat=np.dot(np.dot(u,Sfull),v)
@@ -181,11 +171,15 @@ def estimate(x,z,p=None,phi=1e-4):
 
 
         if not p: # Free to normalize gammas
+            gs.where(np.abs(np.log(gs))<10,np.nan,inplace=True)  # Set extreme outliers to NaN
             gsbar = np.mean(gs)
             gs = gs/gsbar # Normalization
             barloglambdas = barloglambdas*gsbar # Normalization
 
-        assert(max(abs(gs-1/gammas))<1e-3)
+        try:
+            assert(max(abs(gs-1/gammas))<1e-3)
+        except AssertionError:
+            warn('Two estimates of 1/gamma are not in close agreement.')
 
         return barloglambdas,gs
 
@@ -195,11 +189,11 @@ def estimate(x,z,p=None,phi=1e-4):
     barzt =  z.groupby(level='Year').mean()
     if not p:
         def logp(gammas,deltas):
-            lnp=(barlogxit - barlogx)*(gammas/(gammas-1.)) - barzt.dot(deltas/(gammas-1.))
+            idx=gammas.index
+            lnp=(barlogxit.loc[:,idx] - barlogx.loc[idx])*(gammas/(gammas-1.)) - barzt.dot(deltas/(gammas-1.))
             # Deal with case where gamma=1
             lnp.where(np.isfinite(lnp),0,inplace=True)
 
-            #lnp = lnp - lnp.iloc[0,:] # Normalization
             return lnp
     
 
@@ -222,12 +216,11 @@ def estimate(x,z,p=None,phi=1e-4):
     S[0,0]=s[0]
     gwT = np.dot(np.dot(u,S),v).T
 
-    G=abs(gwT[:,0])
+    G=pd.Series(abs(gwT[:,0]),index=Y.columns)
 
     # Eliminate goods if they deliver non-positive gammas
-    keep=(G>0)
-    G=G[keep]
-    d=d.ix[:,keep]
+    
+    G.where(np.abs(np.log(G))<10,np.nan,inplace=True)  # Set extreme outliers to NaN
 
     dloglambdas=pd.Series((gwT[0,:])/abs(gwT[0,0]),index=Y.index).unstack(level='Year') # Temporary normalization
 
@@ -236,9 +229,13 @@ def estimate(x,z,p=None,phi=1e-4):
         G=G/gbar  # Normalization of gamma (mean(1/gamma)=1)
         dloglambdas = dloglambdas*gbar
 
-    gammas=pd.Series(1/G,index=Y.columns[keep])
+    gammas=pd.Series(1/G,index=Y.columns)
     deltas = d/G
-    assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
+
+    try:
+        assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
+    except AssertionError:
+        warn('delta has some non-finite elements.')
 
     #dloglambdas=pd.Series((gwT[0,:]-np.mean(gwT[0,:]))*np.mean(G),index=Y.index).unstack(level='Year') #Normalization
              
@@ -255,7 +252,9 @@ def estimate(x,z,p=None,phi=1e-4):
     
     goodsdf=deltas.T.to_dict()
     logalphabars=logalphabar_hat(gammas,deltas)
-    logalphabars=logalphabars-np.mean(logalphabars)  # Normalization
+
+    logalphabars.where(np.abs(logalphabars)<3*len(logalphabars),np.nan,inplace=True)
+    logalphabars=logalphabars-logalphabars.mean()  # Normalization
     
     goodsdf.update({'1/gamma':gs,'gamma':gammas, 'alphabar':np.exp(logalphabars),'phi':phi})
 
@@ -280,14 +279,14 @@ def predicted_expenditures(goodsdf,hhdf,prices):
     idx=[]
     for t in range(T):
         for j in range(N):
-            idx+=[(t,j)]
+            idx+=[(hhdf.columns[t],hhdf.index[j])]
             hhlambda=np.exp(hhdf.iloc[j,t])
             hhalpha = goodsdf['alphabar'] # plus zdelta!
             p=prices.iloc[t,:]
             c=np.array(ves.frischdemands(hhlambda,p,hhalpha,goodsdf['gamma'].as_matrix(),goodsdf['phi'].as_matrix()))
             X.append(c*p)
 
-    return pd.DataFrame(X,index=idx,columns=goodsdf.index)
+    return pd.DataFrame(X,index=pd.MultiIndex.from_tuples(idx),columns=goodsdf.index).sort()
 
     
 def estimate_gamma_alpha(expdf,rhsdf,phi=1e-4):
@@ -660,5 +659,6 @@ if __name__=='__main__':
     #test0()
     #test1() # Fails (test of adding hh characteristics)
     #test0(N=1500) # Passes (reasonable # of households)
-    test0(N=4,n=3)
-    #uganda.main(datadir='../Data/Uganda/')
+    #test0(N=100,n=25) # Passes
+    #test0(N=1800,n=25)
+    uganda.main(datadir='../Data/Uganda/')
