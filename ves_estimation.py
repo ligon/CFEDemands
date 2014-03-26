@@ -76,7 +76,7 @@ def difference_over_time(df):
 
     mydf.reset_index(level='Year',inplace=True)
 
-    for t in range(len(Rounds[1:])):
+    for t in range(1,T):
         ddf=mydf[mydf['Year']==Rounds[t]] - mydf[mydf['Year']==Rounds[t-1]]
 
         ddf['Year']=Rounds[t]
@@ -200,11 +200,13 @@ def estimate(x,z,p=None,phi=1e-4):
     # Step 5: Difference out fixed stuff and effect of changes in z
     
     logx_deviations=(logx.reset_index(level='HH').loc[:,barlogxit.columns] - barlogxit).reset_index()
-    logx_deviations['HH']=np.tile(logx.index.levels[1].values,(2,))
+    logx_deviations['HH']=np.tile(logx.index.levels[1].values,(2,)) # Only works for T=2?
     logx_deviations.set_index(['Year','HH'],inplace=True)
     Y = difference_over_time(logx_deviations)
+    dz=difference_over_time(z)
+    #dz['Constant']=1.
 
-    Yhat,d = proj(Y,difference_over_time(z),returnb=True)
+    Yhat,d = proj(Y,dz,returnb=True)
     Y = (Y - Yhat).dropna()
 
     # Step 6: Use svd to obtain gammas, dloglambdas
@@ -222,7 +224,7 @@ def estimate(x,z,p=None,phi=1e-4):
     
     G.where(np.abs(np.log(G))<10,np.nan,inplace=True)  # Set extreme outliers to NaN
 
-    dloglambdas=pd.Series((gwT[0,:])/abs(gwT[0,0]),index=Y.index).unstack(level='Year') # Temporary normalization
+    dloglambdas=pd.Series((-gwT[0,:])/abs(gwT[0,0]),index=Y.index).unstack(level='Year') # Temporary normalization
 
     if not p:
         gbar=np.mean(G)
@@ -233,7 +235,7 @@ def estimate(x,z,p=None,phi=1e-4):
     deltas = d/G
 
     try:
-        assert((abs(deltas.as_matrix())<np.inf).all(axis=1))
+        assert((abs(deltas.as_matrix())<np.inf).all())
     except AssertionError:
         warn('delta has some non-finite elements.')
 
@@ -243,12 +245,8 @@ def estimate(x,z,p=None,phi=1e-4):
 
     barloglambdaj,gs=barloglambdaj_hat(gammas,deltas)
 
-
-    householdd={2005:(barloglambdaj - dloglambdas.T/2).T.dropna()}
-    householdd[2010]=(barloglambdaj + dloglambdas.rename(columns={2005:2010}).T/2).T.dropna()
-
-    householddf=pd.DataFrame(householdd[2005])
-    householddf[2010]=householdd[2010]
+    householddf=pd.concat([pd.Series((barloglambdaj - dloglambdas[1].T/2),name=0),
+                           pd.Series((barloglambdaj + dloglambdas[1].T/2),name=1)],axis=1)  # MYSTERY; sign bogus?
     
     goodsdf=deltas.T.to_dict()
     logalphabars=logalphabar_hat(gammas,deltas)
@@ -504,7 +502,7 @@ def fake_hhsize(N,T,p0=1./3,p1=.9):
     hhsize = np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
     X=np.c_[np.zeros((N,1)),np.arange(N).reshape((-1,1)),hhsize]
     for t in range(1,T):
-        xt=hhsize + np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
+        xt=hhsize + t #np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
         hhsize=xt # xt
         xt=np.choose(xt>0,[1,xt]) # Minimum hhsize should be 1
         xt=np.c_[t*np.ones((N,1)),np.arange(N).reshape((-1,1)),xt]
@@ -529,23 +527,26 @@ def fake_prices(K,T,sigma=1./4):
 
     return X
 
-def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1):
-    """
-    Generate a fake dataset for for K goods for N households over T periods.
+def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1,direct=False):
+    """Generate a fake dataset for for K goods for N households over T periods. 
+ 
+    If direct, draw lambdas directly from a log normal distribution;
+    otherwise draw /total expenditures/ from such a distribution, and
+    compute corresponding lambda.
     """
     T,N,n=size
 
     d={}
     x = fake_hhsize(N,T)
-    d['HHSize']=x[:,-1]
+    d['HHSize']=np.log(x[:,-1])
     d['Year']=x[:,0]
     d['HH']=x[:,1]
 
     # Let alphas be a function of hhsize
-    alphabar=np.random.random(size=n)
+    alphabar=np.random.random(size=n)  # Draws from uniform distribution
     alphabar=np.log(alphabar) - np.mean(np.log(alphabar)) # Normalization
     alphabar=alphabar.reshape((1,n)) 
-    alpha=alphabar + delta*x[:,-1].reshape((-1,1)) + np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape))
+    alpha=alphabar + delta*(d['HHSize']-d['HHSize'].mean()).reshape((-1,1)) + np.random.normal(-(alphasigma**2)/2.,alphasigma,size=(alphabar.shape))
     alpha=np.exp(alpha)
     
     # Generate phis from a double geometric; make proportional to household size
@@ -567,15 +568,18 @@ def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1):
     X=[]
     Y=[]
     L=[]
-    for t in range(T):
-        for j in range(N):
-            y=ystar[j,t]-sum(prices[t,1:]*phi)
-            Y.append(y)
-            L.append(ves.lambdavalue(y,prices[t,1:],alpha[j,:],gamma,phi))
-        print "Period %d" % t
-
+    if not direct:
+        for t in range(T):
+            for j in range(N):
+                y=ystar[j,t]-sum(prices[t,1:]*phi)
+                Y.append(y)
+                L.append(ves.lambdavalue(y,prices[t,1:],alpha[j,:],gamma,phi))
+            print "Period %d" % t
+        L=np.array(L).reshape((N,T),order='F')
+        d['y']=Y
+    else:
+        L=ystar
     
-    L=np.array(L).reshape((N,T),order='F')
     L=np.exp(np.log(L) - np.log(L).mean(axis=0))
     
     for t in range(T):
@@ -585,7 +589,6 @@ def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1):
 
     X=np.array(X)
 
-    d['y']=Y
     for k in range(n):
         d['x%d' % k]=X[:,k]
 
@@ -605,7 +608,7 @@ def test0(n=2,N=4,T=2):
     (Almost) deterministic test.  No household characteristics to affect alpha.
     """
     
-    df,truevalues=fake_data(size=(T,N,n),delta=0.,alphasigma=1e-16)
+    df,truevalues=fake_data(size=(T,N,n),delta=0.,alphasigma=1e-16,direct=True)
 
     # Note zeroing out of household characteristics:
     hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],0*df.loc[:,['HHSize']],phi=1e-14)
@@ -626,8 +629,12 @@ def test0(n=2,N=4,T=2):
         if dg>1e-2:
             print "1/gamma (true, estimated)"
             print 1./truevalues['goods']['gamma'], goodsdf['1/gamma']
-
-        print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        dl=norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        print "Difference in log lambdas: %g" % dl
+        if dl>1e-2:
+            dl=norm(truevalues['lambda']['lambda'].T.diff().as_matrix()[1,:]
+                    - hhdf.T.diff().as_matrix()[1,:],np.inf)
+            print "Difference in *change* in log lambdas: %g" % dl
         print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
         raise AssertionError
             
@@ -636,7 +643,7 @@ def test1(n=2,N=4,T=2):
     """
     Small, (almost) deterministic test.  Add household characteristics
     """
-    df,truevalues=fake_data(size=(T,N,n),delta=1.,alphasigma=1e-16)
+    df,truevalues=fake_data(size=(T,N,n),delta=1.,alphasigma=1e-16,direct=True)
     #test=pd.DataFrame({'x1':[1,2,3,4],'x2':[2,3,4,6],'hhsize':[1,1,2,2]})
     #Ex=proj(test[['x1','x2']],test[['hhsize']])
     hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
@@ -650,15 +657,27 @@ def test1(n=2,N=4,T=2):
         print df
         print "MSE"
         print mse
-        print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+
+        dg=norm((1./truevalues['goods']['gamma'].as_matrix())-goodsdf['1/gamma'].as_matrix(),np.inf)
+        print "Difference in 1/gammas: %g" % dg
+        if dg>1e-2:
+            print "1/gamma (true, estimated)"
+            print 1./truevalues['goods']['gamma'], goodsdf['1/gamma']
+        dl=norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
+        print "Difference in log lambdas: %g" % dl
+        if dl>1e-2:
+            dl=norm(truevalues['lambda']['lambda'].T.diff().as_matrix()[1,:]
+                    - hhdf.T.diff().as_matrix()[1,:],np.inf)
+            print "Difference in *change* in log lambdas: %g" % dl
         print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
         raise AssertionError
 
         
 if __name__=='__main__':
-    #test0()
-    #test1() # Fails (test of adding hh characteristics)
+    #test0() # Passes
     #test0(N=1500) # Passes (reasonable # of households)
     #test0(N=100,n=25) # Passes
-    #test0(N=1800,n=25)
-    uganda.main(datadir='../Data/Uganda/')
+    #test0(N=1800,n=25) # Passes
+    test1(N=1000) # Fails (test of adding hh characteristics)
+    
+    #uganda.main(datadir='../Data/Uganda/')
