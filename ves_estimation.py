@@ -10,8 +10,11 @@ import numpy as np
 import pylab as pl
 import sys
 sys.path.append('../Computation')
+sys.path.append('../Data/Uganda')
+import uganda
 import variable_elasticity_utility as ves
 import engel_curves as engel
+
 
 def pandas2vic(*dfs):
     """
@@ -157,20 +160,32 @@ def estimate(x,z,p=None,phi=1e-4):
         
         u,s,v=linalg.svd(gl)
         S=np.zeros((u.shape[1],v.shape[0]))
+
+        # Check on decomposition
+        if False:
+            Sfull=S + 0.
+            for i in range(len(s)): Sfull[i,i]=s[i]
+            glhat=np.dot(np.dot(u,Sfull),v)
+            assert(norm(gl-glhat)<1e-3)
+        
         S[0,0]=s[0]
-        gwT = np.dot(np.dot(u,S),v.T).T
+        gwT = np.dot(np.dot(u,S),v).T
 
         # Temporary normalization (if prices unobserved): first weight equal to 1 (w[0,0]=1).
-        barloglambdas=pd.Series(gwT[0,:]/abs(gwT[0,0]),index=gl.index)  
-
+        barloglambdas=pd.Series(gwT[0,:]/abs(gwT[0,0]),index=gl.index)
         gs=pd.Series(abs(gwT[:,0]),index=gl.columns)
+
+        # Use value of gamma passed, instead of from local svd.
+        #barloglambdas=pd.Series(gwT[0,:]*gammas[0],index=gl.index)
+        #gs=1./gammas
+
 
         if not p: # Free to normalize gammas
             gsbar = np.mean(gs)
             gs = gs/gsbar # Normalization
             barloglambdas = barloglambdas*gsbar # Normalization
 
-        #assert(max(abs(gs-1/gammas))<1e-3)
+        assert(max(abs(gs-1/gammas))<1e-3)
 
         return barloglambdas,gs
 
@@ -205,7 +220,7 @@ def estimate(x,z,p=None,phi=1e-4):
 
     S=np.zeros((u.shape[1],v.shape[0]))
     S[0,0]=s[0]
-    gwT = np.dot(np.dot(u,S),v.T).T
+    gwT = np.dot(np.dot(u,S),v).T
 
     G=abs(gwT[:,0])
 
@@ -606,6 +621,13 @@ def test0(n=2,N=4,T=2):
         print df
         print "MSE"
         print mse
+
+        dg=norm((1./truevalues['goods']['gamma'].as_matrix())-goodsdf['1/gamma'].as_matrix(),np.inf)
+        print "Difference in 1/gammas: %g" % dg
+        if dg>1e-2:
+            print "1/gamma (true, estimated)"
+            print 1./truevalues['goods']['gamma'], goodsdf['1/gamma']
+
         print "Difference in lambdas: %g" % norm(truevalues['lambda']['lambda'].as_matrix()-hhdf.as_matrix(),np.inf)
         print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
         raise AssertionError
@@ -638,4 +660,5 @@ if __name__=='__main__':
     #test0()
     #test1() # Fails (test of adding hh characteristics)
     #test0(N=1500) # Passes (reasonable # of households)
-    test0(N=10,n=4) 
+    test0(N=4,n=3)
+    #uganda.main(datadir='../Data/Uganda/')
