@@ -14,7 +14,6 @@ sys.path.append('../Computation')
 sys.path.append('../Data/Uganda')
 import uganda
 import variable_elasticity_utility as ves
-import engel_curves as engel
 
 
 def pandas2vic(*dfs):
@@ -97,6 +96,8 @@ def estimate(x,z,p=None,phi=1e-4):
     appear), and columns in z corresponding to characteristics.
     """
 
+    Rounds=x.index.levels[0]
+    
     logx = np.log(x+phi)
     if p:
         logp=np.log(p)
@@ -171,7 +172,7 @@ def estimate(x,z,p=None,phi=1e-4):
 
 
         if not p: # Free to normalize gammas
-            gs.where(np.abs(np.log(gs))<10,np.nan,inplace=True)  # Set extreme outliers to NaN
+            gs.where(np.abs(np.log(gs))<15,np.nan,inplace=True)  # Set extreme outliers to NaN
             gsbar = np.mean(gs)
             gs = gs/gsbar # Normalization
             barloglambdas = barloglambdas*gsbar # Normalization
@@ -196,7 +197,6 @@ def estimate(x,z,p=None,phi=1e-4):
 
             return lnp
     
-
     # Step 5: Difference out fixed stuff and effect of changes in z
     
     logx_deviations=(logx.reset_index(level='HH').loc[:,barlogxit.columns] - barlogxit).reset_index()
@@ -229,7 +229,7 @@ def estimate(x,z,p=None,phi=1e-4):
     if not p:
         gbar=np.mean(G)
         G=G/gbar  # Normalization of gamma (mean(1/gamma)=1)
-        dloglambdas = dloglambdas*gbar
+        dloglambdas = dloglambdas*gbar # Normalization
 
     gammas=pd.Series(1/G,index=Y.columns)
     deltas = d/G
@@ -239,19 +239,18 @@ def estimate(x,z,p=None,phi=1e-4):
     except AssertionError:
         warn('delta has some non-finite elements.')
 
-    #dloglambdas=pd.Series((gwT[0,:]-np.mean(gwT[0,:]))*np.mean(G),index=Y.index).unstack(level='Year') #Normalization
              
     #assert(abs(np.mean(barloglambdaj_hat(gammas,deltas))) < 1e-10) # Check normalization of lambdas
 
     barloglambdaj,gs=barloglambdaj_hat(gammas,deltas)
 
-    householddf=pd.concat([pd.Series((barloglambdaj - dloglambdas[1].T/2),name=0),
-                           pd.Series((barloglambdaj + dloglambdas[1].T/2),name=1)],axis=1)  # MYSTERY; sign bogus?
+    householddf=pd.concat([pd.Series((barloglambdaj - dloglambdas.iloc[:,0].T/2),name=Rounds[0]),
+                           pd.Series((barloglambdaj + dloglambdas.iloc[:,0].T/2),name=Rounds[1])],axis=1)
     
     goodsdf=deltas.T.to_dict()
     logalphabars=logalphabar_hat(gammas,deltas)
 
-    logalphabars.where(np.abs(logalphabars)<3*len(logalphabars),np.nan,inplace=True)
+    logalphabars.where(np.abs(logalphabars)<10*len(logalphabars),np.nan,inplace=True)
     logalphabars=logalphabars-logalphabars.mean()  # Normalization
     
     goodsdf.update({'1/gamma':gs,'gamma':gammas, 'alphabar':np.exp(logalphabars),'phi':phi})
@@ -442,10 +441,6 @@ def balance_panel(df):
     
     return df
 
-def engel_curves(rslt,ybounds=[0,10],fname=None):
-    
-    return engel.plot(rslt['Price'],rslt['alpha'],rslt['gamma'],rslt['phi'],
-                                 labels=rslt.index,ybounds=ybounds,fname=fname)
 
 def CRRA_adjustment(X,g):
     """
@@ -648,8 +643,10 @@ def test1(n=2,N=4,T=2):
     #Ex=proj(test[['x1','x2']],test[['hhsize']])
     hhdf,goodsdf,prices=estimate(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
     #Gammas=bootstrap(df,["x%d" % i for i in range(12)],['HHSize'],reps=3)
+
     exphat=predicted_expenditures(goodsdf,hhdf,prices)
     mse=((df-exphat)**2).mean().dropna()
+
     try:
         assert(mse.max()<1e-4) # bound on mse
     except AssertionError:
