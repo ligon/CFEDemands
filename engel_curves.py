@@ -63,7 +63,7 @@ def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=F
 
 def plot_shares(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=False):
 
-    warn("Deprecated!  Use plot(...,shares=True) instead."
+    warn("Deprecated!  Use plot(...,shares=True) instead.")
          
     y=linspace(sum(-phi*p)+0.00001,ybounds[1],100)
 
