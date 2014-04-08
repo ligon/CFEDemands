@@ -47,13 +47,19 @@ def proj(y,x,returnb=False):
     else:
         return pd.DataFrame(np.dot(vicx[0],b.T),index=vicx[1],columns=vicy[2])
 
-def ols(x,y):
+def ols(x,y,return_se=True):
+    
     b=linalg.lstsq(x,y)[0]
+    b=pd.DataFrame(b.T,index=y.columns,columns=x.columns)
 
-    u=y-np.dot(x,b)
-    v=np.cov(u)*np.mat(np.dot(x.T,x)).I
+    u=y-x.dot(b.T)
 
-    return b,np.sqrt(np.diag(v))
+    se=[]
+    for i in range(y.shape[1]):
+        v=np.cov(u.iloc[:,i])*np.mat(np.dot(x.T,x)).I
+        se.append(np.sqrt(np.diag(v)))
+
+    return b,se
 
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
@@ -84,6 +90,79 @@ def difference_over_time(df):
     ddf.set_index(['Year','HH'],inplace=True)
 
     return ddf
+
+def svd_approximation(x,rnk=1):
+    """Compute best rank rnk approximation to the matrix x."""
+
+    x=x.dropna()
+
+    u,s,v=linalg.svd(x)
+    S=np.zeros((u.shape[1],v.shape[0]))
+
+    for i in range(rnk): S[i,i]=s[i]
+    xhat = np.dot(np.dot(u,S),v).T
+
+    xhat=pd.DataFrame(xhat.T,index=x.index,columns=x.columns)
+    return xhat
+
+def estimate_with_time_effects(x,z,phi=1e-4):
+    """
+    Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
+    of household characteristics, estimate parameters 1/gamma, alphabar,
+    delta, and lambdas.
+
+    Dataframes are indexed by (Year,hh), with columns in x
+    corresponding to expenditure types (no other variables should
+    appear), and columns in z corresponding to characteristics.
+    """
+    logx = np.log(x+phi)
+    barlogxij = logx.groupby(level='HH').mean()
+    barzj =  z.groupby(level='HH').mean()
+
+    z_demeaned = (z.reset_index(level='Year') - barzj).reset_index().set_index(['Year','HH'])
+    logx_demeaned = (logx.reset_index(level='Year') - barlogxij).reset_index().set_index(['Year','HH'])
+
+    dhat,se_d=ols(z_demeaned,logx_demeaned)
+
+    a_it = barlogxij - barzj.dot(dhat.T)
+
+    cwT = logx_demeaned - z_demeaned.dot(dhat.T)
+
+    cwThat = svd_approximation(cwT,rnk=1)
+
+    # Possible that initial elasticity b_i is negative, if inferior goods permitted.
+    # But they must be positive on average.
+    if cwThat.iloc[0,:].mean()>0:
+        b=cwThat.iloc[0,:]
+    else:
+        b=-cwThat.iloc[0,:]
+
+    # Normalize so that mean value of b elasticity is one, like an income elasticity
+    b=b/b.mean()
+    b=pd.Series(b,index=x.columns)
+
+    loglambdas=cwThat.iloc[:,0]/b.iloc[0]
+
+    deltas=dhat.T.copy()
+    for i in range(deltas.shape[0]):
+        deltas.iloc[i,:] = deltas.iloc[i,:]/b
+
+    try:
+        assert((abs(deltas.as_matrix())<np.inf).all())
+    except AssertionError:
+        warn('delta has some non-finite elements.')
+
+    goodsdf=deltas.T.to_dict()
+
+    logalphabars=a_it.mean()/b
+    
+    logalphabars=logalphabars-logalphabars.mean()  # Normalization
+    
+    goodsdf.update({'beta':b,'alphabar':np.exp(logalphabars),'phi':phi,'delta_se':se_d})
+
+    return loglambdas,pd.DataFrame(goodsdf,index=deltas.columns)
+
+
 
 def estimate(x,z,p=None,phi=1e-4):
     """
@@ -669,12 +748,27 @@ def test1(n=2,N=4,T=2):
         print "Difference in alphabars: %g" % norm(truevalues['goods']['alphabar'].as_matrix()-goodsdf['alphabar'].as_matrix(),np.inf)
         raise AssertionError
 
+def test2(n=2,N=4,T=2):
+    """
+    Small, (almost) deterministic test of simplified estimation scheme using time effects.  Add household characteristics.
+    """
+    df,truevalues=fake_data(size=(T,N,n),delta=1.,alphasigma=1e-16,direct=True)
+
+    hhdf,goodsdf=estimate_with_time_effects(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
+
+    exphat=predicted_expenditures(goodsdf,hhdf,prices)
+    mse=((df-exphat)**2).mean().dropna()
+
+    return mse,goodsdf
+
+                  
         
 if __name__=='__main__':
     #test0() # Passes
     #test0(N=1500) # Passes (reasonable # of households)
     #test0(N=100,n=25) # Passes
     #test0(N=1800,n=25) # Passes
-    test1(N=1000) # Fails (test of adding hh characteristics)
+    #test1(N=1000) # Fails (test of adding hh characteristics)
+    mse,goodsdf=test2(n=29,N=1000)
     
     #uganda.main(datadir='../Data/Uganda/')
