@@ -26,7 +26,7 @@ def line_to_axis(ax,x,y,xlabel=None,ylabel=None,fontsize=12):
         trans_y = transforms.blended_transform_factory(ax.transAxes, ax.transData)
         ax.text(-0.01, y, ylabel, transform=trans_y, fontsize=fontsize, va='center',ha='right')
 
-def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=False,use_linestyles=False,shares=False):
+def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=False,use_linestyles=False,shares=False,use_figure=1):
     if not shares:
         f=lambda y: ves.marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
     else:
@@ -40,6 +40,8 @@ def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=F
     if ybounds[0]<=ymin: ybounds[0]=ymin+1e-12
         
     Y=pl.linspace(ybounds[0],ybounds[1],100)
+
+    pl.figure(use_figure)
     pl.clf()
     p=pl.plot(Y,[f(y) for y in Y])
 
