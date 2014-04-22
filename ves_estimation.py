@@ -67,16 +67,16 @@ def ols(x,y,return_se=True):
 
     u=y-x.dot(b.T)
 
-    se=[]
+    se=np.zeros((x.shape[1],y.shape[1]))
     for i in range(y.shape[1]):
         try:
             v=np.diag(np.cov(u.iloc[:,i])*np.mat(np.dot(x.T,x)).I)
         except linalg.LinAlgError:
             warn('Matrix of household characteristics is not full rank.')
-            v=np.zeros(b.shape)
+            v=np.zeros((x.shape[1],)*2)
         
-        se.append(np.sqrt(v))
-    se=pd.DataFrame(se,index=y.columns,columns=x.columns)
+        se[:,i]=np.sqrt(v)
+    se=pd.DataFrame(se,index=x.columns,columns=y.columns)
 
     return b,se
 
@@ -343,7 +343,7 @@ def estimate_with_time_effects_differenced(x,z,phi=1e-4,tol=1e+1):
     dlogxhat=dlogxhat.T
     
     errvar=((dlogx-dlogxhat).var()/dlogx.var())
-    assert(np.linalg.norm(errvar) < tol)
+    assert(np.linalg.norm(errvar[np.isfinite(errvar)]) < tol)
 
     return hhdf,pd.DataFrame(goodsdf,index=deltas.columns),dlogrealprices,dlogx,dlogxhat
 
@@ -452,7 +452,7 @@ def fake_hhsize(N,T,p0=1./3,p1=.9):
     hhsize = np.random.geometric(p0,size=N).reshape((N,1)) # Initial household size
     X=np.c_[np.zeros((N,1)),np.arange(N).reshape((-1,1)),hhsize]
     for t in range(1,T):
-        xt=hhsize + t #np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
+        xt=hhsize + np.random.geometric(p1,size=(N,1))-np.random.geometric(p1,size=(N,1))
         hhsize=xt # xt
         xt=np.choose(xt>0,[1,xt]) # Minimum hhsize should be 1
         xt=np.c_[t*np.ones((N,1)),np.arange(N).reshape((-1,1)),xt]
@@ -489,8 +489,8 @@ def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1,direct=False):
 
     d={}
     x = fake_hhsize(N,T)
-    d['HHSize']=np.reshape(x[:,-1],(N,T))
-    d['HHSize']=(d['HHSize']-d['HHSize'].mean(axis=0)).reshape(-1)  # Take out per-period means
+    d['HHSize']=np.reshape(x[:,-1],(N,T)).reshape(-1)
+    #d['HHSize']=(d['HHSize']-d['HHSize'].mean(axis=0)).reshape(-1)  # Take out per-period means
     d['Year']=x[:,0]
     d['HH']=x[:,1]
 
@@ -506,9 +506,9 @@ def fake_data(size=(2,100,4),delta=1.,alphasigma=0.1,direct=False):
     # Eliminate dependence of phi on household size.
     phi=1e-14*np.ones((n,))
 
-    gammainv=1./np.arange(1.,n+1)/n*3
-    gammainv=gammainv/np.mean(gammainv)  # Normalization
-    gamma=1/gammainv
+    beta=1./np.arange(1.,n+1)/n*3
+    beta=beta/np.mean(beta)  # Normalization
+    gamma=1./beta
 
     logprices=fake_prices(n,T,sigma=1e-15)
 
@@ -573,9 +573,9 @@ def test_data():
     # Eliminate dependence of phi on household size.
     phi=1e-14*np.ones((n,))
 
-    gammainv=np.array([1,2])
-    gammainv=gammainv/np.mean(gammainv)  # Normalization
-    gamma=1/gammainv
+    beta=np.array([1,2])
+    beta=beta/np.mean(beta)  # Normalization
+    gamma=1./beta
 
     logprices=np.zeros((T,n))
 
@@ -620,7 +620,7 @@ def test2(n=2,N=3,T=2,delta=1.,alphasigma=1e-16):
     #df,truevalues=test_data()
 
     #hhdf,goodsdf,prices,logxhat = estimate_with_time_effects_2step(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
-    hhdf,goodsdf,prices,logx,logxhat = estimate_with_time_effects_differenced(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
+    hhdf,goodsdf,prices,logx,logxhat = estimate_with_time_effects_differenced(df[["x%d" % i for i in range(n)]],df[['HHSize']],phi=1e-14)
 
     exphat = predicted_expenditures(goodsdf,hhdf,np.exp(prices))
     mse = ((df-exphat)**2).mean().dropna()
@@ -634,9 +634,9 @@ def test2(n=2,N=3,T=2,delta=1.,alphasigma=1e-16):
     
         assert_approximate_equality("betas ok?",1./truevalues['goods']['gamma'].as_matrix(),goodsdf['beta'].as_matrix())
 
-        assert_approximate_equality("deltas ok?",truevalues['goods']['delta_0'],goodsdf['HHSize'],tol=1./np.sqrt(N))
+        #assert_approximate_equality("deltas ok?",truevalues['goods']['delta_0'],goodsdf['HHSize'],tol=1./np.sqrt(N))
 
-        assert_approximate_equality("alphahat ok?",truevalues['goods']['alphabar'],goodsdf['alphabar'])
+        #assert_approximate_equality("alphahat ok?",truevalues['goods']['alphabar'],goodsdf['alphabar'])
 
         l0=truevalues['hh']['lambda']
         lhat=hhdf.unstack('Year')['lambdas']
@@ -660,6 +660,50 @@ def test2(n=2,N=3,T=2,delta=1.,alphasigma=1e-16):
 
     return mse,goodsdf,prices
 
+def test_differenced(n=2,N=3,T=2,delta=1.,alphasigma=1e-16):
+    """
+    Small, (almost) deterministic test of simplified estimation scheme using time effects.  Add household characteristics.
+    """
+    df,truevalues=fake_data(size=(T,N,n),delta=delta,alphasigma=alphasigma,direct=True)
+    #df,truevalues=test_data()
+
+    #hhdf,goodsdf,prices,logxhat = estimate_with_time_effects_2step(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
+    hhdf,goodsdf,prices,logx,logxhat = estimate_with_time_effects_differenced(df[["x%d" % i for i in range(n)]],df[['HHSize']],phi=1e-14)
+
+    exphat = predicted_expenditures(goodsdf,hhdf,np.exp(prices))
+    mse = ((df-exphat)**2).mean().dropna()
+
+    print "MSE:"
+    print mse
+
+    try:
+        assert(mse.max()<1e-4) # bound on mse
+    except AssertionError:
+    
+        assert_approximate_equality("betas ok?",1./truevalues['goods']['gamma'].as_matrix(),goodsdf['beta'].as_matrix())
+
+        #assert_approximate_equality("deltas ok?",truevalues['goods']['delta_0'],goodsdf['HHSize'],tol=1./np.sqrt(N))
+
+        #assert_approximate_equality("alphahat ok?",truevalues['goods']['alphabar'],goodsdf['alphabar'])
+
+        l0=truevalues['hh']['lambda']
+        lhat=hhdf.unstack('Year')['lambdas']
+        assert_approximate_equality("Change in demeaned lambdas ok?",
+                                    (l0-l0.mean()).T.diff().as_matrix()[1,:],
+                                    (lhat-lhat.mean()).as_matrix())
+
+        # These may not be guaranteed--lhat depends on aggregate prices in a way that l0 doesn't?
+        assert_approximate_equality("Change in lambdas ok?",l0.T.diff().as_matrix()[1,:],
+                                    lhat.T.diff().as_matrix()[1,:])
+
+
+        assert_approximate_equality("lambdas ok?",l0.as_matrix(),lhat.as_matrix())
+
+        alphahat = series_outer(hhdf['HHSize'],goodsdf['HHSize']).add(goodsdf['alphabar']).unstack('Year')
+        alpha0 = truevalues['hh'][['alpha_%d' % i for i in range(n)]]
+        assert_approximate_equality("alphas ok?",alpha0.as_matrix(),alphahat.as_matrix(),tol=1./np.sqrt(N))
+
+    return mse,goodsdf,prices
                   
         
 if __name__=='__main__':
@@ -668,7 +712,7 @@ if __name__=='__main__':
     #test0(N=100,n=25) # Passes
     #test0(N=1800,n=25) # Passes
     #test1(N=1000) # Fails (test of adding hh characteristics)
-    mse,goodsdf,prices=test2(n=29,N=10,delta=1.,alphasigma=0.1)
+    mse,goodsdf,prices=test_differenced(n=29,N=300,delta=1.,alphasigma=1e-16)
 
     
     #uganda.main(datadir='../Data/Uganda/')
