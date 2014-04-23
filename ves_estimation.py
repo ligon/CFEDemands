@@ -99,10 +99,7 @@ def drop_missing(X):
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
-        try:
-            myX[k]=df[list(v)].sum(axis=1)
-        except IndexError:
-            myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
+        myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
             
     return myX
 
@@ -258,7 +255,7 @@ def estimate_with_time_effects_differenced(x,z,phi=1e-4,tol=1e+1):
     # Monkey around to eliminate observations with missing values, (or
     # with negative values for expenditures)
     Rounds=x.index.levels[0]
-    dlogx = difference_over_time(np.log(x+phi))
+    dlogx = difference_over_time(np.log((x+phi)))
     dz = difference_over_time(z)
 
     dlogx,dz = drop_missing([dlogx,dz])
@@ -354,7 +351,6 @@ def predicted_expenditures(goodsdf,hhdf,prices):
     have a column 'lambdas', and other columns corresponding to
     columns in goodsdf['deltas'].  The price series should be in
     /levels/, and have prices by good, period.
-
     """
     try: # See if hhdf is stacked using a MultiIndex
         Rounds,HHs = tuple(hhdf.index.levels)
@@ -620,7 +616,7 @@ def test2(n=2,N=3,T=2,delta=1.,alphasigma=1e-16):
     #df,truevalues=test_data()
 
     #hhdf,goodsdf,prices,logxhat = estimate_with_time_effects_2step(df.loc[:,["x%d" % i for i in range(n)]],df.loc[:,['HHSize']],phi=1e-14)
-    hhdf,goodsdf,prices,logx,logxhat = estimate_with_time_effects_differenced(df[["x%d" % i for i in range(n)]],df[['HHSize']],phi=1e-14)
+    hhdf,goodsdf,prices,logx,logxhat = estimate_with_time_effects(df[["x%d" % i for i in range(n)]],df[['HHSize']],phi=1e-14)
 
     exphat = predicted_expenditures(goodsdf,hhdf,np.exp(prices))
     mse = ((df-exphat)**2).mean().dropna()
@@ -712,7 +708,8 @@ if __name__=='__main__':
     #test0(N=100,n=25) # Passes
     #test0(N=1800,n=25) # Passes
     #test1(N=1000) # Fails (test of adding hh characteristics)
-    mse,goodsdf,prices=test_differenced(n=29,N=300,delta=1.,alphasigma=1e-16)
+    mse,goodsdf,prices=test2(n=29,N=300,delta=0.,alphasigma=1e-16)
+    #mse,goodsdf,prices=test_differenced(n=29,N=300,delta=1.,alphasigma=1e-16)
 
     
     #uganda.main(datadir='../Data/Uganda/')
