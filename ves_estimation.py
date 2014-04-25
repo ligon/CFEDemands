@@ -123,6 +123,16 @@ def difference_over_time(df):
 
     return ddf
 
+def balance_panel(df):
+    """Drop households that aren't observed in all rounds."""
+    pnl=df.to_panel()
+    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
+    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
+    df.index.names=pd.core.base.FrozenList(['Year','HH'])
+    
+    return df
+
+
 def svd_approximation(x,rnk=1,returnSigma=False):
     """Compute best rank rnk approximation to the matrix x."""
 
@@ -130,6 +140,8 @@ def svd_approximation(x,rnk=1,returnSigma=False):
 
     u,s,v=linalg.svd(x)
 
+    print "SVD fit: %6.3f" % ((s[0]**2)/np.sum(s**2))
+    
     S=np.zeros((u.shape[1],v.shape[0]))
 
     for i in range(rnk): S[i,i]=s[i]
@@ -385,15 +397,6 @@ def predicted_expenditures(goodsdf,hhdf,prices):
 
 
 
-def balance_panel(df):
-    """Drop households that aren't observed in all rounds."""
-    pnl=df.to_panel()
-    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
-    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
-    df.index.names=pd.core.base.FrozenList(['Year','HH'])
-    
-    return df
-
 
 def CRRA_adjustment(X,g):
     """
@@ -407,11 +410,11 @@ def CRRA_adjustment(X,g):
 
     return RRA
 
-def bootstrap(df,lhsvar,rhsvar,reps=100):
+def bootstrap(df,lhsvar,rhsvar,reps=100,phi=1e-4):
     """
     Bootstrap reps draws of estimate using df.
     """
-    Gammas=[]
+    Theta=[]
     Rounds=list(set(df.index.levels[0]))
     T=len(Rounds)
     hhs=list(set(df.index.levels[1]))
@@ -432,11 +435,11 @@ def bootstrap(df,lhsvar,rhsvar,reps=100):
             use.append(obs)
         bootdf=bootdf.append(use)
         bootdf.index = pd.MultiIndex.from_tuples(bootdf.index,names=['Year','HH'])
-        g=estimate(bootdf.loc[:,lhsvar],bootdf.loc[:,rhsvar],phi=1e-14)[1]['gammas']
-        g=g/np.mean(g)
-        Gammas.append(g)
+        t=estimate_with_time_effects_differenced(bootdf.loc[:,lhsvar],bootdf.loc[:,rhsvar],phi=1e-14)[1]['beta']
 
-    return pd.DataFrame(Gammas,index=range(reps))
+        Theta.append(t)
+
+    return pd.DataFrame(Theta,index=range(reps))
 
 def fake_hhsize(N,T,p0=1./3,p1=.9):
     """
@@ -708,7 +711,7 @@ if __name__=='__main__':
     #test0(N=100,n=25) # Passes
     #test0(N=1800,n=25) # Passes
     #test1(N=1000) # Fails (test of adding hh characteristics)
-    mse,goodsdf,prices=test2(n=29,N=300,delta=0.,alphasigma=1e-16)
+    mse,goodsdf,prices=test2(n=29,N=300,delta=1.,alphasigma=1e-16)
     #mse,goodsdf,prices=test_differenced(n=29,N=300,delta=1.,alphasigma=1e-16)
 
     
