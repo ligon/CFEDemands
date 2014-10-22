@@ -113,10 +113,12 @@ def difference_over_time(df):
 
     mydf.reset_index(level='Year',inplace=True)
 
+    ddf=mydf.loc[[],:]
     for t in range(1,T):
-        ddf=mydf[mydf['Year']==Rounds[t]] - mydf[mydf['Year']==Rounds[t-1]]
+        tmp=mydf[mydf['Year']==Rounds[t]] - mydf[mydf['Year']==Rounds[t-1]]
 
-        ddf['Year']=Rounds[t]
+        tmp['Year']=Rounds[t]
+        ddf=pd.concat([ddf,tmp])
 
     ddf.reset_index(inplace=True)
     ddf.set_index(['Year','HH'],inplace=True)
