@@ -36,6 +36,9 @@ def vic2pandas(vic):
     """Transform (value,columns,index) to pandas.DataFrame."""
     return pd.DataFrame(**vic)
 
+def use_indices(df,idxnames):
+    return df.reset_index()[idxnames].set_index(df.index)
+
 def proj(y,x,returnb=False):
     """
     Linear projection of a matrix y on a matrix x.
@@ -53,32 +56,45 @@ def proj(y,x,returnb=False):
     else:
         return pd.DataFrame(np.dot(vicx[0],b.T),index=vicx[1],columns=vicy[2])
 
-def ols(x,y,return_se=True):
+from scipy import sparse
+
+def ols(x,y,return_se=True,return_v=False):
 
     x=pd.DataFrame(x) # Deal with possibility that x & y are series.
     y=pd.DataFrame(y)
+    N,n=y.shape
+    k=x.shape[1]
 
     # Drop any observations that have missing data in *either* x or y.
     x,y = drop_missing([x,y]) 
     
     b=linalg.lstsq(x,y)[0]
 
-    b=pd.DataFrame(b.T,index=y.columns,columns=x.columns)
+    b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
-    u=y-x.dot(b.T)
+    if return_se or return_v:
 
-    se=np.zeros((x.shape[1],y.shape[1]))
-    for i in range(y.shape[1]):
-        try:
-            v=np.diag(np.cov(u.iloc[:,i])*np.mat(np.dot(x.T,x)).I)
-        except linalg.LinAlgError:
-            warn('Matrix of household characteristics is not full rank.')
-            v=np.zeros((x.shape[1],)*2)
-        
-        se[:,i]=np.sqrt(v)
-    se=pd.DataFrame(se,index=x.columns,columns=y.columns)
+        u=y-x.dot(b)
 
-    return b,se
+        # Use SUR structure if multiple equations; otherwise OLS.
+        # Only using diagonal of this, for reasons related to memory.  
+        S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
+
+        # This will be a very large matrix!  Use sparse types
+        V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).as_matrix().view(type=np.matrix).I).T
+        V=V.dot(S).dot(V.T)
+
+        if return_se:
+            se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
+            se=pd.DataFrame(se,index=x.columns,columns=y.columns)
+            
+            return b.T,se
+        elif return_v:
+            # Extract blocks along diagonal; return an Nxkxn array
+            V={y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=x.columns,columns=x.columns) for i in range(n)}
+            return b.T,V
+    else:
+        return b.T
 
 def drop_missing(X):
     """
@@ -156,12 +172,13 @@ def svd_approximation(x,rnk=1,returnSigma=False):
     else:
         return xhat
 
-
 def estimate_with_time_effects(x,z,phi=1e-4,tol=1e+1):
     """
     Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
     of household characteristics, estimate parameters 1/gamma, alphabar,
     delta, and lambdas.
+
+    This uses a specification of log expenditures as the dependent variable.
 
     Dataframes are indexed by (Year,HH), with columns in x
     corresponding to expenditure types (no other variables should
@@ -255,7 +272,7 @@ def estimate_with_time_effects(x,z,phi=1e-4,tol=1e+1):
 
     return hhdf,pd.DataFrame(goodsdf,index=deltas.columns),logrealprices,logx,logxhat
 
-def estimate_with_time_effects_differenced(x,z,phi=1e-4,tol=1e+1):
+def estimate_with_time_effects_differenced(x,z,phi=1e-4,tol=1e+1,return_a=False):
     """
     Given a pd.Dataframe x of expenditure data, and a pd.DataFrame z
     of household characteristics, estimate parameters 1/gamma, alphabar,
@@ -356,7 +373,10 @@ def estimate_with_time_effects_differenced(x,z,phi=1e-4,tol=1e+1):
     errvar=((dlogx-dlogxhat).var()/dlogx.var())
     assert(np.linalg.norm(errvar[np.isfinite(errvar)]) < tol)
 
-    return hhdf,pd.DataFrame(goodsdf,index=deltas.columns),dlogrealprices,dlogx,dlogxhat
+    if return_a:
+        return hhdf,pd.DataFrame(goodsdf,index=deltas.columns),dlogrealprices,dlogx,dlogxhat,a_it
+    else:
+        return hhdf,pd.DataFrame(goodsdf,index=deltas.columns),dlogrealprices,dlogx,dlogxhat
 
 
 def predicted_expenditures(goodsdf,hhdf,prices):
@@ -397,7 +417,25 @@ def predicted_expenditures(goodsdf,hhdf,prices):
 
     return pd.DataFrame(X,index=pd.MultiIndex.from_tuples(idx),columns=goodsdf.index).sort()
 
+def diffs2levels(x,z,da,goodsdf,phi=1e-4):
+    """Given levels of expenditures x, characteristics z, differenced a_it, and
+       parameters from goodsdf return levels of log prices a_it (assuming
+       initial prices all one) and levels lf log lambdas.
+    """
+    x=np.log(x+phi)
+    Years=x.index.levels[0]
+    da[Years[0]]=0
+    a=da[Years].cumsum(axis=1)
 
+    d=goodsdf[z.columns].copy()
+    for c in d.columns:
+        d[c]=goodsdf['beta']*d[c]
+
+    loglambda=(x.reset_index(level='HH')[x.columns] - a.T)
+    loglambda.index=x.index
+    loglambda = (loglambda - z.dot(d.T)).mean(axis=1)
+
+    return a,loglambda
 
 
 def CRRA_adjustment(X,g):
