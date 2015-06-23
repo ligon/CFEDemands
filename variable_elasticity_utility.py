@@ -226,6 +226,14 @@ def expenditurefunction(U,p,alpha,gamma,phi,NegativeDemands=True):
 
     return sum(array([p[i]*x[i] for i in range(n)]))
 
+def frischexpenditures(lbda,p,alpha,gamma,phi,NegativeDemands=True):
+
+    n,alpha,gamma,phi = check_args(p,alpha,gamma,phi)
+
+    U=frischV(lbda,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+
+    return expenditurefunction(U,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    
 
 def hicksiandemands(U,p,alpha,gamma,phi,NegativeDemands=True):
 
