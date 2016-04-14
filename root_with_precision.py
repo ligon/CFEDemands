@@ -76,7 +76,7 @@ def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
     else:
         seq=root_interval(f,axb,middle)
     x=seq.next() 
-    while abs(x[0]-x[-1])>tol:
+    while abs(x[0]-x[-1])>tol and (x[1]>x[0]) and (x[2]>x[1]):
         x=seq.next()
 
     return x[1]
