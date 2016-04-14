@@ -26,7 +26,7 @@ def line_to_axis(ax,x,y,xlabel=None,ylabel=None,fontsize=12):
         trans_y = transforms.blended_transform_factory(ax.transAxes, ax.transData)
         ax.text(-0.01, y, ylabel, transform=trans_y, fontsize=fontsize, va='center',ha='right')
 
-def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=False,use_linestyles=False,shares=False,use_figure=1):
+def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=False,use_linestyles=False,shares=False,logs=True,use_figure=1):
     if not shares:
         f=lambda y: ves.marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
     else:
@@ -38,23 +38,35 @@ def plot(p,alpha,gamma,phi,labels=[],ybounds=[0,10],fname=None,NegativeDemands=F
         ymin=0
         
     if ybounds[0]<=ymin: ybounds[0]=ymin+1e-12
-        
-    Y=pl.linspace(ybounds[0],ybounds[1],100)
+
+    if logs:
+        Y=pl.logspace(pl.log10(ybounds[0]),pl.log10(ybounds[1]),100)
+    else:
+        Y=pl.linspace(ybounds[0],ybounds[1],100)
 
     pl.figure(use_figure)
     pl.clf()
-    p=pl.plot(Y,[f(y) for y in Y])
+    X=[]
 
+    p=pl.plot(Y,[f(y) for y in Y])
+    
     if use_linestyles:
         ls=cycle(['-',':','--','-.'])  # See pl.Line2D.lineStyles.keys()
         for line in p:
             line.set_ls(next(ls))
 
     if len(labels)>0:
-        pl.legend(labels,loc=2)
+        if shares: loc='upper right'
+        else: loc='upper left'
+        pl.legend(labels,loc=loc)
 
     pl.xlabel('Total Expenditures',x=1.,fontsize=16,ha='right')
-    pl.ylabel('Particular Expenditures',y=1.,fontsize=16,va='top')
+
+    if shares:
+        label='Particular Expenditure Shares'
+    else:
+        label='Particular Expenditures'
+    pl.ylabel(label,y=1.,fontsize=16,va='top')
 
     if fname:
         pl.savefig(fname)

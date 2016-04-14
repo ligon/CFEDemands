@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from scipy import optimize 
-from numpy import array, ones, zeros, sum, log, Inf, dot, nan
+from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all
 from root_with_precision import root_with_precision
 import warnings
 
@@ -40,6 +40,8 @@ def check_args(p,alpha,gamma,phi):
         gamma=ones(n)*gamma
     else:
         if not gamma.all():
+            raise ValueError
+        if not all(gamma>0):
             raise ValueError
     
     if len(phi)==1<n:
@@ -178,6 +180,18 @@ def lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with
     else:
         raise ValueError, "Method not defined."
 
+def relative_risk_aversion(p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
+    """
+    Function describing (minus) elasticity of lambda w.r.t. expenditures x (this is also relative  risk aversion).
+    """
+
+    lmbda=lambda x: lambdavalue(x,p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with_precision')
+    dl=derivative(lmbda)
+
+    def rra(x):
+        return -dl(x)/lmbda(x)*x
+
+    return rra
 
 def marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=True):
 
