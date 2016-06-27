@@ -11,22 +11,22 @@ def check_args(p,alpha,gamma,phi):
     """
 
     # Make sure all args are of type array:
-    p=array(p)
+    p=array(p,dtype=float)
 
     try: 
         len(alpha) # If len() not defined, then must be a singleton
-        alpha=array(alpha)
-    except TypeError: alpha=array([alpha])
+        alpha=array(alpha,dtype=float)
+    except TypeError: alpha=array([alpha],dtype=float)
 
     try:
         len(gamma) # If len() not defined, then must be a singleton
-        gamma=array(gamma)
-    except TypeError: gamma=array([gamma])
+        gamma=array(gamma,dtype=float)
+    except TypeError: gamma=array([gamma],dtype=float)
 
     try:
         len(phi) # If len() not defined, then must be a singleton
-        phi=array(phi)
-    except TypeError: phi=array([phi])
+        phi=array(phi,dtype=float)
+    except TypeError: phi=array([phi],dtype=float)
 
     n=len(p)
 
@@ -176,7 +176,7 @@ def lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with
         df = excess_expenditures_derivative(p,alpha,gamma,phi)
         return optimize.newton(f,ub/2.,fprime=df)
     elif method=='root_with_precision':
-        return root_with_precision(f,[0,ub,Inf],1e-12,open_interval=True)
+        return root_with_precision(f,[0,ub,Inf],1e-13,open_interval=True)
     else:
         raise ValueError, "Method not defined."
 
@@ -271,7 +271,14 @@ def expenditures(y,p,alpha,gamma,phi,NegativeDemands=True):
     
     x=marshalliandemands(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-    return array([p[i]*x[i] for i in range(n)])
+    px=array([p[i]*x[i] for i in range(n)])
+
+    try:
+        assert abs(sum(px) - y) < 0.001
+    except AssertionError: # Call to all debugging
+        lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)        
+    
+    return px
 
 def budgetshares(y,p,alpha,gamma,phi,NegativeDemands=True):
     
@@ -279,7 +286,11 @@ def budgetshares(y,p,alpha,gamma,phi,NegativeDemands=True):
     
     x=expenditures(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
 
-    return array([x[i]/y for i in range(n)])
+    w=array([x[i]/y for i in range(n)])
+
+    assert abs(sum(w)-1)<0.001
+    
+    return w
 
 def share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=True):
     """
