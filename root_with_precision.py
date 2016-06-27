@@ -5,7 +5,7 @@ def middle(f,x,fp):
     if len(x)==2:
         return (x[0]+x[-1])/2.
     else:
-        xp=f(x[1])/fp(x[1])
+        xp=f(x[1]+0.)/fp(x[1])
         if x[0]<xp<x[-1]:
             return xp
         else:
