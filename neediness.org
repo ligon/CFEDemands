@@ -256,12 +256,13 @@
 *** Expenditure Shares
 
 #+name: agg_shares_and_mean_shares
-#+begin_src python :exports none
+#+begin_src python :exports none :tangle neediness.py
+  import pylab as pl 
   def expenditure_shares(df):
 
-      aggshares=df.groupby(level=0).sum()
+      aggshares=df.groupby(level='t').sum()
       aggshares=aggshares.div(aggshares.sum(axis=1),axis=0).T
-      meanshares=df.div(df.sum(axis=1),level='HH',axis=0).groupby(level='Year').mean().T
+      meanshares=df.div(df.sum(axis=1),level='j',axis=0).groupby(level='t').mean().T
 
       mratio=(np.log(meanshares)-np.log(aggshares))
       sharesdf=pd.Panel({'Mean shares':meanshares,'Agg. shares':aggshares})
@@ -291,7 +292,7 @@
       mratio.sort_values(by=mratio.columns[0],inplace=True)
       ax.plot(range(mratio.shape[0]),mratio.as_matrix(), 'o')
       ax.legend(mratio.columns,loc=2)
-      pl.ylabel('Log Mean shares divided by Aggregate shares')
+      ax.set_ylabel('Log Mean shares divided by Aggregate shares')
 
       v=ax.axis()
       i=0
@@ -345,7 +346,7 @@
               tab[(df.index.levels[0][t],'Upper Int')]=current[:,t-T]
               tab[(df.index.levels[0][t],'Lower Int')]=current[:,t]
 
-      pl.axhline()
+      ax.axhline()
 
       if figname:
           pl.savefig(figname)
@@ -354,7 +355,7 @@
 #+end_src
 
 #+name: group_expenditures
-#+begin_src python :noweb yes
+#+begin_src python :noweb yes :tangle neediness.py
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
