@@ -25,7 +25,7 @@
 
   def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
       """
-      Print pd.DataFrame in format which forms an org-table.
+      Print(pd.DataFrame in format which forms an org-table.)
       Note that headers for code block should include ":results table raw".
 
       Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied, 
@@ -530,8 +530,8 @@ def svd_missing(X):
 
       u,s,v=svd_missing(x.as_matrix())
       if VERBOSE:
-          print "Estimated singular values: ",
-          print s
+          print("Estimated singular values: ",)
+          print(s)
 
       xhat=pd.DataFrame(v[:,0]*s[0]*u[:,0].T,columns=x.index,index=x.columns)
 
@@ -565,7 +565,7 @@ X=pd.DataFrame(X).T
 
 Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 
-print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.concat([X.stack(dropna=False),Xhat.stack()],axis=1).corr().iloc[0,1])
+print("Proportion missing %g and correlation %5.4f" % (percent_missing, pd.concat([X.stack(dropna=False),Xhat.stack()],axis=1).corr().iloc[0,1]))
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_test
@@ -605,7 +605,7 @@ print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
 
   rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
 
-  print "Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho)
+  print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
 #+end_src
 
 #+results:
@@ -662,7 +662,7 @@ print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
   
           if not market is None:
               #~ ELLIOTT (2016-11-07): original function used tuples for market-time labels. Now using strings.
-              foo=pd.Series(["-".join(map(str,tuple(x))) for x in pd.concat([use_indices(Wz,[t])[t],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name=t+'-market')
+              foo=pd.Series(["-".join(map(str,tuple(x))) for x in pd.concat([use_indices(Wz,[t])[t],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name=t+"-"+market.name)
               timed=pd.get_dummies(foo)
           else:
               timed=pd.get_dummies(use_indices(Wz,[t])[t])
@@ -723,16 +723,16 @@ print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
           sed=pd.DataFrame(sed,index=X.columns).T[z.columns]
   
       if not market is None: #~ ELLIOTT (2016-11-07): Split stringified time-market index into multi-index.
-          b=pd.DataFrame(b,index=years) 
+          b=pd.DataFrame(b) #~ ELLIOTT (2016-11-07): "years" is a local list in a loop, which varies in length if consuming markets vary in number ,index=years) 
           b.index.name=t
           b = b.reset_index()
-          b['market'] = b[t].apply(lambda x: x.split("-")[time_index-1])
-          try: b['market'] =b['market'].apply(int) 
+          b[market.name] = b[t].apply(lambda x: x.split("-")[time_index-1])
+          try: b[market.name] =b[market.name].apply(int) 
           except ValueError: pass #~ some market names are strings.
           b[t] = b[t].apply(lambda x: x.split("-")[time_index])
           try: b[t] =b[t].apply(int) 
           except ValueError: pass #~ some period names are strings.
-          b = b.set_index([t,'market']).T
+          b = b.set_index([t,market.name]).T
       else:
           b=pd.DataFrame(b,index=years) 
           b.index.name=t
@@ -796,7 +796,7 @@ print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
       if TEST:
           foo=-np.outer(bphi,loglambdas).T
           assert np.linalg.norm(foo-chat)<1e-4
-          print "blogL norm: %f" % np.linalg.norm(foo-chat)
+          print("blogL norm: %f" % np.linalg.norm(foo-chat))
 
       return bphi,loglambdas
 
@@ -812,7 +812,7 @@ print "Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
       i=1
       while np.nanmean(np.abs(old.reshape(-1)-new.reshape(-1)))>tol or i < minits:
           if VERBOSE and (i % 2)==0: 
-              print i, np.nanmean(np.abs(old.reshape(-1)-new.reshape(-1)))
+              print(i, np.nanmean(np.abs(old.reshape(-1)-new.reshape(-1))))
           old=new
           S=e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
           B.append(get_loglambdas(S)[0])
@@ -890,9 +890,9 @@ Xhat=pd.DataFrame(np.outer(pd.DataFrame(ahat),pd.DataFrame(-bhat).T).T)
 
 Xhatm=pd.DataFrame(np.outer(pd.DataFrame(ahatm),pd.DataFrame(-bhatm).T).T)
 
-print "Norm of error (svd vs. truth): %f" % (df_norm(Xhat,X)/df_norm(X))
-print "Norm of error (averaging vs. truth): %f" % (df_norm(Xhatm,X)/df_norm(X))
-print "Norm of error (averaging vs. svd): %f" % (df_norm(Xhatm,Xhat)/df_norm(Xhat))
+print("Norm of error (svd vs. truth): %f" % (df_norm(Xhat,X)/df_norm(X)))
+print("Norm of error (averaging vs. truth): %f" % (df_norm(Xhatm,X)/df_norm(X)))
+print("Norm of error (averaging vs. svd): %f" % (df_norm(Xhatm,Xhat)/df_norm(Xhat)))
 #+end_src
 
 #+results: test_get_loglambdas
