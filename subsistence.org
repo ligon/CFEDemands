@@ -71,6 +71,7 @@ across time, then we obtain
 \[
    \Delta\log(y_{it} + z) = b\Delta x_{it} + \Delta e_{it}.
 \]
+
 Note the absence of a constant terms $a_i$ in this expression.  So one
 simple strategy for estimating $\phi$ is search over possible values of
 $\phi$, and find the value of $\phi$ which makes the intercept in the
