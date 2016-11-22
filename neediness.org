@@ -660,13 +660,17 @@ print("Proportion missing %g and correlation %5.4f" % (percent_missing, pd.conca
           Wz=myz-myz.mean(axis=0)
           Wz=Wz-Wz.mean(axis=0)
   
-          if not market is None:
+          #~ ELLIOTT: (2016-11-09) moved USE_PRICE to avoid making year/market dummies when prices are provided instead
+          USE_PRICE=(prices is not None) and (y.columns[i] in prices.index)
+          if USE_PRICE:
+              timed=np.log(prices.iloc[i,:])
+          elif not market is None:
               #~ ELLIOTT (2016-11-07): original function used tuples for market-time labels. Now using strings.
               foo=pd.Series(["-".join(map(str,tuple(x))) for x in pd.concat([use_indices(Wz,[t])[t],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name=t+"-"+market.name)
               timed=pd.get_dummies(foo)
           else:
-              timed=pd.get_dummies(use_indices(Wz,[t])[t])
-  
+            timed=pd.get_dummies(use_indices(Wz,[t])[t])
+
           years = [x for x in timed.columns]
   
           USE_PRICE=False
