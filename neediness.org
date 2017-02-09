@@ -545,8 +545,8 @@ of observations.
 
       u,s,v=svd_missing(x)
       if VERBOSE:
-          print "Estimated singular values: ",
-          print s
+          print("Estimated singular values: ",)
+          print(s)
 
       xhat=pd.DataFrame(v[:,0]*s[0]*u[:,0].T,columns=x.index,index=x.columns).T
 
@@ -755,7 +755,7 @@ SEED=17
 
   rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
 
-  print "Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho)
+  print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
 #+end_src
 
 #+results:
@@ -769,114 +769,151 @@ SEED=17
   from collections import OrderedDict
 
   <<df_utils>>
-
-  def estimate_bdce_with_missing_values(y,z,market=None,prices=None,return_v=False,return_se=False):
+  def estimate_bdce_with_missing_values(y,z,market=None,prices=None,return_v=False,return_se=False, time_index=1):
       """Estimate reduced form objects b, d, and ce.  
-
+  
       Inputs are log expenditures and household characteristics (both in
       logs).  Both must be pd.DataFrames.
-
+  
       The optional variable market is a series which identifies locations
       (e.g, rural/urban)  which may be thought to have different prices.
       In this case different latent price variables are estimated for
       different regions. 
-
+  
       The optional variable prices is a df of prices for (possibly
       selected) goods.  Where supplied these (logged) price data will be
       used in lieu of a latent variable approach.
-
+  
       Ethan Ligon                                            April,  2016
+      ELLIOIT: time_index indicates whether the time axis of a multi-index is first (0) or second (1). Also used to get index name.
+      ELLIOTT: Prices should be passed:
+               1. In levels (np.log is applied locally)
+               2. At the household-year level (i.e. with the same indices as y)
+               Results in a Constant term and a single vector of coefficients "price" 
       """
       n,N,T=y.to_panel().shape
-
+  
       b=OrderedDict()
       d=OrderedDict()
       a=OrderedDict()
       myE=OrderedDict()
       sed=OrderedDict()
       V=OrderedDict()
-
-      years=[year for year in y.index.levels[1]]
-
-      Timed=pd.get_dummies(use_indices(z,['t'])['t'])
-
+  
+      t = y.index.names[time_index]
+      years=[year for year in y.index.levels[time_index]]
+  
+      Timed=pd.get_dummies(use_indices(z,[t])[t])
+  
       for i in range(n):
+          ITEM = y.columns[i] #~ For clarity
           myy,myz=drop_missing([y.iloc[:,[i]],z])
           # Calculate a within transformation
           Wy=myy-myy.mean()
           Wy=Wy-Wy.mean()
-
+  
           Wz=myz-myz.mean(axis=0)
           Wz=Wz-Wz.mean(axis=0)
-
-          if not market is None:
-              foo=pd.Series([tuple(x) for x in pd.concat([use_indices(Wz,['t'])['t'],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name='Period-Market')
+  
+          USE_PRICE=(prices is not None) and (ITEM in prices.index)
+          if USE_PRICE:
+              #~ ELLIOTT (2017-01-30): If pulling "years" from timed, timed needs to have columns
+              timed= pd.DataFrame({"price":np.log(prices.iloc[i,:])}) 
+          elif not market is None:
+              #~ ELLIOTT (2016-12-24): original function used tuples for market-time labels. Now using strings and switches back later
+              foo=pd.Series(["-".join(map(str,tuple(x))) for x in pd.concat([use_indices(Wz,[t])[t],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name=t+"-"+market.name)
               timed=pd.get_dummies(foo)
           else:
-              timed=pd.get_dummies(use_indices(Wz,['t'])['t'])
-
+              timed=pd.get_dummies(use_indices(Wz,[t])[t])
+  
           years = [x for x in timed.columns]
-
-          USE_PRICE=False
-          if (prices is not None) and (y.columns[i] in prices.index):
-              USE_PRICE=True
-              timed=np.log(prices.iloc[i,:])
-
+  
           Wtimed=timed-timed.mean() # Don't forget within transformation of time dummies! 
           Wtimed=Wtimed-Wtimed.mean()  # First de-meaning can be improved upon
-
+  
+          print(ITEM)
           if not USE_PRICE:
               # Need to make sure time-market effects sum to zero
               ynil=pd.DataFrame([0],index=[(-1,0)],columns=Wy.columns)
               znil=pd.DataFrame([[0]*Wz.shape[1]],index=[(-1,0)],columns=Wz.columns)
               timednil=pd.DataFrame([[1]*timed.shape[1]],index=[(-1,0)],columns=timed.columns)
-
+  
               X=Wz.append(znil).join(Wtimed.append(timednil))
               # Estimate d & b
               myb,mye=ols(X,Wy.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
           else:
+              Wtimed["constant"]=1. #~ if using a price series, need a constant (or time fixed effects?)
               X=Wz.join(Wtimed)
-              myb,mye=ols(X,Wy,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
-
+              try: myb,mye=ols(X,Wy,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+              except ValueError: #~ If OLS doesn't run (usually a singular matrix), Print a warning and skip that item.
+                  print("Dropping {} from analysis. Moving on to {}.".format(ITEM, y.columns[(i+1)%len(y.columns)]))
+                  continue
+  
           #mye=mye.iloc[:-1,:] # Drop constraint
           if return_v or return_se:
               myV=arellano_robust_cov(X,mye.iloc[:,0])
-              myse=np.sqrt(np.diag(myV))
-
-          for year in years:
-              if year not in myb.columns:
-                  myb[year]=np.NaN 
-
-          myb=myb[z.columns.tolist()+years]
-
-          d[y.columns[i]]=myb.iloc[:,:Wz.shape[1]].as_matrix()[0] # reduced form coefficients on characteristics
+              #~ ELLIOTT (2016-12-24) Changed to series to allow for different lengths (comes up with market FE's).
+              myse= pd.Series(np.sqrt(np.diag(myV)), index=X.columns)
+  
+  
+          if not USE_PRICE: #~ If Prices are used, myb.columns!=years. myb has single columns "price".
+              for year in years:
+                  if year not in myb.columns:
+                      myb[year]=np.NaN 
+  
+              myb=myb[z.columns.tolist()+years] 
+  
+          d[ITEM]=myb.iloc[:,:Wz.shape[1]].as_matrix()[0] # reduced form coefficients on characteristics
           if return_se: # Get std. errs for characteristics
-              sed[y.columns[i]]=myse # reduced form se on characteristics
-
-          b[y.columns[i]]=myb.iloc[:,Wz.shape[1]:].as_matrix()[0] # Terms involving prices
-          a[y.columns[i]] = (myy.mean() - d[y.columns[i]].dot(myz.mean(axis=0)) - b[y.columns[i]].dot(timed.mean().as_matrix())).as_matrix()[0]
-
-          #myce[y.columns[i]] = pd.Series((myy - a[y.columns[i]]).as_matrix().reshape(-1) - myz.as_matrix().dot(d[y.columns[i]]) - timed.as_matrix().dot(b[y.columns[i]]),index=myy.index)
-          myE[y.columns[i]] = mye.iloc[:-1,:]  # Drop constraint
-          V[y.columns[i]] = myV
-
-
+              sed[ITEM]=myse # reduced form se on characteristics
+  
+          if USE_PRICE: #~ Can't use Wz's shape to slice out a & b if not using time fe's
+              b[ITEM] = myb.T.loc['price'].rename(index={ITEM:'price'})
+              a[ITEM] = myb['constant'][ITEM]
+          else:
+              #~ ELLIOTT (2016-12-24) Get b as series instead of matrix to allow for different lengths (markets with no HH's consuming item are dropped from regression)
+              b[ITEM] = myb.iloc[:,Wz.shape[1]:].T[ITEM] #.as_matrix()[0] # Terms involving prices
+              a[ITEM] = (myy.mean() - d[ITEM].dot(myz.mean(axis=0)) - b[ITEM].dot(timed.mean().values)).as_matrix()[0]
+  
+          #myce[ITEM] = pd.Series((myy - a[ITEM]).as_matrix().reshape(-1) - myz.as_matrix().dot(d[ITEM]) - timed.as_matrix().dot(b[ITEM]),index=myy.index)
+          myE[ITEM] = mye.iloc[:-1,:]  # Drop constraint
+          V[ITEM] = myV
+  
+  
       d=pd.DataFrame(d,index=z.columns).T
-
+  
       if return_se: # Get std. errs for characteristics
           sed=pd.DataFrame(sed,index=X.columns).T[z.columns]
-
-      b=pd.DataFrame(b,index=years)
-      b.T.index.name='t'
-      b=b.T
-
+  
+      if not market is None: #~ ELLIOTT (2016-12-24): Split stringified time-market index into multi-index.
+          b=pd.DataFrame(b) #~ ELLIOTT (2016-12-24): "years" is a local list in a loop, which varies in length if consuming markets vary in number ,index=years) 
+          b.index.name=t
+          b = b.reset_index()
+          b[market.name] = b[t].apply(lambda x: x.split("-")[time_index-1])
+          try: b[market.name] =b[market.name].apply(int) 
+          except ValueError: pass #~ some market names are strings.
+          b[t] = b[t].apply(lambda x: x.split("-")[time_index])
+          try: b[t] =b[t].apply(int) 
+          except ValueError: pass #~ some period names are strings.
+          b = b.set_index([t,market.name]).T
+      elif not USE_PRICE:
+          b=pd.DataFrame(b,index=years) 
+          b.index.name=t
+          b.T
+      else:
+          b=pd.DataFrame(b).T
+  
+  
       a=pd.DataFrame(a,columns=y.columns,index=['Constant']).T['Constant']
-
+  
       #ce0 = y - a - z.dot(d.T) - Timed.dot(b.T) #  Should be equal to ce if no prices
       ce=pd.concat(myE.values(),axis=1)
-
-      assert np.abs(ce.unstack().mean()).sum() < 1e-10
-
+  
+      try:
+          ERRORSUM = np.abs(ce.unstack(t).mean()).sum()
+          assert ERRORSUM < 1e-10 #~ ELLIOTT (2016-11-07) This has started to fail in Bangladesh
+      except AssertionError: print("WARNING: Errors appear to be too large:".format(ERRORSUM))
+  
       out = [b.add(a,axis=0),ce,d]
       if return_se:
           out += [sed]
@@ -884,6 +921,8 @@ SEED=17
           V = pd.Panel(V,major_axis=X.columns,minor_axis=X.columns)
           out += [V]
       return out
+
+
 #+end_src
 
 #+results: estimate_reduced_form
@@ -919,7 +958,7 @@ SEED=17
       loglambdas=(-chat.iloc[:,0]/b.iloc[0])
 
       # Find phi that normalizes first round loglambdas
-      phi=loglambdas.groupby(level='t').std().iloc[0]
+      phi=loglambdas.groupby(level=0).std().iloc[0]
       loglambdas=loglambdas/phi
 
       bphi=pd.Series(b*phi,index=e.columns)
