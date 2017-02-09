@@ -3,7 +3,6 @@
 #+AUTHOR: Ethan Ligon
 #+PROPERTY: header-args:python :results output :noweb no-export :exports none :comments link :prologue (format "# Tangled on %s" (current-time-string))
 :END:
-
 * Utility Functions
 #+name: df_utils
 #+BEGIN_SRC python :noweb no-export :results output :tangle df_utils.py
@@ -407,57 +406,76 @@ $V$.  Unlike the previous routine estimates do not depend on the order
 of observations.
 #+name: eig_svd_missing
 #+BEGIN_SRC python
-   import numpy as np
+  import numpy as np
 
-   def missing_inner_product(X):
-     n,m=X.shape
+  def missing_inner_product(X,min_obs=None):
+    n,m=X.shape
 
-     if n<m: 
-         axis=1
-         N=m
-     else: 
-         axis=0
-         N=n
+    if n<m: 
+        axis=1
+        N=m
+    else: 
+        axis=0
+        N=n
 
-     xbar=X.mean(axis=axis)
+    xbar=X.mean(axis=axis)
 
-     if axis:
-         C=(N-1)*X.T.cov()
-     else:
-         C=(N-1)*X.cov()
+    if axis:
+        C=(N-1)*X.T.cov(min_periods=min_obs)
+    else:
+        C=(N-1)*X.cov(min_periods=min_obs)
 
-     return C + N*np.outer(xbar,xbar)
+    return C + N*np.outer(xbar,xbar)
 
-   def eig_svd_missing(A,max_rank=None):
-       P=missing_inner_product(A)
+  def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
+      """Drop columns from pd.DataFrame that lead to missing elements of covariance matrix."""
 
-       sigmas,u=np.linalg.eig(P)
+      m,n=X.shape
+      assert(m>n)
 
-       order=np.argsort(-sigmas)
-       sigmas=sigmas[order]
+      HasMiss=True
+      while HasMiss:
+          foo = X.cov(min_periods=min_obs).count()
+          if np.sum(foo<X.shape[1]):
+              badcol=foo.argmin()
+              del X[badcol] # Drop  good with  most missing covariances
+              if VERBOSE: print "Dropping %s." % badcol
+          else:
+              HasMiss=False
 
-       # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-       u=u[:,order]
-       u=u[:,sigmas>0]
-       s=np.sqrt(sigmas[sigmas>0])
+      return X
 
-       if max_rank is not None and len(s) > max_rank:
-           u=u[:,:max_rank]
-           s=s[:max_rank]
+  def eig_svd_missing(A,max_rank=None,min_obs=None):
 
-       r=len(s)
-       us=np.matrix(u)*np.diag(s)
+      P=missing_inner_product(A,min_obs=min_obs)
 
-       v=np.zeros((len(s),A.shape[1]))
-       for j in xrange(A.shape[1]):
-           a=A.iloc[:,j].as_matrix().reshape((-1,1))
-           x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
-           if len(x)>=r:
-               v[:,j]=(np.linalg.pinv(us[x,:])*a[x]).reshape(-1)
-           else:
-               v[:,j]=np.nan
+      sigmas,u=np.linalg.eig(P)
 
-       return np.matrix(u),s,np.matrix(v).T
+      order=np.argsort(-sigmas)
+      sigmas=sigmas[order]
+
+      # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
+      u=u[:,order]
+      u=u[:,sigmas>0]
+      s=np.sqrt(sigmas[sigmas>0])
+
+      if max_rank is not None and len(s) > max_rank:
+          u=u[:,:max_rank]
+          s=s[:max_rank]
+
+      r=len(s)
+      us=np.matrix(u)*np.diag(s)
+
+      v=np.zeros((len(s),A.shape[1]))
+      for j in xrange(A.shape[1]):
+          a=A.iloc[:,j].as_matrix().reshape((-1,1))
+          x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
+          if len(x)>=r:
+              v[:,j]=(np.linalg.pinv(us[x,:])*a[x]).reshape(-1)
+          else:
+              v[:,j]=np.nan
+
+      return np.matrix(u),s,np.matrix(v).T
 #+END_SRC
 
 
@@ -467,7 +485,7 @@ of observations.
   <<svd_missing>>
   <<eig_svd_missing>>
 
-  def eig_svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=None,VERBOSE=True):
+  def eig_svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=None,min_obs=None,VERBOSE=True):
       """
       Return rank 1 approximation to a pd.DataFrame x, where x may have
       elements which are missing.
@@ -484,7 +502,8 @@ of observations.
       x=x.dropna(how='all',axis=1) # Drop any column which is /all/ missing.
       x=x.dropna(how='all',axis=0) # Drop any row which is /all/ missing.
 
-      u,s,v=eig_svd_missing(x,max_rank=max_rank)
+      x=drop_columns_wo_covariance(x.T,min_obs=min_obs).T
+      u,s,v=eig_svd_missing(x,max_rank=max_rank,min_obs=min_obs)
       if VERBOSE:
           print "Estimated singular values: ",
           print s
@@ -874,7 +893,7 @@ SEED=17
 #+begin_src python :noweb no-export :results output :tangle neediness.py
   import pandas as pd
 
-  def get_loglambdas(e,TEST=False,max_rank=1):
+  def get_loglambdas(e,TEST=False,max_rank=1,min_obs=None):
       """
       Use singular-value decomposition to compute loglambdas and price elasticities,
       up to an unknown factor of proportionality phi.
@@ -883,11 +902,10 @@ SEED=17
       of the effects of prices and household characteristics.   The residuals
       should be arranged as a matrix, with columns corresponding to goods. 
       """ 
-
       assert(e.shape[0]>e.shape[1]) # Fewer goods than observations
 
       #chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=False,MISSLAST=True)
-      chat = eig_svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank)
+      chat = eig_svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank,min_obs=min_obs)
 
       R2 = chat.var()/e.var()
 
@@ -907,8 +925,8 @@ SEED=17
       bphi=pd.Series(b*phi,index=e.columns)
 
       if TEST:
-          foo=-np.outer(bphi,loglambdas).T
-          assert np.linalg.norm(foo-chat)<1e-4
+          foo=pd.DataFrame(-np.outer(bphi,loglambdas).T,index=loglambdas.index,columns=bphi.index)
+          assert df_norm(foo-chat)<1e-4
           #print "blogL norm: %f" % np.linalg.norm(foo-chat)
 
       return bphi,loglambdas
