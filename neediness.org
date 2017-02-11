@@ -899,7 +899,7 @@ SEED=17
       elif not USE_PRICE:
           b=pd.DataFrame(b,index=years) 
           b.index.name=t
-          b.T
+          b=b.T
       else:
           b=pd.DataFrame(b).T
   
