@@ -985,7 +985,7 @@ SEED=17
       import numpy as np
       return x.quantile([0.25,0.75]).diff().iloc[1]
 
-  def bootstrap_elasticity_stderrs(e,tol=1e-4,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+  def bootstrap_elasticity_stderrs(e,tol=1e-3,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
       """Bootstrap estimates of standard errors for \phi\beta.
 
       Takes pd.DataFrame of residuals as input.
@@ -1003,41 +1003,36 @@ SEED=17
       if outfn: outf=open(outfn,'a')
 
       delta=1.
-      old=np.array(0)
-      new=np.array(1)
+      old=np.array(1)
+      new=np.array(0)
       i=1
       L=[]
       while delta>tol or i < minits:
-          delta=np.nanmean(np.abs(old.reshape(-1)-new.reshape(-1)))
-          if VERBOSE and (i % 2)==0: 
-              print i, delta
-          if delta>0.1:
-              print "Large delta=%g" % delta
+          delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
+          if VERBOSE and (i % 2)==0 and i>2: 
+              print "Iteration %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
           old=new
           S=e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
           S=S-S.mean() 
 
+          bs,ls=get_loglambdas(S)
+          assert(~np.any(np.isnan(bs)))
           try:
-              bs,ls=get_loglambdas(S)
-              assert(~np.any(np.isnan(bs)))
-              try:
-                  B=B.append(bs,ignore_index=True)
-              except NameError:
-                  B=pd.DataFrame(bs).T # Create B
+              B=B.append(bs,ignore_index=True)
+          except NameError:
+              B=pd.DataFrame(bs).T # Create B
 
-              L.append(ls)
+          L.append(ls)
 
-              if TRIM:
-                  new=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
-              else:
-                  new=B.std()
-            
-              if outfn: outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
-              i+=1
-          except Oct2PyError: # Octpy sometimes throws mysterious error?
-              warnings.warn("Mysterious octpy problem.")
-              new=np.array(-1)
-              pass
+          std0=B.std()
+          std1=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
+          if TRIM:
+              new=std1
+          else:
+              new=std0
+
+          if outfn: outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
+          i+=1
 
       if outfn: outf.close()
       if return_samples:
