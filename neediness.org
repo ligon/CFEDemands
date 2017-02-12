@@ -1039,7 +1039,7 @@ SEED=17
               new=np.array(-1)
               pass
 
-      outf.close()
+      if outfn: outf.close()
       if return_samples:
           return new,B
       else:
