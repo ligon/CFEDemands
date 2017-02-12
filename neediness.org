@@ -193,8 +193,9 @@
         rounds=u.index.get_level_values(1).unique() # Periods to cluster by
         if  len(rounds)>1:
             u=u.sub(u.groupby(level='t').mean()) # Take out time averages
-            X.sub(X.groupby(level='t').mean())
-            Xu=X.mul(u,axis=0)
+            X=X.sub(X.groupby(level='t').mean())
+            Xs=X[:-1]
+            Xu=Xs.mul(u,axis=0)
             if len(X.shape)==1:
                 XXinv=np.array([1./(X.T.dot(X))])
             else:
