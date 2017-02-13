@@ -829,8 +829,9 @@ SEED=17
           USE_PRICE=(prices is not None) and (ITEM in prices.index)
           if USE_PRICE:
               #~ ELLIOTT (2017-01-30): If pulling "years" from timed, timed needs to have columns
-              timed= pd.DataFrame({"price":np.log(prices.iloc[i,:])}) 
-          elif not market is None:
+              logp = pd.DataFrame({"price":np.log(prices.iloc[i,:])}) 
+              logp = logp - logp.mean()  # Demean price series
+          elif market is not None:
               #~ ELLIOTT (2016-12-24): original function used tuples for market-time labels. Now using strings and switches back later
               foo=pd.Series(["-".join(map(str,tuple(x))) for x in pd.concat([use_indices(Wz,[time_index])[time_index],market],axis=1,join='inner').as_matrix().tolist()],index=Wz.index,name=time_index+"-"+market.name)
               timed=pd.get_dummies(foo)
@@ -887,9 +888,8 @@ SEED=17
               a[ITEM] = (myy.mean() - d[ITEM].dot(myz.mean(axis=0)) - b[ITEM].dot(timed.mean().values)).as_matrix()[0]
 
           #myce[ITEM] = pd.Series((myy - a[ITEM]).as_matrix().reshape(-1) - myz.as_matrix().dot(d[ITEM]) - timed.as_matrix().dot(b[ITEM]),index=myy.index)
-          myE[ITEM] = mye.iloc[:-1,:]  # Drop constraint
+          myE[ITEM] = mye
           V[ITEM] = myV
-
 
       d=pd.DataFrame(d,index=z.columns).T
 
@@ -918,6 +918,7 @@ SEED=17
       a=pd.DataFrame(a,columns=y.columns,index=['Constant']).T['Constant']
 
       #ce0 = y - a - z.dot(d.T) - Timed.dot(b.T) #  Should be equal to ce if no prices
+
       ce=pd.concat(myE.values(),axis=1)
 
       try:
