@@ -194,8 +194,7 @@
         if  len(rounds)>1:
             u=u.sub(u.groupby(level='t').mean()) # Take out time averages
             X=X.sub(X.groupby(level='t').mean())
-            Xs=X[:-1]
-            Xu=Xs.mul(u,axis=0)
+            Xu=X.mul(u,axis=0)
             if len(X.shape)==1:
                 XXinv=np.array([1./(X.T.dot(X))])
             else:
@@ -855,17 +854,16 @@ SEED=17
               myb,mye=ols(X,Wy.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
               mye=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
           else:
-              Wtimed["constant"]=1. #~ if using a price series, need a constant (or time fixed effects?)
-              X=Wz.join(Wtimed)
-              try: myb,mye=ols(X,Wy,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+              Wz=Wz.join(logp)
+              try: myb,mye=ols(Wz,Wy,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
               except ValueError: #~ If OLS doesn't run (usually a singular matrix), Print a warning and skip that item.
                   print("Dropping {} from analysis. Moving on to {}.".format(ITEM, y.columns[(i+1)%len(y.columns)]))
                   continue
 
           if return_v or return_se:
-              myV=arellano_robust_cov(X,mye.iloc[:,0])
+              myV=arellano_robust_cov(Wz,mye.iloc[:,0])
               #~ ELLIOTT (2016-12-24) Changed to series to allow for different lengths (comes up with market FE's).
-              myse= pd.Series(np.sqrt(np.diag(myV)), index=X.columns)
+              myse= pd.Series(np.sqrt(np.diag(myV)), index=Wz.columns)
 
 
           if not USE_PRICE: #~ If Prices are used, myb.columns!=years. myb has single columns "price".
