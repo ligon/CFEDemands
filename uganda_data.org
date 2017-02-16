@@ -21,8 +21,9 @@ particular set of goods.
 
   try:
       df=pd.read_pickle('../Data/Uganda/uganda.df')
+      prices=pd.read_pickle('../Data/Uganda/food_prices.df')
   except IOError:
-      print "Need to build ../Data/uganda.df (using code in LSMS/Uganda/MANIFEST.org)."
+      print "Need to build ../Data/{uganda,food_prices}.df (using code in LSMS/Uganda/MANIFEST.org)."
 
   expdf=nd.group_expenditures(df,exps)
 
@@ -54,16 +55,36 @@ particular set of goods.
 
   mydf.sortlevel(level=0,inplace=True)
 
-  #print "Reordered index:"
-  #print mydf.head()
-
-  #expdf=mydf.loc[:,exps.keys()].replace(0,np.nan) # Zeros to NaN
-
   z=mydf[['Boys','Girls','Men','Women','log HSize','Rural']]
+  z=mydf[['Boys','Girls','Men','Women','log HSize']]
  
-  market=None #mydf['Rural']
-
   y=np.log(mydf[expdf.columns])
+
+  ####################################
+  # Now set up market prices
+  # Define numeraire good here!  If None, use natural price index
+
+  market_index='Rural' # Variable indicating what market hh is in.
+  numeraire = 'Rice'
+
+  market=pd.Series(mydf[market_index],name='market')
+  prices.index=prices.index.reorder_levels([1,0,2]) # Make index order match prices
+
+  # Choose one...
+  prices = prices['market'] # Only use market prices
+  #prices = prices[['farmgate','market']].sum(axis=1) # Use both mkt & farmgate prices
+
+  prices.index.names=['j','t','Item']
+
+  pricedf=nd.group_expenditures(prices.unstack(),exps)
+  pricedf=pricedf.replace(0,np.nan) # Zeros to NaN
+
+  pricedf['market'] = market
+
+  # Also give prices for good to be declared numeraire.
+  # E.g., here are median rice prices and onion prices in different years from LSMS/Uganda/MANIFEST.org:
+  market_prices = pricedf.reset_index().groupby(['t','market']).median()
+
 #+end_src
 
 
