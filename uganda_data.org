@@ -6,31 +6,30 @@ provides a mapping of codes for different expenditure items into
 particular food categories.  
 
 The argument "expenditures" should be set to a string describing a
-particular set of goods
+particular set of goods.
 
 #+name: uganda_data
 #+begin_src python :noweb no-export :var expenditures="foodgroups0" :results output raw table :tangle uganda_data.py
-  #expenditures='foodinv' # 'foodgroups0' # Don't know why this is necessary!
   import pandas as pd
   import numpy as np
   import sys
   sys.path.append('../Data/Uganda')
-  #import expenditure_codes
   sys.path.append('../Empirics')
-  #import ves_estimation
-  <<df_utils>>
-  <<group_expenditures>>
+  import neediness as nd
 
-  #exps=expenditure_codes.__dict__[expenditures] #foodtuples0 #coicop #foodgroups1 # foodgroups0 for 29 good group
   exps=pd.read_pickle('../Data/Uganda/expenditure_codes.pickle')
-  #exps=expenditure_codes.foodinv
 
   try:
       df=pd.read_pickle('../Data/Uganda/uganda.df')
   except IOError:
       print "Need to build ../Data/uganda.df (using code in LSMS/Uganda/MANIFEST.org)."
 
-  expdf=group_expenditures(df,exps)
+  expdf=nd.group_expenditures(df,exps)
+
+  expdf=expdf.replace(0,np.nan) # Zeros to NaN
+
+  # Drop goods where too few observations to reliable estimate covariance matrix
+  expdf=nd.drop_columns_wo_covariance(expdf,min_obs=30,VERBOSE=False)
 
   try:
       df['Rural']=(~df['urban']).astype('int32')
@@ -58,57 +57,14 @@ particular set of goods
   #print "Reordered index:"
   #print mydf.head()
 
-  expdf=mydf.loc[:,exps.keys()].replace(0,np.nan) # Zeros to NaN
+  #expdf=mydf.loc[:,exps.keys()].replace(0,np.nan) # Zeros to NaN
 
   z=mydf[['Boys','Girls','Men','Women','log HSize','Rural']]
  
   market=None #mydf['Rural']
 
-  y=np.log(expdf)
+  y=np.log(mydf[expdf.columns])
 #+end_src
-
-#+results: uganda_data
-Reordered index:
-                 Maize  Beef  Restaurant (food)  Ghee  Cabbages  \
-j          t                                                      
-1013000201 2005   3200  6000                  0     0         0   
-           2009   1200     0                  0     0         0   
-           2010    800  6000               6000     0      1000   
-           2011      0     0                  0     0         0   
-1013000204 2005      0     0                  0     0         0   
-
-                 Irish Potatoes  Sugar   Beer  Sweet Potatoes  Oranges  ...    \
-j          t                                                            ...     
-1013000201 2005               0   4500   2400               0        0  ...     
-           2009               0   2600      0            3000        0  ...     
-           2010               0   4500  15000               0        0  ...     
-           2011               0   2000  15000            1000        0  ...     
-1013000204 2005               0      0      0               0        0  ...     
-
-                 Mangos  Other foods  Cassava  HHSIZE  log HHSIZE  Boys  \
-j          t                                                              
-1013000201 2005       0            0        0       1    0.000000     0   
-           2009       0            0     6000       4    1.386294     2   
-           2010       0            0        0       6    1.791759     3   
-           2011       0            0        0       7    1.945910     3   
-1013000204 2005       0            0        0       1    0.000000     0   
-
-                 Girls  Women  Men  Rural  
-j          t                               
-1013000201 2005      0      1    0      1  
-           2009      0      2    0      1  
-           2010      0      2    1      1  
-           2011      0      3    1      1  
-1013000204 2005      0      0    1      1  
-
-[5 rows x 57 columns]
-|j|t|Maize|Beef|Restaurant (food)|Ghee|Cabbages|Irish Potatoes|Sugar|Beer|Sweet Potatoes|Oranges|Matoke|Other Vegetables|Rice|Tomatoes|Coffee|Sweet Bananas|Sorghum|Eggs|Sim sim|Peas|Other Tobacco|Dry/Smoked fish|Infant Formula|Ground nut|Onions|Bread|Other Fruits|Fresh Milk|Dodo|Other Alcoholic drinks|Ground nuts|Passion Fruits|Cigarettes|Beans|Soda|Other Meat|Goat Meat|Salt|Pork|Margarine, Butter, etc|Cooking oil|Tea|Millet|Fresh Fish|Other juice|Other drinks|Chicken|Mangos|Other foods|Cassava|
-|1013000201|2005|8.071|8.700|||||8.412|7.783|||8.987|||6.551|||||||||||6.551|||6.551|||6.908|6.908||||||4.317|||6.551|3.912||7.601||7.090|||||
-|1013000201|2009|7.090||||||7.863||8.006||9.798||8.740|6.215|4.605||||||||||6.215|7.824||||6.215||||||||6.215|||5.704|||||||||8.700|
-|1013000201|2010|6.685|8.700|8.700||6.908||8.412|9.616|||9.616||8.854|7.244|5.298||||||||||6.215||7.601|8.987||7.601|6.908||||8.006|||5.521|8.517||7.244|4.605||9.324|8.006||||||
-|1013000201|2011|||||||7.601|9.616|6.908||9.680|||6.908||||||||8.294|||6.215|||8.006|||||||8.294|||5.521||||4.605||8.412|||||||
-|1013000204|2005|||||||||||||6.551||||||||||||||||||||8.274||||||||||||||||||
-|
 
 
 * Generic Code
@@ -125,13 +81,4 @@ import matplotlib as mpl
 
 #+end_src
 
-#+name: group_expenditures
-#+begin_src python :noweb yes
-def group_expenditures(df,groups):
-    myX=pd.DataFrame(index=df.index)
-    for k,v in groups.iteritems():
-        myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
-            
-    return myX
-#+end_src
 
