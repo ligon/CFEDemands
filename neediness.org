@@ -1247,11 +1247,12 @@ We begin by generating some artificial data on expenditures.
   # Evaluate estimate of beta:
   print "Norm of (bphi,beta): %f" % np.var(bphi/truth['beta']) # Funny norm deals with fact that b only identified up to a scalar
 
-  logL=logL.unstack()
-  logL0=np.log(truth['lambdas'][0]).unstack()
-  foo=pd.Panel({"L0":logL0,"Lhat":logL})
-  print "Correlation of log lambda with estimate (after normalization): (%f,%f)" % tuple([foo[:,:,t].corr().iloc[0,1] for t in logL.columns])
-
+  foo=logL.reset_index('mkt')
+  foo['loglambda0']=np.log(truth['lambdas'][0])
+  foo=foo.reset_index().set_index(['j','t','mkt'])
+  print "Correlation of log lambda with estimate (after normalization):"
+  print foo.groupby(level=['t','mkt']).corr()
+  
   print "Mean of errors:"
   print e.mean(axis=0)
 
