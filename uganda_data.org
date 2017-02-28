@@ -9,7 +9,7 @@ The argument "expenditures" should be set to a string describing a
 particular set of goods.
 
 #+name: uganda_data
-#+begin_src python :noweb no-export :var expenditures="foodgroups0" :results output raw table :tangle uganda_data.py
+#+begin_src python :noweb no-export :results output raw table :tangle uganda_data.py
   import pandas as pd
   import numpy as np
   import sys
@@ -21,14 +21,15 @@ particular set of goods.
 
   try:
       df=pd.read_pickle('../Data/Uganda/uganda.df')
+      prices=pd.read_pickle('../Data/Uganda/food_prices.df')
   except IOError:
-      print "Need to build ../Data/uganda.df (using code in LSMS/Uganda/MANIFEST.org)."
+      print "Need to build ../Data/{uganda,food_prices}.df (using code in LSMS/Uganda/MANIFEST.org)."
 
   expdf=nd.group_expenditures(df,exps)
 
   expdf=expdf.replace(0,np.nan) # Zeros to NaN
 
-  # Drop goods where too few observations to reliable estimate covariance matrix
+  # Drop goods where too few observations to reliably estimate covariance matrix
   expdf=nd.drop_columns_wo_covariance(expdf,min_obs=30,VERBOSE=False)
 
   try:
@@ -36,49 +37,79 @@ particular set of goods.
   except TypeError: # String instead of number?
       df['Rural']=df['urban'].apply(lambda s: s.lower()=='rural').astype('int32')
 
+  df.rename(column={'region','Region'},inplace=True)
+
   mydf=expdf.copy()
-  mydf['HHSIZE']=df[['boys','girls','women','men']].sum(axis=1)
-  mydf['HHSIZE'].replace(to_replace=[0],value=[np.NaN],inplace=True)
-  mydf['log HSize']=np.log(mydf['HHSIZE'])
+  mydf['HHSize']=df[['boys','girls','women','men']].sum(axis=1)
+  mydf['HHSize'].replace(to_replace=[0],value=[np.NaN],inplace=True)
+  mydf['log HSize']=np.log(mydf['HHSize'])
   mydf['Boys']=df['boys']
   mydf['Girls']=df['girls']
   mydf['Women']=df['women']
   mydf['Men']=df['men']
-
-  mydf['Rural']=df['Rural']
-  #mydf=balance_panel(mydf)
+  mydf['mkt'] = 1
 
   # Order so year is second level
   mydf.index.set_names(['t','j'],inplace=True)
-  mydf.index=mydf.index.reorder_levels([1,0])
+  mydf = mydf.reset_index().set_index(['j','t','mkt'])
 
-  mydf.sortlevel(level=0,inplace=True)
+  mydf.sortlevel(inplace=True)
 
-  #print "Reordered index:"
-  #print mydf.head()
+  z=mydf[['Boys','Girls','Men','Women','log HSize']]
 
-  #expdf=mydf.loc[:,exps.keys()].replace(0,np.nan) # Zeros to NaN
+  # Define market and corresponding controls here.
+  # A list of tuples of (market,controls)
+  M = (('Constant',['Rural','Region']),
+       (['Rural'],['Region']),
+       (['Rural','Region'],[]))
 
-  z=mydf[['Boys','Girls','Men','Women','log HSize','Rural']]
+  A=OrderedDict()
+  CE=OrderedDict()
+  D=OrderedDict()
+  BPHI=OrderedDict()
+  LOGL=OrderedDict()
+  for m in M:
+      mydf.reset_index(inplace=True)
+      mydf['mkt']=mydf[m[0]]
+      mydf = mydf.set_index(['j','t','mkt'])
+      y=np.log(mydf[expdf.columns])
+      Z=pd.concat([z,mydf[m[1]]],axis=1)
+
+      a,ce,d = nd.estimate_reduced_form(y,Z)
+      bphi,logL = nd.get_loglambdas(ce)
+
+      A[m[0],
+    
+    
+
  
-  market=None #mydf['Rural']
 
-  y=np.log(mydf[expdf.columns])
+  ####################################
+  # Now set up market prices
+  # Define numeraire good here!  If None, use natural price index
+
+  #market_index='Rural' # Variable indicating what market hh is in.
+  #numeraire = 'Rice'
+
+  #market=pd.Series(mydf[market_index],name='market')
+  #prices.index=prices.index.reorder_levels([1,0,2]) # Make index order match prices
+
+  # Choose one...
+  #prices = prices['market'] # Only use market prices
+  #prices = prices[['farmgate','market']].sum(axis=1) # Use both mkt & farmgate prices
+
+  #prices.index.names = ['j','t','m','Item']
+
+  #pricedf=nd.group_expenditures(prices.unstack(),exps)
+  #pricedf=pricedf.replace(0,np.nan) # Zeros to NaN
+
+  #pricedf['market'] = market
+
+  # Also give prices for good to be declared numeraire.
+  # E.g., here are median rice prices and onion prices in different years from LSMS/Uganda/MANIFEST.org:
+  #market_prices = pricedf.reset_index().groupby(['t','market']).median()
+
 #+end_src
 
-
-* Generic Code
-#+name: setup
-#+begin_src python :exports none
-import pylab as pl
-import pandas as pd
-import numpy as np
-import sys
-import cycler
-import matplotlib as mpl
-
-#mpl.style.use(['fivethirtyeight','bw']) 
-
-#+end_src
 
 
