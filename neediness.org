@@ -823,7 +823,7 @@ to estimate any missing prices.
       b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
       b = b.T
 
-      d = pd.DataFrame(d,index=z.columns).T
+      d = pd.concat(d.values())
 
       out = [b.add(a,axis=0),ce,d]
       if return_se:
@@ -1008,7 +1008,7 @@ to estimate any missing prices.
 
 #+results: estimate_reduced_form
 
-* TODO Extraction of Elasticities and Neediness
+* Extraction of Elasticities and Neediness
 #+name: get_loglambdas
 #+begin_src python :noweb no-export :results output :tangle neediness.py
   import pandas as pd
@@ -1042,7 +1042,7 @@ to estimate any missing prices.
       loglambdas=loglambdas/phi
 
       loglambdas=pd.Series(loglambdas,name='loglambda')
-      bphi=pd.Series(b*phi,index=e.columns)
+      bphi=pd.Series(b*phi,index=e.columns,name=r'\phi\beta')
 
       if TEST:
           foo=pd.DataFrame(-np.outer(bphi,loglambdas).T,index=loglambdas.index,columns=bphi.index)
@@ -1176,12 +1176,13 @@ We begin by generating some artificial data on expenditures.
   <<lambdas_dgp>> #lambdas
   <<prices_dgp>> # prices
   <<characteristics_dgp>> # characteristics
+
   <<expenditures_dgp>>
 
-  def artificial_data(T=2,N=120,n=4,sigma_e=0.001):
+  def artificial_data(T=2,N=120,M=1,n=4,sigma_e=0.001):
 
       # truth=(beta,lambdas,characteristics,prices)
-      x,truth=expenditures(T,N,n,beta=np.linspace(1,3,n),sigma_eps=sigma_e)
+      x,truth=expenditures(T,N,M,n,beta=np.linspace(1,3,n),sigma_eps=sigma_e)
 
       y=np.log(x)
 
@@ -1200,8 +1201,7 @@ We begin by generating some artificial data on expenditures.
   <<get_loglambdas>>
   <<df_utils>>
 
-  y,truth=artificial_data(T=2,N=50,n=5,sigma_e=1e-8)
-  #y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
+  y,truth=artificial_data(T=2,N=50,M=2,n=5,sigma_e=1e-8)
 
   y['mkt']=1
   y=y.reset_index().set_index(['j','t','mkt'])
@@ -1384,7 +1384,7 @@ We begin by generating some artificial data on expenditures.
 #+BEGIN_SRC python :noweb no-export :results silent :exports code
   <<measurement_error_dgp>>
 
-  def expenditures(T,N,n,beta,mu_phi=0,sigma_phi=0.1,mu_eps=0,sigma_eps=1.):
+  def expenditures(T,N,M,n,beta,mu_phi=0,sigma_phi=0.1,mu_eps=0,sigma_eps=1.):
 
       if len(beta.shape)<2:
           Theta=np.matrix(np.diag(beta))
@@ -1393,11 +1393,11 @@ We begin by generating some artificial data on expenditures.
           beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
 
       l=lambdas(T,N)
-      dz=characteristics(T,N)
+      dz=np.c_[characteristics(T,N), characteristics(T,N)]
       L=np.reshape(l,(T,N,1)) 
       p=prices(T,n)
 
-      x=np.exp(np.kron(np.log(L),-beta) + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n)) + np.tile(np.log(dz).reshape((T,N,1)),(1,1,n)))
+      x=np.exp(np.kron(np.log(L),-beta) + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n)) + np.tile(np.log(dz).sum(axis=0).reshape((T,N,1)),(1,1,n)))
 
       phi,e=measurement_error(T,N,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
       
@@ -1409,7 +1409,7 @@ We begin by generating some artificial data on expenditures.
       x=pd.Panel(x.T,items=['x%d' % i for i in range(n)]).to_frame()
       x.index.set_names(['j','t'],inplace=True)
 
-      dz=pd.DataFrame(pd.DataFrame(dz).T.stack(),index=x.index,columns=['z%d' % i for i in range(1)])
+      dz=pd.DataFrame(pd.DataFrame(dz).T.stack(),index=x.index,columns=['z%d' % i for i in range(dz.shape[0])])
       l=pd.DataFrame(pd.DataFrame(l).T.stack(),index=x.index)
       p=pd.DataFrame(p,columns=x.columns,index=x.index.levels[1])
 
