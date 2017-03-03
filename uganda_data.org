@@ -1,13 +1,12 @@
 * Ugandan LSMS Data
 The following sets up a dataframe from Ugandan data; it relies on code
 from =Data/LSMS/Uganda/MANIFEST.org= to create a pickled pd.DataFrame
-=Data/LSMS/Uganda/tmp/uganda.df=; also on a file =Data/Uganda/expenditure_codes= which
-provides a mapping of codes for different expenditure items into
-particular food categories.  
+=Data/LSMS/Uganda/tmp/uganda.df=; also on a file
+=Data/Uganda/expenditure_codes.pickle= which provides a mapping of
+codes for different expenditure items into particular food categories.
 
-The argument "expenditures" should be set to a string describing a
-particular set of goods.
-
+Output from this routine should include a pair of =pd.DataFrames=
+indexed by 
 #+name: uganda_data
 #+begin_src python :noweb no-export :results output raw table :tangle uganda_data.py
   import pandas as pd
