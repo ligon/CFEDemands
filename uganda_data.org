@@ -6,9 +6,33 @@ from =Data/LSMS/Uganda/MANIFEST.org= to create a pickled pd.DataFrame
 codes for different expenditure items into particular food categories.
 
 Output from this routine should include a pair of =pd.DataFrames=
-indexed by 
+indexed by =(j,t,mkt)=.  The  first is called =y=, with columns
+corresponding to log expenditures (zero expenditures should be set to
+=NaN=).    The second is called =z=, with columns corresponding to
+various household characteristics to be controlled for in the demand
+estimation.  
+
+Other inputs to the routine include information on how markets are to
+be defined; conceptually,  these are areas (ordinarily geographical)
+within which we expect the Law of One Price to hold,  at least
+approximately.  This involves specifying a variable in =uganda.df=
+which gives an indication of what market a given  household resides
+in.  Examples might include region, or a rural/urban identifier.  If
+empty, it's assumed that  all households live in a common market.
+
+#+name: market
+| Region |
+
+A final input is a list of variables in =uganda.df= of household
+characteristics, to be controlled for in the demand regressions.  This
+will typically include information on household composition.  Note
+that this list must /not/ include the variables which define the market.
+
+#+name: controls
+| Boys | Girls | Men | Women | log HSize | Rural |
+
 #+name: uganda_data
-#+begin_src python :noweb no-export :results output raw table :tangle uganda_data.py
+#+begin_src python :noweb no-export :var MARKET=market[0] :var CONTROLS=controls[0] :results output raw table :tangle uganda_data.py
   import pandas as pd
   import numpy as np
   import sys
@@ -16,97 +40,82 @@ indexed by
   sys.path.append('../Empirics')
   import neediness as nd
 
-  exps=pd.read_pickle('../Data/Uganda/expenditure_codes.pickle')
+  def uganda_data(MARKET=MARKET,CONTROLS=CONTROLS,DataDir='../Data/Uganda/'):
+      """Return log expenditures y, household characteristics z, and prices.
+      """
 
-  try:
-      df=pd.read_pickle('../Data/Uganda/uganda.df')
-      prices=pd.read_pickle('../Data/Uganda/food_prices.df')
-  except IOError:
-      print "Need to build ../Data/{uganda,food_prices}.df (using code in LSMS/Uganda/MANIFEST.org)."
+      assert len(set(MARKET).intersection(CONTROLS))==0, "Controls must not include market."
 
-  expdf=nd.group_expenditures(df,exps)
+      exps=pd.read_pickle(DataDir+'/expenditure_codes.pickle')
 
-  expdf=expdf.replace(0,np.nan) # Zeros to NaN
+      try:
+          df=pd.read_pickle(DataDir+'/uganda.df')
+          prices=pd.read_pickle(DataDir+'/food_prices.df')
+      except IOError:
+          print "Need to build {uganda,food_prices}.df (using code in LSMS/Uganda/MANIFEST.org)."
 
-  # Drop goods where too few observations to reliably estimate covariance matrix
-  expdf=nd.drop_columns_wo_covariance(expdf,min_obs=30,VERBOSE=False)
+      expdf=nd.group_expenditures(df,exps)
 
-  try:
-      df['Rural']=(~df['urban']).astype('int32')
-  except TypeError: # String instead of number?
-      df['Rural']=df['urban'].apply(lambda s: s.lower()=='rural').astype('int32')
+      expdf=expdf.replace(0,np.nan) # Zeros to NaN
 
-  df.rename(column={'region','Region'},inplace=True)
+      # Drop goods where too few observations to reliably estimate covariance matrix
+      expdf=nd.drop_columns_wo_covariance(expdf,min_obs=30,VERBOSE=False)
 
-  mydf=expdf.copy()
-  mydf['HHSize']=df[['boys','girls','women','men']].sum(axis=1)
-  mydf['HHSize'].replace(to_replace=[0],value=[np.NaN],inplace=True)
-  mydf['log HSize']=np.log(mydf['HHSize'])
-  mydf['Boys']=df['boys']
-  mydf['Girls']=df['girls']
-  mydf['Women']=df['women']
-  mydf['Men']=df['men']
-  mydf['mkt'] = 1
+      # Fix up some variables used as characteristics
+      df.rename(columns={'region':'Region'},inplace=True)
 
-  # Order so year is second level
-  mydf.index.set_names(['t','j'],inplace=True)
-  mydf = mydf.reset_index().set_index(['j','t','mkt'])
+      mydf=expdf.copy()
+      mydf['HHSize']=df[['boys','girls','women','men']].sum(axis=1)
+      mydf['HHSize'].replace(to_replace=[0],value=[np.NaN],inplace=True)
+      mydf['log HSize']=np.log(mydf['HHSize'])
+      mydf['Boys']=df['boys']
+      mydf['Girls']=df['girls']
+      mydf['Women']=df['women']
+      mydf['Men']=df['men']
+      mydf['Rural']=df['urban']
+      mydf['Region']=df['Region']
 
-  mydf.sortlevel(inplace=True)
+      # Order so year is second level
+      mydf.index.set_names(['t','j'],inplace=True)
+      mydf = mydf.reset_index().set_index(['j','t'])
 
-  z=mydf[['Boys','Girls','Men','Women','log HSize']]
+      mydf.sortlevel(inplace=True)
 
-  # Define market and corresponding controls here.
-  # A list of tuples of (market,controls)
-  M = (('Constant',['Rural','Region']),
-       (['Rural'],['Region']),
-       (['Rural','Region'],[]))
-
-  A=OrderedDict()
-  CE=OrderedDict()
-  D=OrderedDict()
-  BPHI=OrderedDict()
-  LOGL=OrderedDict()
-  for m in M:
       mydf.reset_index(inplace=True)
-      mydf['mkt']=mydf[m[0]]
+      if len(MARKET[0]):
+          mydf['mkt']=mydf[MARKET]
+      else:
+          mydf['mkt']=1
+
       mydf = mydf.set_index(['j','t','mkt'])
+
       y=np.log(mydf[expdf.columns])
-      Z=pd.concat([z,mydf[m[1]]],axis=1)
-
-      a,ce,d = nd.estimate_reduced_form(y,Z)
-      bphi,logL = nd.get_loglambdas(ce)
-
-      A[m[0],
-    
-    
-
+      z=mydf[CONTROLS]
  
+      ####################################
+      # Now set up market prices
 
-  ####################################
-  # Now set up market prices
-  # Define numeraire good here!  If None, use natural price index
+      prices.index=prices.index.reorder_levels([1,0,2]) # Make index order match prices
 
-  #market_index='Rural' # Variable indicating what market hh is in.
-  #numeraire = 'Rice'
+      prices.index.names = ['j','t','Item']
 
-  #market=pd.Series(mydf[market_index],name='market')
-  #prices.index=prices.index.reorder_levels([1,0,2]) # Make index order match prices
+      pricedf=nd.group_expenditures(prices['market'].unstack(),exps)
+      pricedf=pricedf.replace(0,np.nan) # Zeros to NaN
 
-  # Choose one...
-  #prices = prices['market'] # Only use market prices
-  #prices = prices[['farmgate','market']].sum(axis=1) # Use both mkt & farmgate prices
+      if len(MARKET[0]):
+          pricedf['mkt']=mydf.reset_index('mkt')[MARKET]
+      else:
+          pricedf['mkt']=1
 
-  #prices.index.names = ['j','t','m','Item']
+      pricedf = pricedf.reset_index().set_index(['j','t','mkt'])
 
-  #pricedf=nd.group_expenditures(prices.unstack(),exps)
-  #pricedf=pricedf.replace(0,np.nan) # Zeros to NaN
+      # Also give prices for good to be declared numeraire.
+      # E.g., here are median rice prices and onion prices in different years from LSMS/Uganda/MANIFEST.org:
+      prices = pricedf.reset_index().groupby(['t','mkt']).median()
 
-  #pricedf['market'] = market
+      return y,z,prices
 
-  # Also give prices for good to be declared numeraire.
-  # E.g., here are median rice prices and onion prices in different years from LSMS/Uganda/MANIFEST.org:
-  #market_prices = pricedf.reset_index().groupby(['t','market']).median()
+  y,z,prices=uganda_data()
 
 #+end_src
 

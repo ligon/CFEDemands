@@ -783,7 +783,7 @@ We begin by generating some artificial data on expenditures.
 
 #+results: test_estimate_with_missing
 
-* Monte Carlo Data Generating Process    
+* Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
  data from this to estimate neediness, checking that we can recover
  the parameters of the data-generating process.
