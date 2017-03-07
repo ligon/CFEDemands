@@ -1,0 +1,163 @@
+#    -*- mode: org -*-
+
+
+Archived entries from file /home/ligon/Research/VESDemand/Empirics/neediness.org
+
+
+* COMMENT Brand (2006) algorithm for iterative rank-1 SVD updates
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2017-01-17 Tue 08:03
+  :ARCHIVE_FILE: ~/Research/VESDemand/Empirics/neediness.org
+  :ARCHIVE_OLPATH: Rank 1 SVD with Missing Data
+  :ARCHIVE_CATEGORY: neediness
+  :END:
+
+This is supposed to handle rank one updates to an SVD decomposition of
+X, with usv.T=X.  However, its calculation of the right-singular
+vectors v seems entirely broken, and its use otherwise suspect (this
+is probably the  fault of the implementation rather than of the
+algorithm). 
+#+name: brand2006
+#+begin_src python :noweb no-export :results output :tangle neediness.py
+  """
+  Adapted from code in version 0.7.4 of gensim
+  (https://pypi.python.org/pypi/gensim/0.7.4).  That code is licensed
+  under the LGPL (http://www.gnu.org/licenses/lgpl.html).  I assert that
+  this notice satisfies the requirements imposed on on this work
+  enumerated in Section 5 ("Combined Libraries") of the LGPL.
+  """ 
+
+  import logging 
+  import numpy
+  np=numpy
+
+  logger = logging.getLogger('lsimodel')
+  logger.setLevel(logging.INFO)
+
+
+
+  def svdUpdate(U, S, V, a, b):
+      """
+      Update SVD of an (m x n) matrix `X = U * S * V^T` so that
+      `[X + a * b^T] = U' * S' * V'^T`
+      and return `U'`, `S'`, `V'`.
+
+      The original matrix X is not needed at all, so this function implements one-pass
+      streaming rank-1 updates to an existing decomposition. 
+
+      `a` and `b` are (m, 1) and (n, 1) matrices.
+
+      You can set V to None if you're not interested in the right singular
+      vectors. In that case, the returned V' will also be None (saves memory).
+
+        This is the rank-1 update as described in
+      ,**Brand, 2006: Fast low-rank modifications of the thin singular value decomposition**,
+      but without separating the basis from rotations.
+      """
+
+      def fixmiss(c,S,U):
+          """Interpolate to deal with missing values in vector c."""
+
+          miss=np.isnan(c).nonzero()[0]
+          nonmiss=(~np.isnan(c)).nonzero()[0]
+
+          B=S*np.linalg.pinv(U[nonmiss,:]*S)*c[nonmiss]
+          p = c[nonmiss] - U[nonmiss,:]*B
+          Ra = np.linalg.norm(p)
+          if len(miss)>0:
+            chat=U[miss,:]*S*B
+          else:
+            chat = c
+
+      return chat,p,Ra
+
+      # convert input to matrices (no copies of data made if already numpy.ndarray or numpy.matrix)
+      S = numpy.asmatrix(S)
+      U = numpy.asmatrix(U)
+      if V is not None:
+          V = numpy.asmatrix(V)
+
+    
+      b = numpy.asmatrix(b).reshape(b.size, 1)
+
+      rank = S.shape[0]
+
+      # eq (6)
+      a,p,Ra = fixmiss(numpy.asmatrix(a).reshape(a.size, 1),S,U)
+      #m = U.T * a   # These are for the non-missing case
+      #p = a - U * m
+      #Ra = numpy.sqrt(p.T * p)
+      if float(Ra) < 1e-10:
+          logger.debug("input already contained in a subspace of U; skipping update")
+          return U, S, V
+      P = (1.0 / float(Ra)) * p
+
+      if V is not None:
+          # eq (7)
+          n = V.T * b
+          q = b - V * n
+          Rb = numpy.sqrt(q.T * q)
+          if float(Rb) < 1e-10:
+              logger.debug("input already contained in a subspace of V; skipping update")
+              return U, S, V
+          Q = (1.0 / float(Rb)) * q
+      else:
+          n = numpy.matrix(numpy.zeros((rank, 1)))
+          Rb = numpy.matrix([[1.0]])    
+
+      if float(Ra) > 1.0 or float(Rb) > 1.0:
+          logger.debug("insufficient target rank (Ra=%.3f, Rb=%.3f); this update will result in major loss of information"
+                        % (float(Ra), float(Rb)))
+
+      # eq (8)
+      K = numpy.matrix(numpy.diag(list(numpy.diag(S)) + [0.0])) + numpy.bmat('m ; Ra') * numpy.bmat('n ; Rb').T
+
+      # eq (5)
+      u, s, vt = numpy.linalg.svd(K, full_matrices = False)
+      tUp = numpy.matrix(u[:, :rank])
+      tVp = numpy.matrix(vt.T[:, :rank])
+      tSp = numpy.matrix(numpy.diag(s[: rank]))
+      Up = numpy.bmat('U P') * tUp
+      if V is not None:
+          Vp = numpy.bmat('V Q') * tVp
+      else:
+          Vp = None
+      Sp = tSp
+
+      return Up, Sp, Vp
+#+end_src
+
+
+
+* Modified IncPACK algorithm 
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2017-02-15 Wed 10:14
+  :ARCHIVE_FILE: ~/Research/VESDemand/Empirics/neediness.org
+  :ARCHIVE_OLPATH: Rank 1 SVD with Missing Data/Rank 1 SVD Approximation to Matrix with Missing Data
+  :ARCHIVE_CATEGORY: neediness
+  :END:
+This relies on a modification to the interative SVD algorithm =IncPACK=.
+#+name: svd_missing
+#+begin_src python :noweb no-export :results output :tangle svd_missing.py 
+  import numpy as np
+  from oct2py import Oct2Py, Oct2PyError
+  octave=Oct2Py()
+  octave.addpath('../utils/IncPACK/')
+  octave.addpath('../utils/nan-3.1.1/')
+
+  def mysvd(X):
+      """Wrap np.linalg.svd so that output is "thin" and X=usv.T.
+      """
+      u,s,vt = np.linalg.svd(X,full_matrices=False)
+      s=np.diag(s)
+      v = vt.T
+      return u,s,v
+
+  def svd_missing(X):
+      [u,s,v]=octave.svd_missing(X.as_matrix())
+      s=np.matrix(s)
+      u=np.matrix(u)
+      v=np.matrix(v)
+      return u,s,v
+
+#+end_src
