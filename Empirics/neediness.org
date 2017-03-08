@@ -487,11 +487,16 @@ to estimate any missing prices.
           if VERBOSE: print(Item)
 
           lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
+
           # Calculate deviations
-          lhs=lhs-lhs.mean(axis=0)
+          lhsbar=lhs.mean(axis=0)
+          assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
+          lhs=lhs-lhsbar
           lhs=lhs-lhs.mean(axis=0)
 
-          rhs=rhs-rhs.mean(axis=0)
+          rhsbar=rhs.mean(axis=0)
+          assert ~np.any(np.isnan(rhsbar)), "Missing data in lhs?"
+          rhs=rhs-rhsbar
           rhs=rhs-rhs.mean(axis=0)
 
           # Need to make sure time-market effects sum to zero; add
@@ -507,7 +512,7 @@ to estimate any missing prices.
           ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
           if return_v or return_se:
-              V[Item]=arellano_robust_cov(z,mye.iloc[:,0])
+              V[Item]=arellano_robust_cov(z,mye)
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
           #d[Item]=myb.iloc[:,:z.shape[1]].as_matrix()[0] # reduced form coefficients on characteristics
@@ -1130,8 +1135,8 @@ We begin by generating some artificial data on expenditures.
 
       Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
       """
-      x = pd.DataFrame(x)
-      y = pd.DataFrame(y)
+      x = pd.DataFrame(x.copy())
+      y = pd.DataFrame(y.copy())
       if y.shape[1]==1:
           y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
 
@@ -1153,10 +1158,11 @@ We begin by generating some artificial data on expenditures.
       return newdf
 
   def arellano_robust_cov(X,u,clusterby=['t','mkt']):
+      X,u = drop_missing([X,u])
       clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
       if  len(clusters)>1:
           # Take out time averages
-          u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()) 
+          u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
           X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
           Xu=X.mul(u,axis=0)
           if len(X.shape)==1:
