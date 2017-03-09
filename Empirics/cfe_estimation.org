@@ -1,5 +1,5 @@
 :SETUP:
-#+TITLE: Code and Methods for Estimating Neediness
+#+TITLE: Code and Methods for Estimating Constant Frisch Elasticity Demand Systems
 #+AUTHOR: Ethan Ligon
 #+PROPERTY: header-args:python :results output :noweb no-export :exports none :comments link :prologue (format "# Tangled on %s" (current-time-string))
 :END:
@@ -11,7 +11,7 @@ columns corresponding to different expenditure items, and rows
 corresponding to period-households, indexed by $(t,j)$.
 
 #+name: agg_shares_and_mean_shares
-#+begin_src python :exports none :tangle neediness.py
+#+begin_src python :exports none :tangle cfe_estimation.py
   import pylab as pl 
   import pandas as pd
   import numpy as np
@@ -112,7 +112,7 @@ corresponding to period-households, indexed by $(t,j)$.
 #+end_src
 
 #+name: group_expenditures
-#+begin_src python :noweb yes :tangle neediness.py
+#+begin_src python :noweb yes :tangle cfe_estimation.py
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
@@ -216,7 +216,7 @@ approximation to that matrix using just the  first left eigenvector,
 the first eigenvalue, andn the first right eigenvector.  
 
 #+name: svd_rank1_approximation_with_missing_data
-#+begin_src python :noweb no-export :results output :tangle neediness.py
+#+begin_src python :noweb no-export :results output :tangle cfe_estimation.py
   import pandas as pd
   <<svd_missing>>
 
@@ -446,7 +446,7 @@ are supplied it's possible to identify Frisch elasticities $\beta$ and
 to estimate any missing prices.  
 
 #+name: estimate_reduced_form
-#+BEGIN_SRC python :noweb no-export :results output :tangle neediness.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle cfe_estimation.py
   import pandas as pd
   import warnings
   import sys
@@ -495,7 +495,7 @@ to estimate any missing prices.
           lhs=lhs-lhs.mean(axis=0)
 
           rhsbar=rhs.mean(axis=0)
-          assert ~np.any(np.isnan(rhsbar)), "Missing data in lhs?"
+          assert ~np.any(np.isnan(rhsbar)), "Missing data in rhs?"
           rhs=rhs-rhsbar
           rhs=rhs-rhs.mean(axis=0)
 
@@ -535,10 +535,9 @@ to estimate any missing prices.
       return out
 #+END_SRC
 
-
-* Extraction of Elasticities and Neediness
+* Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
-#+begin_src python :noweb no-export :results output :tangle neediness.py
+#+begin_src python :noweb no-export :results output :tangle cfe_estimation.py
   import pandas as pd
 
   def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
@@ -787,6 +786,144 @@ We begin by generating some artificial data on expenditures.
 #+end_src
 
 #+results: test_estimate_with_missing
+
+* Estimation of Price Elasticities
+  Here we develop two distinct estimators for obtaining estimates of
+  price elasticities \beta in the demand relationship
+  \begin{equation}
+  \label{eq:demand}
+     \log c_{it}^j = -\beta_i\log p_{itk} + \delta_i^\T z_t^j - \beta_i\log\lambda^j_t,
+  \end{equation}
+  or the expenditure relationship
+  \begin{equation}
+  \label{eq:expenditure}
+     \log x_{it}^j = (1-\beta_i)\log p_{itk} + \delta_i^\T z_t^j - \beta_i\log\lambda^j_t,
+  \end{equation}
+  given data on log prices $\log p_{itk}$ for good $i$ at time $t$ in
+  market $k$, characteristics $z_t^j$, and either consumption $c_{it}^j$
+  or expenditures $x_{it}^j$.  We do not assume that $\lambda^j_t$ is
+  observed, but do  assume that its log is orthogonal to log prices
+  and characteristics.  In this case, we can  simply use a least
+  squares estimator to directly recover an estimate of either $-\beta_i$ or
+  $1-\beta_i$.
+
+#+name: direct_price_elasticities
+#+BEGIN_SRC python :tangle cfe_estimation.py
+
+  def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False):
+      """Estimate reduced-form Frisch expenditure/demand system.
+
+         Inputs:
+           - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
+                 where j indexes the household, t the period, and mkt the market.  
+                 Columns are different expenditure items.
+
+           - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+                 prices for different goods across columns.
+
+           - z : pd.DataFrame of household characteristics; index should match that of y.
+
+        Ethan Ligon                                            March 2017
+      """
+      assert(y.index.names==['j','t','mkt'])
+      assert(z.index.names==['j','t','mkt'])
+
+      periods = list(set(y.index.get_level_values('t')))
+      mkts = list(set(y.index.get_level_values('mkt')))
+      sed = pd.DataFrame(columns=y.columns)
+      a = pd.Series(index=y.columns)
+      b = OrderedDict() #pd.DataFrame(index=y.columns)
+      d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
+      ce = pd.DataFrame(index=y.index,columns=y.columns)
+      V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
+
+      for i,Item in enumerate(y.columns):
+          if VERBOSE: print(Item)
+          if np.any(np.isnan(p[Item])): continue # Don't estimate with missing prices
+
+          rhs = z.reset_index('j').join(p[Item]).reset_index().set_index(['j','t','mkt'])
+          rhs.rename(columns={Item:'log p'},inplace=True)
+
+          lhs,rhs=drop_missing([y.iloc[:,[i]],rhs])
+
+          rhs['Constant']=1
+
+          myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+          ce[Item]=mye
+
+          if return_v or return_se:
+              V[Item]=arellano_robust_cov(rhs,mye)
+              sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+
+          d[Item]=myb[z.columns] # reduced form coefficients on characteristics
+
+          a[Item] = myb['Constant']
+          b[Item] = myb['log p'].values[0]
+
+      b = pd.Series(b)
+
+      d = pd.concat(d.values())
+
+      out = [a,b,ce,d]
+      if return_se:
+          out += [sed]
+      if return_v:
+          out += [V]
+      return out
+#+END_SRC
+
+  A second approach is /indirect/, obtaining estimated elasticities by
+  regressing the good-time-market effects obtained from
+  =estimated_reduced_form= on $\log p_{itk} - \mbox{Proj}(\log
+  p_{itk} | \bar z_{tk)$.  This exploits the relationship between
+  these latent variables and implicit prices.
+
+#+BEGIN_SRC python :tangle cfe_estimation.py
+  def indirect_price_elasticities(a,p,zbar):
+      """Estimate reduced-form Frisch expenditure/demand system.
+
+         Inputs:
+           - a : pd.DataFrame of good-time-market effects estimated by =estimate_reduced_form=,
+                 indexed by (t,mkt), where t indexes the period, and mkt the market.  
+                 Columns are different expenditure items.
+
+           - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+                 prices for different goods across columns.
+
+           - zbar : pd.DataFrame of average household characteristics; index should match that of a.
+
+        Ethan Ligon                                            March 2017
+      """
+      assert(a.index.names==['t','mkt'])
+      assert(zbar.index.names==['t','mkt'])
+
+      # Filter p
+      X=zbar.copy()
+      X['Constant'] = 1
+      y = p.dropna(how='any',axis=1)
+
+      # pe are filtered log prices
+      bp,pe = ols(X,y,return_se=False,return_e=True)
+
+      X = pe.copy()
+
+      Xm=np.matrix((X-X.mean()).as_matrix())
+
+      ym=np.matrix((a-a.mean()).as_matrix())
+    
+      B=OrderedDict()
+      SE=OrderedDict()
+      for i,Item in enumerate(y.columns):
+          B[Item] = np.linalg.lstsq(Xm[:,i],ym[:,i])[0][0,0]
+          e = ym[:,i] - Xm[:,i]*B[Item]
+          SE[Item] = np.sqrt(np.var(e)/np.var(Xm[:,i]))
+
+      B = pd.Series(B)
+      SE = pd.Series(SE)
+      return B,SE
+
+#+END_SRC
+  
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
