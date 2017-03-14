@@ -161,3 +161,84 @@ This relies on a modification to the interative SVD algorithm =IncPACK=.
       return u,s,v
 
 #+end_src
+
+* Order matters when data is missing!                              :noexport:
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2017-03-14 Tue 15:39
+  :ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/cfe_estimation.org
+  :ARCHIVE_OLPATH: Rank 1 SVD with Missing Data/Rank 1 SVD Approximation to Matrix with Missing Data
+  :ARCHIVE_CATEGORY: cfe_estimation
+  :END:
+By moving observations with  more missing data to the "end" of the
+thin matrix, we (invariably?) obtain better approximations if we use
+the updating SVD approach.
+
+#+BEGIN_SRC python :var percent_missing=0.2 :var N=20 :tangle foo.py
+  <<df_utils>>
+  <<svd_rank1_approximation_with_missing_data>>
+
+  def random_rank1_matrix(n=100,m=2):
+      a=np.random.random(size=(n,1))
+      a=a/np.linalg.norm(a)
+      b=np.random.random(size=(m,1)).T
+      b=b/np.linalg.norm(b)
+
+      return a.dot(b)
+
+  np.random.seed(0)
+  d=[]
+  
+  for i in range(N):
+      #print i
+      X0=pd.DataFrame(random_rank1_matrix(n=100,m=4))
+      X=X0.copy()
+      X.iloc[np.random.random_sample(X.shape)<percent_missing]=np.nan
+
+      Xhat0=svd_rank1_approximation_with_missing_data(X,return_usv=False,VERBOSE=False,MISSLAST=False)
+      Xhat1=svd_rank1_approximation_with_missing_data(X,return_usv=False,VERBOSE=False,MISSLAST=True)
+
+      d.append(df_norm(Xhat0-X0)/np.linalg.norm(X0) - df_norm(Xhat1-X0)/np.linalg.norm(X0))
+
+  d=np.array(d)
+  print("Proportion (out of %d) for which approximation is better with missing values last is %5.4f." % (N,np.mean(d>0)))
+
+#+END_SRC
+
+#+results:
+: Proportion (out of 20) for which approximation is better with missing values last is 1.0000.
+
+    
+
+* Tuning truncation parameter for missing-value svds
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2017-03-14 Tue 15:40
+  :ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/cfe_estimation.org
+  :ARCHIVE_OLPATH: Extraction of Frisch Elasticities and Neediness
+  :ARCHIVE_CATEGORY: cfe_estimation
+  :END:
+
+By extracting estimates of \phi\beta from the covariance matrix, we
+ensure that those estimates depend on missing data only to the extent
+that the covariance matrix itself depends on  those data.  If we
+assume that data is missing at random, then the naive estimator
+implemented in =pandas= will be consistent, though in finite samples
+it may not be positive definite.  
+
+#+BEGIN_SRC python :tangle missing_svd_tuning.py
+  <<svd_rank1_approximation_with_missing_data>>
+  <<get_loglambdas>>
+
+  x=pd.read_pickle('../Results/Uganda/Eig/ce.df') # Residuals from reduced form
+
+  B=[pd.read_pickle('../Results/Uganda/goods.df')[r'$\phi\beta_i$']]
+  L=[pd.read_pickle('../Results/Uganda/loglambda.df').stack()]
+  for r in range(1,11):
+      print("Max rank for missing inference: %d" % r)
+      b,l=get_loglambdas(x,TEST=True,max_rank=r)
+      B.append(b)
+      L.append(l)
+  
+  L=pd.concat(L,axis=1,names=range(11))
+  B=pd.concat(B,axis=1,names=range(11))
+
+#+END_SRC

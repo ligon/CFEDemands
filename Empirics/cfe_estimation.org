@@ -11,7 +11,7 @@ columns corresponding to different expenditure items, and rows
 corresponding to period-households, indexed by $(t,j)$.
 
 #+name: agg_shares_and_mean_shares
-#+begin_src python :exports none :tangle cfe_estimation.py
+#+begin_src python :exports none :tangle ../cfe/estimation.py
   import pylab as pl 
   import pandas as pd
   import numpy as np
@@ -112,7 +112,7 @@ corresponding to period-households, indexed by $(t,j)$.
 #+end_src
 
 #+name: group_expenditures
-#+begin_src python :noweb yes :tangle cfe_estimation.py
+#+begin_src python :noweb yes :tangle ../cfe/estimation.py
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.iteritems():
@@ -216,7 +216,7 @@ approximation to that matrix using just the  first left eigenvector,
 the first eigenvalue, andn the first right eigenvector.  
 
 #+name: svd_rank1_approximation_with_missing_data
-#+begin_src python :noweb no-export :results output :tangle cfe_estimation.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
   import pandas as pd
   <<svd_missing>>
 
@@ -252,53 +252,13 @@ the first eigenvalue, andn the first right eigenvector.
       else: return xhat
 #+end_src
 
-*** Order matters when data is missing! :noexport:
-By moving observations with  more missing data to the "end" of the
-thin matrix, we (invariably?) obtain better approximations if we use
-the updating SVD approach.
-
-#+BEGIN_SRC python :var percent_missing=0.2 :var N=20 :tangle foo.py
-  <<df_utils>>
-  <<svd_rank1_approximation_with_missing_data>>
-
-  def random_rank1_matrix(n=100,m=2):
-      a=np.random.random(size=(n,1))
-      a=a/np.linalg.norm(a)
-      b=np.random.random(size=(m,1)).T
-      b=b/np.linalg.norm(b)
-
-      return a.dot(b)
-
-  np.random.seed(0)
-  d=[]
-  
-  for i in range(N):
-      #print i
-      X0=pd.DataFrame(random_rank1_matrix(n=100,m=4))
-      X=X0.copy()
-      X.iloc[np.random.random_sample(X.shape)<percent_missing]=np.nan
-
-      Xhat0=svd_rank1_approximation_with_missing_data(X,return_usv=False,VERBOSE=False,MISSLAST=False)
-      Xhat1=svd_rank1_approximation_with_missing_data(X,return_usv=False,VERBOSE=False,MISSLAST=True)
-
-      d.append(df_norm(Xhat0-X0)/np.linalg.norm(X0) - df_norm(Xhat1-X0)/np.linalg.norm(X0))
-
-  d=np.array(d)
-  print("Proportion (out of %d) for which approximation is better with missing values last is %5.4f." % (N,np.mean(d>0)))
-
-#+END_SRC
-
-#+results:
-: Proportion (out of 20) for which approximation is better with missing values last is 1.0000.
-
-    
 *** Test of Rank 1 SVD Approximation to Matrix with Missing Data
 
 First, some code to check if approximation works for a simple, small
 scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_example
-#+begin_src python :noweb no-export :results output :tangle svd_rank1_approximation_with_missing_data_example.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/svd_rank1_approximation_with_missing_data_example.py
 import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
@@ -348,7 +308,7 @@ MISSLAST=1
 #+end_example
 
 #+name: svd_rank1_approximation_with_missing_data_test
-#+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle svd_rank1_approximation_with_missing_data_test.py
+#+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle ../cfe/test/svd_rank1_approximation_with_missing_data_test.py
 import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
@@ -385,7 +345,7 @@ else: print
 
 
 *** Test of construction of approximation to CE
-#+begin_src python  :noweb no-export :results output :tangle test.py
+#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
   import numpy as np
   <<estimate_reduced_form>>
   <<artificial_data>>
@@ -446,7 +406,7 @@ are supplied it's possible to identify Frisch elasticities $\beta$ and
 to estimate any missing prices.  
 
 #+name: estimate_reduced_form
-#+BEGIN_SRC python :noweb no-export :results output :tangle cfe_estimation.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
   import pandas as pd
   import warnings
   import sys
@@ -537,7 +497,7 @@ to estimate any missing prices.
 
 * Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
-#+begin_src python :noweb no-export :results output :tangle cfe_estimation.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
   import pandas as pd
 
   def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
@@ -641,7 +601,7 @@ to estimate any missing prices.
 
 *** Test of get_loglambdas
 #+name: test_get_loglambdas
-#+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle test_get_loglambdas.py
+#+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/test/test_get_loglambdas.py
 import numpy as np
 import pandas as pd
 <<get_loglambdas>>
@@ -668,37 +628,10 @@ Xhat=pd.DataFrame(np.outer(pd.DataFrame(ahat),pd.DataFrame(-bhat).T).T)
 print("Norm of error (svd vs. truth): %f" % (df_norm(Xhat,X)/df_norm(X)))
 #+end_src
 
-*** Tuning truncation parameter for missing-value svds
-
-By extracting estimates of \phi\beta from the covariance matrix, we
-ensure that those estimates depend on missing data only to the extent
-that the covariance matrix itself depends on  those data.  If we
-assume that data is missing at random, then the naive estimator
-implemented in =pandas= will be consistent, though in finite samples
-it may not be positive definite.  
-
-#+BEGIN_SRC python :tangle missing_svd_tuning.py
-  <<svd_rank1_approximation_with_missing_data>>
-  <<get_loglambdas>>
-
-  x=pd.read_pickle('../Results/Uganda/Eig/ce.df') # Residuals from reduced form
-
-  B=[pd.read_pickle('../Results/Uganda/goods.df')[r'$\phi\beta_i$']]
-  L=[pd.read_pickle('../Results/Uganda/loglambda.df').stack()]
-  for r in range(1,11):
-      print("Max rank for missing inference: %d" % r)
-      b,l=get_loglambdas(x,TEST=True,max_rank=r)
-      B.append(b)
-      L.append(l)
-  
-  L=pd.concat(L,axis=1,names=range(11))
-  B=pd.concat(B,axis=1,names=range(11))
-
-#+END_SRC
 *** Artificial data
 We begin by generating some artificial data on expenditures.
 #+name: artificial_data
-#+BEGIN_SRC python :noweb no-export :results output :tangle test.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/artificial_data.py
   import pandas as pd
   <<lambdas_dgp>> #lambdas
   <<prices_dgp>> # prices
@@ -720,7 +653,7 @@ We begin by generating some artificial data on expenditures.
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
-#+begin_src python :noweb no-export :results output :tangle test_estimate_with_missing.py :exports none
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/estimate_with_missing.py :exports none
   import numpy as np
   <<estimate_reduced_form>>
   <<artificial_data>>
@@ -808,7 +741,7 @@ We begin by generating some artificial data on expenditures.
   $1-\beta_i$.
 
 #+name: direct_price_elasticities
-#+BEGIN_SRC python :tangle cfe_estimation.py
+#+BEGIN_SRC python :tangle ../cfe/estimation.py
 
   def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False):
       """Estimate reduced-form Frisch expenditure/demand system.
@@ -878,7 +811,7 @@ We begin by generating some artificial data on expenditures.
   p_{itk} | \bar z_{tk)$.  This exploits the relationship between
   these latent variables and implicit prices.
 
-#+BEGIN_SRC python :tangle cfe_estimation.py
+#+BEGIN_SRC python :tangle ../cfe/estimation.py
   def indirect_price_elasticities(a,p,zbar):
       """Estimate reduced-form Frisch expenditure/demand system.
 
@@ -1083,7 +1016,7 @@ We begin by generating some artificial data on expenditures.
 * Utility Functions
 
 #+name: df_utils
-#+BEGIN_SRC python :noweb no-export :results output :tangle df_utils.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
   import numpy as np
   from scipy import sparse
 
@@ -1102,7 +1035,7 @@ We begin by generating some artificial data on expenditures.
 
   def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
       """
-      Print pd.DataFrame in format which forms an org-table.
+      Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
       Note that headers for code block should include ":results table raw".
 
       Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied, 
