@@ -1,0 +1,12 @@
+This repository contains code for working with Constant Frisch
+Elasticity (CFE) demand systems.  
+
+To install:
+  - Using git :: Clone the repository found at https://bitbucket.org/ligonresearch/cfe_demands to someplace in your
+     filesystem, e.g.,
+     #+BEGIN_SRC bash
+        git clone git@bitbucket.org:ligonresearch/cfe_demands.git /home/jrandom/cfe_demands
+     #+END_SRC
+  - As a python package ::
+
+  

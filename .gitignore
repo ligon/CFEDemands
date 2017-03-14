@@ -8,3 +8,4 @@ foo.py
 /Empirics/test.py
 /Empirics/test_estimate_with_missing.py
 /Empirics/test_get_loglambdas.py
+*.pyc
