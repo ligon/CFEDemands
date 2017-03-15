@@ -8,5 +8,5 @@ sdist: setup.py tangle
 wininst: setup.py tangle
 	python setup.py bdist_wininst
 
-upload: sdist wininst
-	python setup.py upload
+upload: sdist #wininst
+	python setup.py sdist upload
