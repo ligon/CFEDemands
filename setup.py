@@ -8,5 +8,6 @@ setup(
     packages=['cfe',],
     license='Creative Commons Attribution-Noncommercial-ShareAlike 4.0 International license',
     description='Tools for estimating and computing Constant Frisch Elasticity (CFE) demands.',
+    url='https://bitbucket.org/ligonresearch/cfedemands',
     long_description=open('README.txt').read(),
 )
