@@ -1,3 +1,4 @@
+
 =========================================
 Constant Frisch Elasticity Demand Systems
 =========================================
@@ -12,6 +13,9 @@ INSTALLATION
 
         git clone git@bitbucket.org:ligonresearch/cfe_demands.git /home/jrandom/cfe_demands
 
-  2. As a python package:
+  2. As a python package: Unzip/untar the relevant archive, then:
+
+        cd CFEDemands-0.1/
+        sudo python setup.py install
 
   
