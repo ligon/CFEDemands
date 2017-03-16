@@ -9,3 +9,8 @@ foo.py
 /Empirics/test_estimate_with_missing.py
 /Empirics/test_get_loglambdas.py
 *.pyc
+auto*
+*.pyg
+build/
+dist/
+/cfe/test/test_get_loglambdas.py

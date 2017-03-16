@@ -1198,7 +1198,7 @@ We begin by generating some artificial data on expenditures.
 
       Y=[]
       for x in X:
-          Y.append(foo.loc[:,x.columns])
+          Y.append(foo.loc[:,pd.DataFrame(x).columns]) 
 
       return tuple(Y)
 

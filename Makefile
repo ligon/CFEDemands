@@ -9,7 +9,7 @@ wininst: setup.py tangle
 	python setup.py bdist_wininst
 
 localinstall: clean sdist
-	(cd dist; sudo -H pip install CFEDemands*.tar.gz)
+	(cd dist; sudo -H pip install CFEDemands*.tar.gz --upgrade)
 
 upload: sdist #wininst
 	python setup.py sdist upload
