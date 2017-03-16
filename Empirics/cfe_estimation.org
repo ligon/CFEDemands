@@ -53,27 +53,32 @@ corresponding to period-households, indexed by $(t,j)$.
       ax.set_ylabel('Log Mean shares divided by Aggregate shares')
 
       v=ax.axis()
-      i=0
-      for i in range(len(mratio)):
-          name=mratio.ix[i].name # label of expenditure item
 
-          if mratio.iloc[i,0]>0.2:
-              #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
+      if  len(mratio)>=12:
+          i=0
+          for i in range(len(mratio)):
+              name=mratio.ix[i].name # label of expenditure item
 
-              # The key option here is `bbox`. 
-              ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
-                          textcoords='offset points', ha='right', va='bottom',
-                          bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                          arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                          color='red'),fontsize='xx-small')
+              if mratio.iloc[i,0]>0.2:
+                  #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
 
-          if mratio.iloc[i,0]<-0.2:
-              #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
-              ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
-                          textcoords='offset points', ha='left', va='top',
-                          bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                          arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                          color='red'),fontsize='xx-small')
+                  # The key option here is `bbox`. 
+                  ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
+                              textcoords='offset points', ha='right', va='bottom',
+                              bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                              color='red'),fontsize='xx-small')
+
+              if mratio.iloc[i,0]<-0.2:
+                  #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
+                  ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
+                              textcoords='offset points', ha='left', va='top',
+                              bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                              color='red'),fontsize='xx-small')
+      else: #Put labels on xaxis
+          ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
+        
 
       if ConfidenceIntervals>0: # Bootstrap some confidence intervals
           if ConfidenceIntervals==1: ConfidenceIntervals=0.95
@@ -543,7 +548,7 @@ to estimate any missing prices.
       import numpy as np
       return x.quantile([0.25,0.75]).diff().iloc[1]
 
-  def bootstrap_elasticity_stderrs(e,tol=1e-3,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+  def bootstrap_elasticity_stderrs(e,tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
       """Bootstrap estimates of standard errors for \phi\beta.
 
       Takes pd.DataFrame of residuals as input.
