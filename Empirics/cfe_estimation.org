@@ -412,26 +412,39 @@ to estimate any missing prices.
 
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
-  import pandas as pd
-  import warnings
-  import sys
-  from collections import OrderedDict
-  <<df_utils>>
+    import pandas as pd
+    import warnings
+    import sys
+    from collections import OrderedDict
+    <<df_utils>>
 
-  def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
+    def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       """Estimate reduced-form Frisch expenditure/demand system.
 
       Inputs:
-         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-               where j indexes the household, t the period, and mkt the market.  
-               Columns are different expenditure items.
+          - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
+                where j indexes the household, t the period, and mkt the market.  
+                Columns are different expenditure items.
 
-         - z : pd.DataFrame of household characteristics; index should match that of y.
+          - z : pd.DataFrame of household characteristics; index should match that of y.
   
       Ethan Ligon                                            February 2017
       """
-      assert(y.index.names==['j','t','mkt'])
-      assert(z.index.names==['j','t','mkt'])
+      try: # Be a little forgiving if t or mkt index is missing.
+          assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+      except AssertionError:
+          y = y.reset_index()
+          if not 'mkt' in y.columns: y['mkt']=1
+          if not 't' in y.columns: y['t']=1
+          y = y.set_index(['j','t','mkt'])
+    
+      try:
+          assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+      except AssertionError:
+          z = z.reset_index()
+          if not 'mkt' in z.columns: z['mkt']=1
+          if not 't' in z.columns: z['t']=1
+          z = z.set_index(['j','t','mkt'])
 
       periods = list(set(y.index.get_level_values('t')))
       mkts = list(set(y.index.get_level_values('mkt')))
@@ -477,17 +490,16 @@ to estimate any missing prices.
           ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
           if return_v or return_se:
-              V[Item]=arellano_robust_cov(z,mye)
+              V[Item]=arellano_robust_cov(z,ce[Item])
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
-          #d[Item]=myb.iloc[:,:z.shape[1]].as_matrix()[0] # reduced form coefficients on characteristics
           d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
           b[Item] = myb[DateLocD.columns].squeeze()  # Terms involving prices
-          a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - b[Item].dot(DateLocD.mean().values)
+          a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD.mean().values)
 
-      b = pd.DataFrame(b)
-      b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
+      b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
+      #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
       b = b.T
 
       d = pd.concat(d.values())
@@ -499,6 +511,35 @@ to estimate any missing prices.
           out += [V]
       return out
 #+END_SRC
+
+** Test
+   If we use a set of fixed parameters to generate artificial data, we
+   should be able to recover some of these parameters from =estimate_reduced_form=.
+   Below we construct a simple test of this.
+#+BEGIN_SRC python :var T=2 N=3000 n=6 :tangle ../cfe/test/estimate_reduced_form.py
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0001,sigma_eps=0.0001)
+x = x.replace({0.:np.nan}) # Zeros to missing
+
+b,ce,d,V = estimate_reduced_form(np.log(x),np.log(parts['characteristics']),return_v=True)
+
+A=np.matrix(np.diag(V.squeeze())).I
+g=np.matrix(d-1)
+
+J=g.T*A*g
+assert np.all(np.abs(d-1)<0.1), "Coefficients on characteristics should all be equal to 1"
+
+
+
+#+END_SRC
+
+#+results:
+
 
 * Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
@@ -1280,7 +1321,7 @@ print x.head()
               XXinv=np.linalg.inv(X.T.dot(X))
           Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
       else:
-          u=u-u.mean()
+          u=(u-u.mean()).squeeze()
           X=X-X.mean()
 
           Xu=X.mul(u,axis=0)
