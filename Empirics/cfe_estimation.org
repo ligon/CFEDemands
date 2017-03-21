@@ -738,12 +738,15 @@ We begin by generating some artificial data on expenditures.
      \log x_{it}^j = (1-\beta_i)\log p_{itk} + \delta_i^\T z_t^j - \beta_i\log\lambda^j_t,
   \end{equation}
   given data on log prices $\log p_{itk}$ for good $i$ at time $t$ in
-  market $k$, characteristics $z_t^j$, and either consumption $c_{it}^j$
-  or expenditures $x_{it}^j$.  We do not assume that $\lambda^j_t$ is
-  observed, but do  assume that its log is orthogonal to log prices
-  and characteristics.  In this case, we can  simply use a least
-  squares estimator to directly recover an estimate of either $-\beta_i$ or
-  $1-\beta_i$.
+  market $k$, characteristics $z_t^j$, and either consumption
+  $c_{it}^j$ or expenditures $x_{it}^j$.  
+
+** Direct estimation of price elasticities
+  We do not assume that $\lambda^j_t$ is observed, but do assume that
+  its log is orthogonal to log prices and characteristics.  In this
+  case, we can simply use a least squares estimator to directly
+  recover an estimate of either $-\beta_i$ (when log quantities are
+  the dependent variable) or $1-\beta_i$ (when log expenditures are).
 
 #+name: direct_price_elasticities
 #+BEGIN_SRC python :tangle ../cfe/estimation.py
@@ -810,11 +813,16 @@ We begin by generating some artificial data on expenditures.
       return out
 #+END_SRC
 
+** Indirect estimation of price elasticities
+
   A second approach is /indirect/, obtaining estimated elasticities by
   regressing the good-time-market effects obtained from
   =estimated_reduced_form= on $\log p_{itk} - \mbox{Proj}(\log
   p_{itk} | \bar z_{tk)$.  This exploits the relationship between
-  these latent variables and implicit prices.
+  these latent variables and implicit prices.  An important virtue of
+  this approach is that if we have data for prices only on a subset of
+  goods we can nevertheless estimate the first stage even for those
+  goods where prices are missing.
 
 #+BEGIN_SRC python :tangle ../cfe/estimation.py
   def indirect_price_elasticities(a,p,zbar):
@@ -862,6 +870,24 @@ We begin by generating some artificial data on expenditures.
 
 #+END_SRC
   
+
+** Test
+   The direct and indirect methods  should yield similar results.
+   Below we construct a simple test of this.
+#+BEGIN_SRC python :var T=20 N=1000 n=6 :tangle ../cfe/test/price_elasticities.py
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+
+x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.01,sigma_eps=0.01)
+
+print x.head()
+
+#+END_SRC
+
+#+results:
+
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
@@ -987,7 +1013,7 @@ We begin by generating some artificial data on expenditures.
 #+BEGIN_SRC python :noweb no-export :results silent :exports code
   <<measurement_error_dgp>>
 
-  def expenditures(T,N,M,n,beta,mu_phi=0,sigma_phi=0.1,mu_eps=0,sigma_eps=1.):
+  def expenditures(T,N,n,k,beta,mu_phi=0,sigma_phi=0.1,mu_eps=0,sigma_eps=1.):
 
       if len(beta.shape)<2:
           Theta=np.matrix(np.diag(beta))
@@ -996,14 +1022,20 @@ We begin by generating some artificial data on expenditures.
           beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
 
       l=lambdas(T,N)
-      dz=np.c_[characteristics(T,N), characteristics(T,N)]
+      dz=characteristics(T,N)
+      for i in range(1,k-1):  # add additional characteristics if called for.
+          dz=np.c_[dz, characteristics(T,N)]
       L=np.reshape(l,(T,N,1)) 
       p=prices(T,n)
 
-      x=np.exp(np.kron(np.log(L),-beta) + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n)) + np.tile(np.log(dz).sum(axis=0).reshape((T,N,1)),(1,1,n)))
+      # Build x in steps
+      x = np.kron(np.log(L),-beta)
+      x = x + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n))
+      x = x +  np.tile(np.log(dz).reshape((T,N,k)).sum(axis=2).reshape((T,N,1)),(1,1,n))
+      x = np.exp(x)
 
       phi,e=measurement_error(T,N,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
-      
+    
       x=(x+p.reshape(T,1,n)*phi) # Additive error
       x=x*e # Multiplicative error
 
@@ -1012,7 +1044,9 @@ We begin by generating some artificial data on expenditures.
       x=pd.Panel(x.T,items=['x%d' % i for i in range(n)]).to_frame()
       x.index.set_names(['j','t'],inplace=True)
 
-      dz=pd.DataFrame(pd.DataFrame(dz).T.stack(),index=x.index,columns=['z%d' % i for i in range(dz.shape[0])])
+      dz = dz.reshape((T*N,k),order='F')
+      dz = {'z%d' % i:dz[:,i] for i in range(k)}
+      dz=pd.DataFrame(dz,index=x.index)
       l=pd.DataFrame(pd.DataFrame(l).T.stack(),index=x.index)
       p=pd.DataFrame(p,columns=x.columns,index=x.index.levels[1])
 
