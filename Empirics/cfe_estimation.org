@@ -516,7 +516,10 @@ to estimate any missing prices.
    If we use a set of fixed parameters to generate artificial data, we
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
-#+BEGIN_SRC python :var T=2 N=3000 n=6 :tangle ../cfe/test/estimate_reduced_form.py
+#+name: test_estimate_reduced_form
+#+BEGIN_SRC python :results value :var T=1 N=500 n=6 :tangle ../cfe/test/estimate_reduced_form.py
+from scipy.stats.distributions import chi2
+
 <<lambdas_dgp>>
 <<characteristics_dgp>>
 <<prices_dgp>>
@@ -532,13 +535,69 @@ A=np.matrix(np.diag(V.squeeze())).I
 g=np.matrix(d-1)
 
 J=g.T*A*g
-assert np.all(np.abs(d-1)<0.1), "Coefficients on characteristics should all be equal to 1"
+#p=(1 - chi2.cdf(J,len(g)))
+#assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
-
-
+#print p
 #+END_SRC
 
+The preceding creates a random sample with  known parameters =d=;
+estimates of =d= should all be equal to 1 in expectation.  We
+construct a statistic =J= which should be asymptotically distributed
+$\chi^2$.  The code below resamples to  determine whether in fact we
+match the correct distribution.  We construct  a =pp_plot= which
+should deliver a line close to 45 degrees if all is well.
 #+results:
+#+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
+  import pylab as pl
+  T=1
+  N=1000
+  n=6
+
+  def empirical_cdf(x):
+      """
+      Return the empirical cdf of a univariate vector or series x.
+      """
+      x=np.array(x)
+
+      return lambda p: (x<p).mean()
+
+  def pp_plot(F,G,interval=(0,1),npts=100):
+      """
+      Construct p-p plot of cdf F vs CDF G.
+      """
+      Q=np.linspace(interval[0],interval[1],npts)
+      xy=[]
+      for q in Q:
+          xy.append([F(q),G(q)])
+
+      xy=np.array(xy)
+      ax=pl.plot(xy[:,0],xy[:,1])
+
+      return xy
+
+  Jay=[]
+  Dee=[]
+  Vee=[]
+  for i in range(DRAWS):
+      <<test_estimate_reduced_form>>
+      Dee.append(d.as_matrix().squeeze().tolist())
+      Jay.append(J[0,0])
+      Vee.append(V.squeeze().as_matrix().tolist())
+
+  Dee=np.array(Dee)
+  Jay=np.array(Jay)
+  Vee=np.array(Vee)
+
+  F=empirical_cdf(Jay)
+  G=lambda x: chi2.cdf(x,len(g))
+
+  xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
+
+  assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
+  
+#+END_SRC
+
 
 
 * Extraction of Frisch Elasticities and Neediness
