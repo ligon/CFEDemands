@@ -465,6 +465,8 @@ to estimate any missing prices.
           if VERBOSE: print(Item)
 
           lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
+          rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
+          useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
           # Calculate deviations
           lhsbar=lhs.mean(axis=0)
@@ -484,6 +486,7 @@ to estimate any missing prices.
           timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
           X=rhs.append(znil.join(timednil))
+          X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
           # Estimate d & b
           myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
@@ -495,8 +498,8 @@ to estimate any missing prices.
 
           d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
-          b[Item] = myb[DateLocD.columns].squeeze()  # Terms involving prices
-          a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD.mean().values)
+          b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
+          a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD[useDateLocs].mean().values)
 
       b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
       #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
@@ -547,7 +550,7 @@ construct a statistic =J= which should be asymptotically distributed
 $\chi^2$.  The code below resamples to  determine whether in fact we
 match the correct distribution.  We construct  a =pp_plot= which
 should deliver a line close to 45 degrees if all is well.
-#+results:
+
 #+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
   import pylab as pl
   T=1
