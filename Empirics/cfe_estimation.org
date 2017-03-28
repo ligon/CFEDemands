@@ -648,13 +648,19 @@ should deliver a line close to 45 degrees if all is well.
 
   def iqr(x):
       """The interquartile range of a pd.Series of observations x."""
-      import numpy as np
-      return x.quantile([0.25,0.75]).diff().iloc[1]
+      q=x.quantile([0.25,0.75])
+   
+      try:
+          return q.diff().iloc[1]
+      except AttributeError:
+          return np.nan
 
-  def bootstrap_elasticity_stderrs(e,tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+  def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
       """Bootstrap estimates of standard errors for \phi\beta.
 
       Takes pd.DataFrame of residuals as input.
+
+      Default is to `cluster' by (t,mkt) via a block bootstrap.
 
       If optional parameter TRIM is True, then calculations are
       performed using the interquartile range (IQR) instead of the
@@ -664,7 +670,11 @@ should deliver a line close to 45 degrees if all is well.
 
       Ethan Ligon                              January 2017
       """
-      bhat,Lhat=get_loglambdas(e)
+      #bhat,Lhat=get_loglambdas(e)
+      def resample(e):
+          e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
+          e = e - e.mean()
+          return e
 
       if outfn: outf=open(outfn,'a')
 
@@ -678,11 +688,15 @@ should deliver a line close to 45 degrees if all is well.
           if VERBOSE and (i % 2)==0 and i>2: 
               print "Iteration %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
           old=new
-          S=e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
-          S=S-S.mean() 
+          if clusterby:
+              S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
+          else:
+              S=resample(e)
 
           bs,ls=get_loglambdas(S)
-          assert(~np.any(np.isnan(bs)))
+        
+          if np.any(np.isnan(bs)):
+              warnings.warn("Resampling draw with no data?")
           try:
               B=B.append(bs,ignore_index=True)
           except NameError:
