@@ -716,6 +716,7 @@ should deliver a line close to 45 degrees if all is well.
 
       if outfn: outf.close()
       if return_samples:
+          B.dropna(how='all',axis=1,inplace=True) # Drop any goods always missing estimate
           return new,B
       else:
           return new
@@ -1217,12 +1218,16 @@ print x.head()
                       stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
                       stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
                       stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                      stars = int(stars)
                       if stars>0:
                           stars='^{'+'*'*stars + '}'
                       else: stars=''
                   except KeyError: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  s+=entry % df.loc[i,j]
+                  if np.isnan(df.loc[i,j]):
+                      s+='| --- '
+                  else:
+                      s+=entry % df.loc[i,j]
               s+='|\n'
 
           return s
@@ -1241,18 +1246,25 @@ print x.head()
                           stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
                           stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
                           stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                          stars = int(stars)
                           if stars>0:
                               stars='^{'+'*'*stars + '}'
                           else: stars=''
                       except KeyError: stars=''
                   else: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  s+=entry % df.loc[i,j]
+                  if np.isnan(df.loc[i,j]):
+                      s+='| --- '
+                  else:
+                      s+=entry % df.loc[i,j]
               s+='|\n|'
               for j in df.columns: # Now standard errors
                   s+='  '
                   try:
-                      se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
+                      if np.isnan(sedf.loc[i,j]):
+                          se='(---)'
+                      else:
+                          se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
                   except KeyError: se=''
                   entry='| '+se+'  '
                   s+=entry 
@@ -1273,13 +1285,17 @@ print x.head()
                           stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
                           stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
                           stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                          stars = int(stars)
                           if stars>0:
                               stars='^{'+'*'*stars + '}'
                           else: stars=''
                       except KeyError: stars=''
                   else: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  s+=entry % df.loc[i,j]
+                  if np.isnan(df.loc[i,j]):
+                      s+='| --- '
+                  else:
+                      s+=entry % df.loc[i,j]
               s+='|\n|'
               for j in df.columns: # Now confidence intervals
                   s+='  '
