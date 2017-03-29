@@ -3,7 +3,7 @@
 tangle: Empirics/cfe_estimation.org
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
 
-sdist: setup.py tangle
+sdist: setup.py tangle CHANGES.txt
 	python setup.py sdist 
 
 wininst: setup.py tangle
