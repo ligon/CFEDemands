@@ -1208,7 +1208,28 @@ print x.head()
          df=pd.DataFrame(df)
 
       if (tdf is None) and (sedf is None) and (conf_ints is None):
-          return '|'+df.to_csv(sep='|',float_format=float_fmt,line_terminator='|\n|')
+          s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+          for i in df.index:
+              s+='| %s  ' % i
+              for j in df.columns: # Point estimates
+                  entry='| $'+float_fmt+'$  '
+                  if np.isnan(df.loc[i,j]):
+                      s+='| --- '
+                  else:
+                      s+=entry % df.loc[i,j]
+              s+='|\n|'
+              for j in df.columns: # Now standard errors
+                  s+='  '
+                  try:
+                      if np.isnan(sedf.loc[i,j]):
+                          se='(---)'
+                      else:
+                          se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
+                  except KeyError: se=''
+                  entry='| '+se+'  '
+                  s+=entry 
+              s+='|\n'
+          return s
       elif not (tdf is None) and (sedf is None) and (conf_ints is None):
           s = '|  |'+'|   '.join([str(s) for s in df.columns])+'\t|\n|-\n'
           for i in df.index:
