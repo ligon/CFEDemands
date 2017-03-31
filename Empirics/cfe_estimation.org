@@ -1382,66 +1382,6 @@ print x.head()
   def use_indices(df,idxnames):
       return df.reset_index()[idxnames].set_index(df.index)
 
-  ## def broadcast_binary_op(x, op, y):
-  ##     """Perform x op y, allowing for broadcasting over a multiindex.
-
-  ##     Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
-  ##     """
-  ##     x = pd.DataFrame(x.copy())
-  ##     y = pd.DataFrame(y.copy())
-  ##     if y.shape[1]==1:
-  ##         y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
-
-  ##     cols = list(x.columns)
-  ##     xindex = list(x.index.names)
-  ##     yindex = list(y.index.names)
-
-  ##     dif = list(set(xindex)-set(yindex))
-  ##     x.reset_index(dif, inplace=True)
-
-  ##     x=x.sortlevel()
-
-  ##     newdf = x.copy()
-
-  ##     for col in cols:
-  ##         newdf[col] = op(x[col],y[col])
-
-  ##     newdf = newdf.reset_index().set_index(xindex).sortlevel()
-  ##     return newdf
-
-  def broadcast_binary_op(x, op, y,how='left'):
-      """Perform x op y, allowing for broadcasting over a multiindex.
-
-      Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
-      """
-      x = pd.DataFrame(x.copy())
-      y = pd.DataFrame(y.copy())
-      xix= x.index.copy()
-    
-      if y.shape[1]==1: # If y a series, expand to match x.
-          y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
-
-      cols = list(x.columns)
-      xindex = list(x.index.names)
-      yindex = list(y.index.names)
-
-      dif = list(set(xindex)-set(yindex))
-      x.reset_index(dif, inplace=True)
-      x.index = x.index.tolist()
-      y.index = y.index.tolist()
-
-      z = pd.DataFrame(index=x.index)
-      z = z.join(y,how=how)
-      zix = z.index
-
-      z.reset_index(inplace=True)
-      x.reset_index(inplace=True)
-      newdf = op(x[cols],z[cols])
-
-      newdf.index=zix
-    
-      return newdf
-
   def arellano_robust_cov(X,u,clusterby=['t','mkt']):
       X,u = drop_missing([X,u])
       clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
@@ -1514,4 +1454,134 @@ print x.head()
               out.append(u)
       return tuple(out)
 #+END_SRC
+
+#+name: broadcast_binary_op
+#+BEGIN_SRC python :noweb no-export
+  ## def broadcast_binary_op(x, op, y):
+  ##     """Perform x op y, allowing for broadcasting over a multiindex.
+
+  ##     Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
+  ##     """
+  ##     x = pd.DataFrame(x.copy())
+  ##     y = pd.DataFrame(y.copy())
+  ##     if y.shape[1]==1:
+  ##         y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
+
+  ##     cols = list(x.columns)
+  ##     xindex = list(x.index.names)
+  ##     yindex = list(y.index.names)
+
+  ##     dif = list(set(xindex)-set(yindex))
+  ##     x.reset_index(dif, inplace=True)
+
+  ##     x=x.sortlevel()
+
+  ##     newdf = x.copy()
+
+  ##     for col in cols:
+  ##         newdf[col] = op(x[col],y[col])
+
+  ##     newdf = newdf.reset_index().set_index(xindex).sortlevel()
+  ##     return newdf
+
+  def broadcast_binary_op(x, op, y,how='left'):
+      """Perform x op y, allowing for broadcasting over a multiindex.
+
+      Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
+      """
+      x = pd.DataFrame(x.copy())
+      y = pd.DataFrame(y.copy())
+      xix= x.index.copy()
+    
+      if y.shape[1]==1: # If y a series, expand to match x.
+          y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
+
+      cols = list(x.columns)
+      xindex = list(x.index.names)
+      yindex = list(y.index.names)
+
+      dif = list(set(xindex)-set(yindex))
+      x.reset_index(dif, inplace=True)
+      x.index = x.index.tolist()
+      y.index = y.index.tolist()
+
+      z = pd.DataFrame(index=x.index)
+      z = z.join(y,how=how)
+      zix = z.index
+
+      z.reset_index(inplace=True)
+      x.reset_index(inplace=True)
+      newdf = op(x[cols],z[cols])
+
+      newdf.index=xix
+    
+      return newdf
+#+END_SRC
+
+#+name: test_broadcast_binary_op
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/broadcast_binary_op.py
+import pandas as pd
+from numpy import array, nan
+
+<<broadcast_binary_op>>
+
+foo=array([[        nan,         nan,         nan],
+           [        nan,         nan,         nan],
+           [        nan,         nan,         nan],
+           [        nan,         nan,         nan],
+           [        nan,         nan, -0.73396916],
+           [-0.14518201,         nan,  0.88238915],
+           [        nan,         nan, -0.49532144],
+           [        nan,         nan,  0.55594608],
+           [ 0.30538166,         nan,         nan],
+           [        nan,         nan,  0.22884155],
+           [        nan,         nan,  0.10763069],
+           [ 0.36909748,         nan, -0.57661338],
+           [ 0.        ,         nan, -0.38566246],
+           [ 0.31845372,         nan,  0.92198873],
+           [        nan,         nan,         nan],
+           [        nan,         nan,         nan],
+           [        nan,         nan,         nan],
+           [ 1.2039728 ,         nan,         nan],
+           [-0.62860866, -0.69314718,  6.27914662],
+           [-0.28768207,  0.        ,  1.60943791]])
+
+idx=[ (u'101005', u'2009Q1', u'BGD'),  (u'101005', u'2011Q1', u'BGD'),
+      (u'101007', u'2009Q1', u'BGD'),  (u'101007', u'2011Q1', u'BGD'),
+      (u'00L0101', u'2013Q3', u'GHA'), (u'00L0101', u'2014Q3', u'GHA'),
+      (u'00L0202', u'2013Q3', u'GHA'), (u'00L0202', u'2014Q3', u'GHA'),
+      (u'02L0101', u'2012Q1', u'GHA'), (u'02L0101', u'2012Q3', u'GHA'),
+      (u'02L0101', u'2013Q1', u'GHA'), (u'02L0202', u'2012Q1', u'GHA'),
+      (u'02L0202', u'2013Q1', u'GHA'), (u'02L0238', u'2012Q3', u'GHA'),
+      (1002, u'2014Q3', u'SSD'),       (1006, u'2014Q3', u'SSD'),
+      (1002, u'2015Q2', u'SSD'),       (1006, u'2015Q2', u'SSD'),
+      (u'3015', u'2010Q4', u'UGA'),    (u'3016', u'2010Q4', u'UGA')]
+
+foo=pd.DataFrame(foo,index=pd.MultiIndex.from_tuples(idx,names=['j','t','mkt']))
+
+bar=array([[ 0.24921932,         nan,         nan],
+       [ 0.21093294,         nan,         nan],
+       [ 0.33506356,  0.33506356,  0.33506356],
+       [ 0.28271356,  0.26914329,  0.26914329],
+       [ 0.23344945,  0.10095022,  0.0796501 ],
+       [ 0.02299849, -0.25550914, -0.10560527],
+       [ 0.0486334 ,  0.34874107,  0.17723716],
+       [ 0.28000935,  0.05786949,  0.28000935],
+       [ 0.01387462,         nan,         nan],
+       [ 0.30318531,         nan,  0.30318531]])
+
+idx=[(u'2009Q1', u'BGD'), (u'2011Q1', u'BGD'), (u'2011Q3', u'UGA'),
+       (u'2012Q1', u'GHA'), (u'2012Q3', u'GHA'), (u'2013Q1', u'GHA'),
+       (u'2013Q3', u'GHA'), (u'2014Q3', u'GHA'), (u'2014Q3', u'SSD'),
+       (u'2015Q2', u'SSD')]
+
+bar = pd.DataFrame(bar,index=pd.MultiIndex.from_tuples(idx,names=['t','mkt']))
+
+baz=broadcast_binary_op(foo, lambda x,y: x+y, bar,how='left')
+
+assert baz.shape == foo.shape
+
+#+END_SRC
+
+#+results: test_broadcast_binary_op
 
