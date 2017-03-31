@@ -617,7 +617,8 @@ should deliver a line close to 45 degrees if all is well.
       of the effects of prices and household characteristics.   The residuals
       should be arranged as a matrix, with columns corresponding to goods. 
       """ 
-      assert(e.shape[0]>e.shape[1]) # Fewer goods than observations
+
+      assert e.shape[0]>e.shape[1], "More goods than observations."
 
       chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank,min_obs=min_obs)
 
@@ -1271,7 +1272,9 @@ print x.head()
               for j in df.columns: # Now standard errors
                   s+='  '
                   try:
-                      if np.isnan(sedf.loc[i,j]):
+                      if np.isnan(df.loc[i,j]): # Pt estimate miss
+                          se=''
+                      elif np.isnan(sedf.loc[i,j]):
                           se='(---)'
                       else:
                           se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
