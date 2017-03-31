@@ -1217,17 +1217,6 @@ print x.head()
                       s+='| --- '
                   else:
                       s+=entry % df.loc[i,j]
-              s+='|\n|'
-              for j in df.columns: # Now standard errors
-                  s+='  '
-                  try:
-                      if np.isnan(sedf.loc[i,j]):
-                          se='(---)'
-                      else:
-                          se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
-                  except KeyError: se=''
-                  entry='| '+se+'  '
-                  s+=entry 
               s+='|\n'
           return s
       elif not (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -1393,14 +1382,43 @@ print x.head()
   def use_indices(df,idxnames):
       return df.reset_index()[idxnames].set_index(df.index)
 
-  def broadcast_binary_op(x, op, y):
+  ## def broadcast_binary_op(x, op, y):
+  ##     """Perform x op y, allowing for broadcasting over a multiindex.
+
+  ##     Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
+  ##     """
+  ##     x = pd.DataFrame(x.copy())
+  ##     y = pd.DataFrame(y.copy())
+  ##     if y.shape[1]==1:
+  ##         y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
+
+  ##     cols = list(x.columns)
+  ##     xindex = list(x.index.names)
+  ##     yindex = list(y.index.names)
+
+  ##     dif = list(set(xindex)-set(yindex))
+  ##     x.reset_index(dif, inplace=True)
+
+  ##     x=x.sortlevel()
+
+  ##     newdf = x.copy()
+
+  ##     for col in cols:
+  ##         newdf[col] = op(x[col],y[col])
+
+  ##     newdf = newdf.reset_index().set_index(xindex).sortlevel()
+  ##     return newdf
+
+  def broadcast_binary_op(x, op, y,how='left'):
       """Perform x op y, allowing for broadcasting over a multiindex.
 
       Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
       """
       x = pd.DataFrame(x.copy())
       y = pd.DataFrame(y.copy())
-      if y.shape[1]==1:
+      xix= x.index.copy()
+    
+      if y.shape[1]==1: # If y a series, expand to match x.
           y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
 
       cols = list(x.columns)
@@ -1409,15 +1427,19 @@ print x.head()
 
       dif = list(set(xindex)-set(yindex))
       x.reset_index(dif, inplace=True)
+      x.index = x.index.tolist()
+      y.index = y.index.tolist()
 
-      x=x.sortlevel()
+      z = pd.DataFrame(index=x.index)
+      z = z.join(y,how=how)
+      zix = z.index
 
-      newdf = x.copy()
+      z.reset_index(inplace=True)
+      x.reset_index(inplace=True)
+      newdf = op(x[cols],z[cols])
 
-      for col in cols:
-          newdf[col] = op(x[col],y[col])
-
-      newdf = newdf.reset_index().set_index(xindex).sortlevel()
+      newdf.index=zix
+    
       return newdf
 
   def arellano_robust_cov(X,u,clusterby=['t','mkt']):
