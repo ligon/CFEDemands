@@ -1177,6 +1177,7 @@ print x.head()
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
   import numpy as np
   from scipy import sparse
+  import pandas as pd
 
   def df_norm(a,b=None,ignore_nan=True):
       a=a.copy()
