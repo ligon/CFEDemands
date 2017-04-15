@@ -1215,10 +1215,10 @@ print x.head()
               s+='| %s  ' % i
               for j in df.columns: # Point estimates
                   entry='| $'+float_fmt+'$  '
-                  if np.isnan(df.loc[i,j]):
+                  if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
-                      s+=entry % df.loc[i,j]
+                      s+=entry % df[j][i]
               s+='|\n'
           return s
       elif not (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -1227,19 +1227,19 @@ print x.head()
               s+='| %s  ' % i
               for j in df.columns:
                   try:
-                      stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
-                      stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
-                      stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                      stars=(np.abs(tdf[j][i])>1.65) + 0.
+                      stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                      stars+=(np.abs(tdf[j][i])>2.577) + 0.
                       stars = int(stars)
                       if stars>0:
                           stars='^{'+'*'*stars + '}'
                       else: stars=''
                   except KeyError: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  if np.isnan(df.loc[i,j]):
+                  if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
-                      s+=entry % df.loc[i,j]
+                      s+=entry % df[j][i]
               s+='|\n'
 
           return s
@@ -1255,9 +1255,9 @@ print x.head()
               for j in df.columns: # Point estimates
                   if tdf is not False:
                       try:
-                          stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
-                          stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
-                          stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                          stars=(np.abs(tdf[j][i])>1.65) + 0.
+                          stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                          stars+=(np.abs(tdf[j][i])>2.577) + 0.
                           stars = int(stars)
                           if stars>0:
                               stars='^{'+'*'*stars + '}'
@@ -1265,20 +1265,20 @@ print x.head()
                       except KeyError: stars=''
                   else: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  if np.isnan(df.loc[i,j]):
+                  if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
-                      s+=entry % df.loc[i,j]
+                      s+=entry % df[j][i]
               s+='|\n|'
               for j in df.columns: # Now standard errors
                   s+='  '
                   try:
-                      if np.isnan(df.loc[i,j]): # Pt estimate miss
+                      if np.isnan(df[j][i]): # Pt estimate miss
                           se=''
-                      elif np.isnan(sedf.loc[i,j]):
+                      elif np.isnan(sedf[j][i]):
                           se='(---)'
                       else:
-                          se='$(' + float_fmt % sedf.loc[i,j] + ')$' 
+                          se='$(' + float_fmt % sedf[j][i] + ')$' 
                   except KeyError: se=''
                   entry='| '+se+'  '
                   s+=entry 
@@ -1296,9 +1296,9 @@ print x.head()
               for j in df.columns: # Point estimates
                   if tdf is not False and tdf is not None:
                       try:
-                          stars=(np.abs(tdf.loc[i,j])>1.65) + 0.
-                          stars+=(np.abs(tdf.loc[i,j])>1.96) + 0.
-                          stars+=(np.abs(tdf.loc[i,j])>2.577) + 0.
+                          stars=(np.abs(tdf[j][i])>1.65) + 0.
+                          stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                          stars+=(np.abs(tdf[j][i])>2.577) + 0.
                           stars = int(stars)
                           if stars>0:
                               stars='^{'+'*'*stars + '}'
@@ -1306,16 +1306,16 @@ print x.head()
                       except KeyError: stars=''
                   else: stars=''
                   entry='| $'+float_fmt+stars+'$  '
-                  if np.isnan(df.loc[i,j]):
+                  if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
-                      s+=entry % df.loc[i,j]
+                      s+=entry % df[j][i]
               s+='|\n|'
               for j in df.columns: # Now confidence intervals
                   s+='  '
                   try:
                       ci='$[' + float_fmt +','+ float_fmt + ']$'
-                      ci= ci % (conf_ints[0].loc[i,j],conf_ints[1].loc[i,j])
+                      ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
                   except KeyError: ci=''
                   entry='| '+ci+'  '
                   s+=entry 
