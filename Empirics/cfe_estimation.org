@@ -1420,11 +1420,11 @@ print x.head()
 
       x=pd.DataFrame(x) # Deal with possibility that x & y are series.
       y=pd.DataFrame(y)
-      N,n=y.shape
-      k=x.shape[1]
-
       # Drop any observations that have missing data in *either* x or y.
       x,y = drop_missing([x,y]) 
+
+      N,n=y.shape
+      k=x.shape[1]
 
       b=np.linalg.lstsq(x,y)[0]
 
