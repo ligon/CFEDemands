@@ -1460,7 +1460,7 @@ print x.head()
 #+END_SRC
 
 #+name: broadcast_binary_op
-#+BEGIN_SRC python :noweb no-export
+#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
   ## def broadcast_binary_op(x, op, y):
   ##     """Perform x op y, allowing for broadcasting over a multiindex.
 
