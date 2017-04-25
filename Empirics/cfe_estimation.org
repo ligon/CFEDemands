@@ -1007,6 +1007,41 @@ print x.head()
 
 #+results:
 
+* Distance between two estimates of \beta
+  When we compute the Frisch elasticities, these are only identified
+  up to an unknown parameter $\phi$ (which we might call the  Pigou
+  elasticity, as it relates the price and Frisch elasticities).  Thus, if we have /two/ different
+  estimates of $\beta$, say $\beta^1$ and $\beta^2$, we
+  define the difference between these using a norm
+  \begin{equation}
+  \label{eq:beta_distance}
+     \min_\psi ||\psi\beta^1 - \beta^2||_W.
+  \end{equation}
+  We adopt a sort of $L^2$ norm for measuring the distance between these two random vectors,
+  defining 
+  \label{eq:norm}
+     {} ||\vec{x}||_W = \vec{x}^\T \vec{W}\vec{x},
+  \end{equation}
+  where $W$ is some postive definite matrix.  An /optimal/ choice of
+  $\vec{W}$, in  a GMM sense, is to use
+  $\vec{W}=\mbox{Cov}(\vec{x})^{-1}$.  Absent prior knowledge
+  regarding this  covariance matrix, in the present case we observe
+  that \(\mbox{Cov}(\psi\beta^1 - \beta^2) = \psi^2V^1 + V^2\), where
+  $V^1$ and $V^2$ are the covariance matrices corresponding to
+  $\beta^1$ and $\beta^2$.  Supposing that estimates of these two covariance
+  matrices can be obtained at the same time $\beta^1$ and $\beta^2$
+  are estimated, we choose $\psi$ to minimize 
+  \begin{equation}
+  \label{eq:min_chi2}
+     H(\beta^1,\beta^2,V^1,V^2) = \min_\psi \left(\psi\beta^1 - \beta^2\right)^\T\left[\psi^2 V^1 + V^2\right]\left(\psi\beta^1 - \beta^2\right).
+  \end{equation}
+  If the random variables $\beta^1$ and $beta^2$ are normally
+  distributed, then the estimates $V^1$ and $V^2$ will have a Wishart
+  distribution, and the statistic $H$ will be distributed as
+  Hotelling's $T^2$ with a single degree of freedom.
+
+
+
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
