@@ -1,4 +1,4 @@
-.PHONY: tangle sdist wininst upload localinstall clean
+.PHONY: tangle sdist wininst upload localinstall clean CHANGES.txt
 
 tangle: Empirics/cfe_estimation.org
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
