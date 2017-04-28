@@ -1,7 +1,18 @@
-:SETUP:
+cd:SETUP:
 #+TITLE: Code and Methods for Estimating Constant Frisch Elasticity Demand Systems
 #+AUTHOR: Ethan Ligon
-#+PROPERTY: header-args:python :results output :noweb no-export :exports none :comments link :prologue (format "# Tangled on %s" (current-time-string))
+#+OPTIONS: toc:nil
+#+PROPERTY: header-args:python :results output :noweb no-export :exports code :comments link :prologue (format "# Tangled on %s" (current-time-string))
+#+LATEX_HEADER: \renewcommand{\vec}[1]{\boldsymbol{#1}}
+#+LATEX_HEADER: \newcommand{\T}{\top}
+#+LATEX_HEADER: \newcommand{\E}{\ensuremath{\mbox{E}}}
+#+LATEX_HEADER: \newcommand{\R}{\ensuremath{\mathbb{R}}}
+#+LATEX_HEADER: \newcommand{\Cov}{\ensuremath{\mbox{Cov}}}
+#+LATEX_HEADER: \newcommand{\Eq}[1]{(\ref{eq:#1})}
+#+LATEX_HEADER: \newcommand{\Fig}[1]{Figure \ref{fig:#1}} \newcommand{\Tab}[1]{Table \ref{tab:#1}}
+#+LATEX_HEADER: \addbibresource{main.bib}\renewcommand{\refname}{}
+#+LATEX_HEADER: \addbibresource{ligon.bib}
+#+LATEX_HEADER: \usepackage{stringstrings}\renewcommand{\cite}[1]{\caselower[q]{#1}\citet{\thestring}}
 :END:
 * Expenditure Shares
 
@@ -15,6 +26,7 @@ corresponding to period-households, indexed by $(t,j)$.
   import pylab as pl 
   import pandas as pd
   import numpy as np
+  from cfe.df_utils import broadcast_binary_op
 
   def expenditure_shares(df):
 
@@ -376,9 +388,8 @@ else: print
 
 * Estimation of reduced form
     This code takes as input time-varying household-level data on log
-    expenditures and characteristics; takes data defining markets
-    and perhaps some prices; and finally, takes a Series indicating
-    what market each  household is in.
+    expenditures and characteristics, and takes data defining markets
+    and perhaps some prices.
 
     Data on markets and prices is specified by providing a
     =pd.DataFrame= =P= with a MultiIndex of (period,market) indicated
@@ -410,109 +421,118 @@ supplied, it should be the numéraire; if prices for two or more goods
 are supplied it's possible to identify Frisch elasticities $\beta$ and
 to estimate any missing prices.  
 
+Estimates =b=
+
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
-    import pandas as pd
-    import warnings
-    import sys
-    from collections import OrderedDict
-    <<df_utils>>
+  import pandas as pd
+  import warnings
+  import sys
+  from collections import OrderedDict
+  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices
 
-    def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
-      """Estimate reduced-form Frisch expenditure/demand system.
+  def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
+    """Estimate reduced-form Frisch expenditure/demand system.
 
-      Inputs:
-          - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-                where j indexes the household, t the period, and mkt the market.  
-                Columns are different expenditure items.
+    Inputs:
+        - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
+              where j indexes the household, t the period, and mkt the market.  
+              Columns are different expenditure items.
 
-          - z : pd.DataFrame of household characteristics; index should match that of y.
+        - z : pd.DataFrame of household characteristics; index should match that of y.
+
+    Outputs:
+        - b : Estimated good-time-market fixed effects; will sum to  zero.
   
-      Ethan Ligon                                            February 2017
-      """
-      try: # Be a little forgiving if t or mkt index is missing.
-          assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      except AssertionError:
-          y = y.reset_index()
-          if not 'mkt' in y.columns: y['mkt']=1
-          if not 't' in y.columns: y['t']=1
-          y = y.set_index(['j','t','mkt'])
-    
-      try:
-          assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      except AssertionError:
-          z = z.reset_index()
-          if not 'mkt' in z.columns: z['mkt']=1
-          if not 't' in z.columns: z['t']=1
-          z = z.set_index(['j','t','mkt'])
+    Ethan Ligon                                            February 2017
+    """
+    try: # Be a little forgiving if t or mkt index is missing.
+        assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+    except AssertionError:
+        y = y.reset_index()
+        if not 'mkt' in y.columns: y['mkt']=1
+        if not 't' in y.columns: y['t']=1
+        y = y.set_index(['j','t','mkt'])
 
-      periods = list(set(y.index.get_level_values('t')))
-      mkts = list(set(y.index.get_level_values('mkt')))
+    try:
+        assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+    except AssertionError:
+        z = z.reset_index()
+        if not 'mkt' in z.columns: z['mkt']=1
+        if not 't' in z.columns: z['t']=1
+        z = z.set_index(['j','t','mkt'])
 
-      # Time-market dummies
-      DateLocD = use_indices(y,['t','mkt'])
-      DateLocD = pd.get_dummies(zip(DateLocD['t'],DateLocD['mkt']))
-      DateLocD.index = y.index
+    periods = list(set(y.index.get_level_values('t')))
+    mkts = list(set(y.index.get_level_values('mkt')))
 
-      sed = pd.DataFrame(columns=y.columns)
-      a = pd.Series(index=y.columns)
-      b = OrderedDict() #pd.DataFrame(index=y.columns)
-      d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
-      ce = pd.DataFrame(index=y.index,columns=y.columns)
-      V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
+    # Time-market dummies
+    DateLocD = use_indices(y,['t','mkt'])
+    DateLocD = pd.get_dummies(zip(DateLocD['t'],DateLocD['mkt']))
+    DateLocD.index = y.index
 
-      for i,Item in enumerate(y.columns):
-          if VERBOSE: print(Item)
+    sed = pd.DataFrame(columns=y.columns)
+    a = pd.Series(index=y.columns)
+    b = OrderedDict() #pd.DataFrame(index=y.columns)
+    d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
+    ce = pd.DataFrame(index=y.index,columns=y.columns)
+    V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
 
-          lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
-          rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
-          useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
+    for i,Item in enumerate(y.columns):
+        if VERBOSE: print(Item)
 
-          # Calculate deviations
-          lhsbar=lhs.mean(axis=0)
-          assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
-          lhs=lhs-lhsbar
-          lhs=lhs-lhs.mean(axis=0)
+        lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
+        rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
+        useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
-          rhsbar=rhs.mean(axis=0)
-          assert ~np.any(np.isnan(rhsbar)), "Missing data in rhs?"
-          rhs=rhs-rhsbar
-          rhs=rhs-rhs.mean(axis=0)
+        # Calculate deviations
+        lhsbar=lhs.mean(axis=0)
+        assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
+        lhs=lhs-lhsbar
+        lhs=lhs-lhs.mean(axis=0)
 
-          # Need to make sure time-market effects sum to zero; add
-          # constraints to estimate restricted least squares
-          ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
-          znil=pd.DataFrame([[0]*z.shape[1]],index=[(-1,0,0)],columns=z.columns)
-          timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
+        rhsbar=rhs.mean(axis=0)
+        assert ~np.any(np.isnan(rhsbar)), "Missing data in rhs?"
+        rhs=rhs-rhsbar
+        rhs=rhs-rhs.mean(axis=0)
 
-          X=rhs.append(znil.join(timednil))
-          X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
+        # Need to make sure time-market effects sum to zero; add
+        # constraints to estimate restricted least squares
+        ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
+        znil=pd.DataFrame([[0]*z.shape[1]],index=[(-1,0,0)],columns=z.columns)
+        timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
-          # Estimate d & b
-          myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
-          ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
+        X=rhs.append(znil.join(timednil))
+        X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
-          if return_v or return_se:
-              V[Item]=arellano_robust_cov(z,ce[Item])
-              sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+        # Estimate d & b
+        myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+        ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
-          d[Item]=myb[z.columns] # reduced form coefficients on characteristics
+        if return_v or return_se:
+            V[Item]=arellano_robust_cov(z,ce[Item])
+            sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
-          b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
-          a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD[useDateLocs].mean().values)
+        d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
-      b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
-      #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
-      b = b.T
+        b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
+        a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD[useDateLocs].mean().values)
 
-      d = pd.concat(d.values())
+    b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
+    #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
+    b = b.T
 
-      out = [b.add(a,axis=0),ce,d]
-      if return_se:
-          out += [sed]
-      if return_v:
-          out += [V]
-      return out
+    if b.shape[1]==1: # Only a single time-market
+      assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
+      b[:]=0
+
+    d = pd.concat(d.values())
+
+    out = [b.add(a,axis=0),ce,d]
+    if return_se:
+        out += [sed]
+    if return_v:
+        out += [V]
+    return out
 #+END_SRC
 
 ** Test
@@ -520,7 +540,7 @@ to estimate any missing prices.
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
-#+BEGIN_SRC python :results value :var T=1 N=500 n=6 :tangle ../cfe/test/estimate_reduced_form.py
+#+BEGIN_SRC python :results value :var T=1 :var N=500 :var n=6 :tangle ../cfe/test/estimate_reduced_form.py
 from scipy.stats.distributions import chi2
 
 <<lambdas_dgp>>
@@ -538,10 +558,10 @@ A=np.matrix(np.diag(V.squeeze())).I
 g=np.matrix(d-1)
 
 J=g.T*A*g
-#p=(1 - chi2.cdf(J,len(g)))
-#assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
+p=(1 - chi2.cdf(J,len(g)))
+assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
-#print p
+print p
 #+END_SRC
 
 The preceding creates a random sample with  known parameters =d=;
@@ -937,7 +957,7 @@ We begin by generating some artificial data on expenditures.
   A second approach is /indirect/, obtaining estimated elasticities by
   regressing the good-time-market effects obtained from
   =estimated_reduced_form= on $\log p_{itk} - \mbox{Proj}(\log
-  p_{itk} | \bar z_{tk)$.  This exploits the relationship between
+  p_{itk} | \bar z_{tk})$.  This exploits the relationship between
   these latent variables and implicit prices.  An important virtue of
   this approach is that if we have data for prices only on a subset of
   goods we can nevertheless estimate the first stage even for those
@@ -1009,39 +1029,188 @@ print x.head()
 
 * Distance between two estimates of \beta
   When we compute the Frisch elasticities, these are only identified
-  up to an unknown parameter $\phi$ (which we might call the  Pigou
-  elasticity, as it relates the price and Frisch elasticities).  Thus, if we have /two/ different
+  up to an unknown parameter $\phi$ (which we might call the Pigou
+  elasticity, as it relates the price and Frisch elasticities in what
+  Deaton calls "Pigou's Law.").  Thus, if we have /two/ different
   estimates of $\beta$, say $\beta^1$ and $\beta^2$, we
   define the difference between these using a norm
   \begin{equation}
   \label{eq:beta_distance}
      \min_\psi ||\psi\beta^1 - \beta^2||_W.
-  \end{equation}
-  We adopt a sort of $L^2$ norm for measuring the distance between these two random vectors,
-  defining 
+  \end{equation}  
+  Note that $\psi$ should not be regarded as an estimate of the Pigou
+  elasticity, but as the /ratio/ of the Pigou elasticities
+  corresponding to the two different estimates of \beta.
+
+  To implement a test of the hypothesis that $\beta^1=\beta^2$ we
+  adopt a sort of $L^2$ distance measure, defining
+  \begin{equation}
   \label{eq:norm}
      {} ||\vec{x}||_W = \vec{x}^\T \vec{W}\vec{x},
   \end{equation}
-  where $W$ is some postive definite matrix.  An /optimal/ choice of
-  $\vec{W}$, in  a GMM sense, is to use
-  $\vec{W}=\mbox{Cov}(\vec{x})^{-1}$.  Absent prior knowledge
-  regarding this  covariance matrix, in the present case we observe
-  that \(\mbox{Cov}(\psi\beta^1 - \beta^2) = \psi^2V^1 + V^2\), where
-  $V^1$ and $V^2$ are the covariance matrices corresponding to
-  $\beta^1$ and $\beta^2$.  Supposing that estimates of these two covariance
-  matrices can be obtained at the same time $\beta^1$ and $\beta^2$
-  are estimated, we choose $\psi$ to minimize 
+  where $\vec{W}$ is some positive definite matrix.  An /optimal/ choice of
+  $\vec{W}$, in  a GMM sense \citep{hansen82}, is to use
+  $\vec{W}=\Cov(\vec{x})^{-1}$.  Absent prior knowledge
+  regarding this  covariance matrix, if $\beta^1$ and $\beta^2$ are
+  estimated using independent  samples, we observe
+  that \(\Cov(\psi\beta^1 - \beta^2) = \psi^2\vec{V^1} + \vec{V^2}\), where
+  $\vec{V^1}$ and $\vec{V^2}$ are the covariance matrices corresponding to
+  $\beta^1$ and $\beta^2$.  More generally, if $\beta^1$ is a "pooled"
+  estimate which relies on a matrix of regressors $\vec{X}$, with $N$
+  rows, and $\beta^2$ is obtained by estimation on a subset $\vec{X^2}$ with
+  $N_2$ rows, then we have 
+  \[
+     \Cov(\psi\beta^1 - \beta^2) = \psi^2\vec{V^1} + \vec{V^2}\left[\vec{I}-2\frac{N_2}{N}\left(\frac{\vec{X}^\T\vec{X}}{N}\right)^{-1}\left(\frac{\vec{X^2}^\T\vec{X^2}}{N_2}\right)\right]
+  \]
+  Define the scatter matrices
+  $\vec{S}=\vec{X}^\T\vec{X}$ and $\vec{S_2}=\vec{X^2}^\T\vec{X^2}$.
+  Then supposing that estimates of the two covariance matrices
+  $(\vec{V^1},\vec{V^2})$ can be
+  obtained at the same time $\beta^1$ and $\beta^2$ are estimated, we
+  choose $\psi$ to minimize 
   \begin{equation}
   \label{eq:min_chi2}
-     H(\beta^1,\beta^2,V^1,V^2) = \min_\psi \left(\psi\beta^1 - \beta^2\right)^\T\left[\psi^2 V^1 + V^2\right]\left(\psi\beta^1 - \beta^2\right).
+  H(\beta^1,\beta^2,\vec{V^1},\vec{V^2},\vec{S},\vec{S_2}) = \min_\psi \left(\psi\beta^1 - \beta^2\right)^\T\left[\psi^2\vec{V^1} + \vec{V^2}(\vec{I}-2 \vec{S}^{-1}\vec{S_2})\right]^{-1}\left(\psi\beta^1 - \beta^2\right).
   \end{equation}
-  If the random variables $\beta^1$ and $beta^2$ are normally
-  distributed, then the estimates $V^1$ and $V^2$ will have a Wishart
+  If the random variables $\beta^1$ and $\beta^2$ are normally
+  distributed, then the (appropriately scaled) estimates $V^1$ and $V^2$ will have a Wishart
   distribution, and the statistic $H$ will be distributed as
-  Hotelling's $T^2$ with a single degree of freedom.
+  Mahalinobis' $D^2$ statistic.  Scaling this statistic,
+  $N_2\left(\frac{N-n-1}{(N-1)(n-1)}\right)D^2$ is distributed $F_{n-1,N-n-1}$;
+  as $N\rightarrow\infty$ (holding $n$ fixed this converges to the
+  $\chi^2_{n-1}$ distribution).
+
+  For the case in which the vectors $\beta$ are obtained as Frisch
+  elasticities in a CFE demand system, then $\vec{X}$ is a vector of
+  normalized $\log\lambda$ statistics, and identification assumptions
+  on $\beta$ include $\E X=0$ and $\E X^\T X=1$.  Then the weighting
+  matrix takes a form which is considerably simpler, but where the
+  parameter $\psi$ enters in a more complicated fashion, with
+  weighting matrix 
+  \[ 
+     \vec{W}^{-1}(\psi) = \psi^2\vec{V^1} + \vec{V^2}(1 - 2\frac{N_2}{N}\psi^2).  
+  \]
+
+  The following code provides an implementation of this test of
+  equality for the CFE case.  We define a function
+  =elasticities_equal= which takes as arguments
+  $(\beta^1,\beta^2,V^1,V^2,N,N_2)$, and returns the value of $\psi$
+  which  minimizes the criterion; the minimized value of the
+  criterion, scaled to have the specified $F$ distribution; and
+  optionally the \(p\)-value associated with the test.
+
+#+name: elasticities_equal
+#+BEGIN_SRC python :exports code :tangle ../cfe/estimation.py
+  import numpy as np
+  from scipy.optimize import minimize_scalar
+  from scipy.stats.distributions import f as F
+
+  def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
+
+      assert N2<N, "N2 should be size of sub-sample of pooled sample."
+      n=len(b1)
+  
+      assert n==len(b2), "Length of vectors must be equal"
+
+      def Fcriterion(psi):
+          try:
+              psi=psi[0,0]
+          except (TypeError, IndexError):
+              pass
+
+          d = np.matrix(psi*b1 - b2)
+          if d.shape[0]<d.shape[1]: d = d.T
+
+          #W = np.matrix((psi**2)*v1 + v2*(1-2*(psi**2)*N2/N)).I
+          W = np.matrix((psi**2)*v1 + v2).I # Independent case
+          #W = np.matrix(v1 + v2).I # Independent case
+
+          F = N2*(N-n-1)/((N-1)*(n-1)) * d.T*W*d
+
+          if ~np.isscalar(F):
+              F=F[0,0]
+
+          return F
+
+      #result = minimize_scalar(Fcriterion,method='bounded',bounds=[0,10])
+      result = minimize_scalar(Fcriterion)
+      psi=np.abs(result['x'])
+      Fstat=result['fun']
+
+      assert result['success'], "Minimization failed?"
+
+      outputs = [psi,Fstat]
+
+      if pvalue:
+          p = 1 - F.cdf(Fstat,n-1,N-n-1)
+          outputs.append(p)
+
+      if criterion:
+          outputs.append(Fcriterion)
+      
+      return tuple(outputs)
+
+#+END_SRC
 
 
+#+name: test_broadcast_binary_op
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/elasticities_equal.py
+  <<elasticities_equal>>
 
+  N = 10000
+  N2 = 5000
+  b0=np.array([1,2,3])
+  v0=np.array([[1,0.5,0.25],[0.5,1,.5],[.25,.5,1]])
+  B=np.random.multivariate_normal(b0,v0,size=N)
+
+  b1=np.mean(B,axis=0)
+  v1=np.cov(B,rowvar=False)
+
+  b2=2*np.mean(B[:N2,:],axis=0) # So true value of psi=2
+  v2=4*np.cov(B[:N2,:],rowvar=False)
+
+  def covb1b2(psi=1.,tol=1e-2):
+      last=1
+      next=0
+      b1bar=0
+      b2bar=0
+      i=0
+      while np.linalg.norm(next-last)>tol:
+          i+=1
+          last=next
+          B1=B[np.random.randint(N,size=N),:]
+          newb1=psi*np.mean(B1,axis=0)
+          newb2=2*np.mean(B1[np.random.randint(N,size=N2),:],axis=0)
+          next = next*(1-1./i) + np.outer(newb1,newb2)/i
+          b1bar = b1bar*(1-1./i) + newb1/i
+          b2bar = b2bar*(1-1./i) + newb2/i
+          if i>100: continue
+
+      C = next - np.outer(b1bar,b2bar)
+      return (C + C.T)/2.
+
+  def Vmom(psi=1.,tol=1e-2):
+      last=1
+      next=0
+      dbar=0
+      i=0
+      while np.linalg.norm(next-last)>tol:
+          i+=1
+          last=next
+          newb1=psi*np.mean(B[np.random.randint(N,size=N),:],axis=0)
+          newb2=2*np.mean(B[np.random.randint(N,size=N2),:],axis=0)
+          d = newb1 - newb2
+          next = next*(1-1./i) + np.outer(d,d)/i
+          dbar = dbar*(1-1./i) + d/i
+          if i>100: continue
+
+      return next - np.outer(dbar,dbar)
+
+  foo = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
+  C=covb1b2()
+
+  print foo
+#+END_SRC  
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
@@ -1494,35 +1663,8 @@ print x.head()
       return tuple(out)
 #+END_SRC
 
-#+name: broadcast_binary_op
+#+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
-  ## def broadcast_binary_op(x, op, y):
-  ##     """Perform x op y, allowing for broadcasting over a multiindex.
-
-  ##     Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
-  ##     """
-  ##     x = pd.DataFrame(x.copy())
-  ##     y = pd.DataFrame(y.copy())
-  ##     if y.shape[1]==1:
-  ##         y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
-
-  ##     cols = list(x.columns)
-  ##     xindex = list(x.index.names)
-  ##     yindex = list(y.index.names)
-
-  ##     dif = list(set(xindex)-set(yindex))
-  ##     x.reset_index(dif, inplace=True)
-
-  ##     x=x.sortlevel()
-
-  ##     newdf = x.copy()
-
-  ##     for col in cols:
-  ##         newdf[col] = op(x[col],y[col])
-
-  ##     newdf = newdf.reset_index().set_index(xindex).sortlevel()
-  ##     return newdf
-
   def broadcast_binary_op(x, op, y,how='left'):
       """Perform x op y, allowing for broadcasting over a multiindex.
 
