@@ -429,7 +429,7 @@ Estimates =b=
   import warnings
   import sys
   from collections import OrderedDict
-  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices
+  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices, df_norm
 
   def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
     """Estimate reduced-form Frisch expenditure/demand system.
