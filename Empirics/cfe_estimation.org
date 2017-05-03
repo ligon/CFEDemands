@@ -1383,7 +1383,22 @@ print x.head()
   from scipy import sparse
   import pandas as pd
 
-  def df_norm(a,b=None,ignore_nan=True):
+  def df_norm(a,b=None,ignore_nan=True,ord=None):
+      """
+      Provides a norm for numeric pd.DataFrames, which may have missing data.
+
+      If a single pd.DataFrame is provided, then any missing values are replaced with zeros, 
+      the norm of the resulting matrix is returned.
+
+      If an optional second dataframe is provided, then missing values are similarly replaced, 
+      and the norm of the difference is replaced.
+
+      Other optional arguments:
+
+       - ignore_nan :: If False, missing values are *not* replaced.
+       - ord :: Order of the matrix norm; see documentation for numpy.linalg.norm.  
+                Default is the Froebenius norm.
+      """
       a=a.copy()
       if not b is None:
         b=b.copy()
