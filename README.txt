@@ -20,7 +20,7 @@ https://pip.pypa.io/en/stable/installing/
   2. As a python package: Unzip/untar the relevant archive (which can
      be downloaded from https://pypi.python.org/pypi/CFEDemands/), then::
 
-        cd CFEDemands-0.1/
+        cd CFEDemands-[version]/
         sudo python setup.py install
 
   3. Using git: Clone the repository found at
