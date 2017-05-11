@@ -1,4 +1,4 @@
-cd:SETUP:
+:SETUP:
 #+TITLE: Code and Methods for Estimating Constant Frisch Elasticity Demand Systems
 #+AUTHOR: Ethan Ligon
 #+OPTIONS: toc:nil
@@ -1610,8 +1610,10 @@ print x.head()
       clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
       if  len(clusters)>1:
           # Take out time averages
-          u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
-          X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
+          u = u - u.groupby(level=clusterby).transform(np.mean)
+          X = X - X.groupby(level=clusterby).transform(np.mean)
+          #u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
+          #X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
           Xu=X.mul(u,axis=0)
           if len(X.shape)==1:
               XXinv=np.array([1./(X.T.dot(X))])
