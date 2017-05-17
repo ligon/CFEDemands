@@ -287,6 +287,8 @@ the first eigenvalue, andn the first right eigenvector.
       if TRANSPOSE: xhat=xhat.T
 
       if return_usv:
+          u = pd.Series(u.A.squeeze(),index=xhat.columns)
+          v = pd.Series(v.A.squeeze(),index=xhat.index)
           return xhat,u,s,v
       else: return xhat
 #+end_src
