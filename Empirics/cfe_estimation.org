@@ -14,6 +14,18 @@
 #+LATEX_HEADER: \addbibresource{ligon.bib}
 #+LATEX_HEADER: \usepackage{stringstrings}\renewcommand{\cite}[1]{\caselower[q]{#1}\citet{\thestring}}
 :END:
+* Introduction
+  This document describes a set of empirical methods for estimating
+  demands of a form we'll call "Constant Frisch Elasticity," and
+  also provides =python= code which implements these methods.  
+  Both this document and the code it contains are licensed in a manner
+  which permits non-commercial reuse (see
+  https://creativecommons.org/licenses/by-nc-sa/4.0/), subject to a 
+  "attribution" requirement that you give appropriate credit to the
+  present author.  In the case of uses of the code or methods in an
+  written work such as a journal article, I ask that attribution
+  include citation of any relevant refereed publications.
+
 * Expenditure Shares
 
 These functions allow the computation and visualization of variation
@@ -138,10 +150,8 @@ def group_expenditures(df,groups):
     return myX
 #+end_src
 
-* Rank 1 SVD with Missing Data
-
-** Rank 1 SVD Approximation to Matrix with Missing Data
-*** Eigenvalue Decomposition Approach to Computing the SVD
+* Rank 1 SVD Approximation to Matrix with Missing Data
+** Eigenvalue Decomposition Approach to Computing the SVD
 Here's an approach that involves estimating a covariance matrix, and
 extracting $U$ and $\Sigma$ from that; then backing out estimated $V$,
 for columns satisfying a rank condition.  Unlike some alternative
@@ -194,6 +204,18 @@ of the covariance matrix which are  not positive definite.
       return X
 
   def svd_missing(A,max_rank=None,min_obs=None):
+      """Singular Value Decomposition with missing values
+
+      Returns matrices U,S,V.T, where A~=U*S*V.T.
+
+      Inputs: 
+          - A :: matrix or pd.DataFrame, with NaNs for missing data.
+          - max_rank :: Truncates the rank of the representation.  
+                 Note that this impacts which rows of V will be computed;
+                 each row must have at least max_rank non-missing values.
+          - min_obs :: Smallest number of non-missing observations for a 
+                 row of U to be computed.
+      """
 
       P=missing_inner_product(A,min_obs=min_obs)
 
@@ -226,7 +248,7 @@ of the covariance matrix which are  not positive definite.
       return np.matrix(u),s,np.matrix(v).T
 #+END_SRC
 
-*** Rank 1 Approximation
+** Rank 1 Approximation
 
 Once we've computed the SVD of a matrix we can construct an optimal rank one
 approximation to that matrix using just the  first left eigenvector,
@@ -237,7 +259,7 @@ the first eigenvalue, andn the first right eigenvector.
   import pandas as pd
   <<svd_missing>>
 
-  def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=None,min_obs=None,VERBOSE=True):
+  def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,min_obs=None,VERBOSE=True):
       """
       Return rank 1 approximation to a pd.DataFrame x, where x may have
       elements which are missing.
@@ -269,7 +291,7 @@ the first eigenvalue, andn the first right eigenvector.
       else: return xhat
 #+end_src
 
-*** Test of Rank 1 SVD Approximation to Matrix with Missing Data
+** Test of Rank 1 SVD Approximation to Matrix with Missing Data
 
 First, some code to check if approximation works for a simple, small
 scale example.
@@ -361,7 +383,7 @@ else: print
 : Proportion missing 0.500375 and correlations are -0.9993 and -0.9803. Singular value=150.989
 
 
-*** Test of construction of approximation to CE
+** Test of construction of approximation to CE
 #+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
   import numpy as np
   <<estimate_reduced_form>>
