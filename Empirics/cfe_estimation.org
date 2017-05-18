@@ -51,7 +51,7 @@ corresponding to period-households, indexed by $(t,j)$.
 
       return sharesdf,mratio
 
-  def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None):
+  def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False):
       """Figure of log agg shares - log mean shares.
 
       Input df is a pd.DataFrame of expenditures, indexed by (t,j).
@@ -72,37 +72,52 @@ corresponding to period-households, indexed by $(t,j)$.
           fig, ax = pl.subplots()
 
       mratio.sort_values(by=mratio.columns[0],inplace=True)
-      ax.plot(range(mratio.shape[0]),mratio.as_matrix(), 'o')
-      ax.legend(mratio.columns,loc=2)
-      ax.set_ylabel('Log Mean shares divided by Aggregate shares')
 
-      v=ax.axis()
+      if VERTICAL:
+          ax.plot(mratio.as_matrix(),range(mratio.shape[0]), 'o')
+          ax.legend(mratio.columns,loc=2)
+          ax.set_xlabel('Log Aggregate shares divided by Mean shares')
+          ax.set_yticks(range(mratio.shape[0]))
+          ax.set_yticklabels(mratio.index.values.tolist(),rotation=0)
+          ax.axvline()
+          v = ax.axis()
+          ax.figure.set_figheight((v[-1]/24)*6)
+          pl.tight_layout()
+      else:
+          ax.plot(range(mratio.shape[0]),mratio.as_matrix(), 'o')
+          ax.legend(mratio.columns,loc=2)
+          ax.set_ylabel('Log Aggregate shares divided by Mean shares')
 
-      if  len(mratio)>=12:
-          i=0
-          for i in range(len(mratio)):
-              name=mratio.ix[i].name # label of expenditure item
+          v=ax.axis()
 
-              if mratio.iloc[i,0]>0.2:
-                  #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
+          if  len(mratio)>=12:
+              i=0
+              for i in range(len(mratio)):
+                  name=mratio.ix[i].name # label of expenditure item
 
-                  # The key option here is `bbox`. 
-                  ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
-                              textcoords='offset points', ha='right', va='bottom',
-                              bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                              color='red'),fontsize='xx-small')
+                  if mratio.iloc[i,0]>0.2:
+                      #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
 
-              if mratio.iloc[i,0]<-0.2:
-                  #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
-                  ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
-                              textcoords='offset points', ha='left', va='top',
-                              bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                              arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                              color='red'),fontsize='xx-small')
-      else: #Put labels on xaxis
-          ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
-        
+                      # The key option here is `bbox`. 
+                      ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
+                                  textcoords='offset points', ha='right', va='bottom',
+                                  bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                                  arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                  color='red'),fontsize='xx-small')
+
+                  if mratio.iloc[i,0]<-0.2:
+                      #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
+                      ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
+                                  textcoords='offset points', ha='left', va='top',
+                                  bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                                  arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                  color='red'),fontsize='xx-small')
+          else: #Put labels on xaxis
+              ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
+
+          ax.axhline()
+
+    
 
       if ConfidenceIntervals>0: # Bootstrap some confidence intervals
           if ConfidenceIntervals==1: ConfidenceIntervals=0.95
@@ -126,13 +141,16 @@ corresponding to period-households, indexed by $(t,j)$.
               ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.as_matrix()
               current=np.c_[lb,ub]
               i+=1
+
           T=mratio.shape[1]
           for t in range(T):
-              ax.errorbar(np.arange(mratio.shape[0]),mratio.as_matrix()[:,t],yerr=current[:,[t,t-T]].T.tolist())
+              if VERTICAL:
+                  ax.errorbar(mratio.as_matrix()[:,t],np.arange(mratio.shape[0]),xerr=current[:,[t,t-T]].T.tolist())
+              else:
+                  ax.errorbar(np.arange(mratio.shape[0]),mratio.as_matrix()[:,t],yerr=current[:,[t,t-T]].T.tolist())
+
               tab[(df.index.levels[0][t],'Upper Int')]=current[:,t-T]
               tab[(df.index.levels[0][t],'Lower Int')]=current[:,t]
-
-      ax.axhline()
 
       if figname:
           pl.savefig(figname)
