@@ -122,8 +122,8 @@ corresponding to period-households, indexed by $(t,j)$.
               M=np.dstack((M,mr.as_matrix()))
               M.sort(axis=2)
               a=(1-ConfidenceIntervals)/2.
-              lb= mratio.as_matrix() - M[:,:,np.floor(M.shape[-1]*a)]
-              ub=M[:,:,np.floor(M.shape[-1]*(ConfidenceIntervals+a))] - mratio.as_matrix()
+              lb= mratio.as_matrix() - M[:,:,int(np.floor(M.shape[-1]*a))]
+              ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.as_matrix()
               current=np.c_[lb,ub]
               i+=1
           T=mratio.shape[1]
@@ -324,28 +324,27 @@ X[0,1]=np.nan
 X0=pd.DataFrame(X0).T
 X=pd.DataFrame(X).T
 
-Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,MISSLAST=MISSLAST)
+Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 
-print X
 print X0
+print X
 print Xhat
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
 #+begin_example
-      0     1     2     3     4
-0   NaN  0.01 -0.22  0.01 -0.21
-1   NaN  0.00  0.31 -0.03  0.31
-2 -0.43  0.00 -0.42  0.04 -0.38
-      0     1     2     3     4
-0 -0.22  0.01 -0.22  0.01 -0.21
-1  0.32  0.00  0.31 -0.03  0.31
-2 -0.43  0.00 -0.42  0.04 -0.38
+      0         1     2         3         4
+0 -0.11  0.006667 -0.11  0.003333 -0.116667
+1  0.43 -0.003333  0.42 -0.036667  0.403333
+2 -0.32 -0.003333 -0.31  0.033333 -0.286667
+      0         1     2         3         4
+0   NaN  0.006667 -0.11  0.003333 -0.116667
+1   NaN -0.003333  0.42 -0.036667  0.403333
+2 -0.32 -0.003333 -0.31  0.033333 -0.286667
           0         1         2         3         4
-0 -0.223967  0.001319 -0.217683  0.019239 -0.204965
-1  0.323213 -0.001904  0.314145 -0.027764  0.295791
-2 -0.429781  0.002532 -0.417723  0.036918 -0.393317
-MISSLAST=1
+0 -0.109610  0.000398 -0.111595  0.010270 -0.106239
+1  0.399679 -0.001452  0.406917 -0.037448  0.387385
+2 -0.320000  0.001163 -0.325795  0.029982 -0.310158
 #+end_example
 
 #+name: svd_rank1_approximation_with_missing_data_test
@@ -372,8 +371,9 @@ X=pd.DataFrame(X).T
 
 Xhat,u,s,v=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,return_usv=True)
 
-rho_a=np.corrcoef(np.c_[a,u[:,0]],rowvar=0)[0,1]
-rho_b=pd.DataFrame({'b':b.reshape(-1),'v':v[:,0].A.reshape(-1)}).corr().iloc[0,1]
+#rho_a=np.corrcoef(np.c_[a,u[:,0]],rowvar=0)[0,1]
+rho_a=pd.DataFrame({'a':a.reshape(-1),'u':u}).corr().iloc[0,1]
+rho_b=pd.DataFrame({'b':pd.Series(b.reshape(-1)),'v':v}).corr().iloc[0,1]
 missing=np.isnan(X.as_matrix()).reshape(-1,1).mean()
 print "Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),
 print "Singular value=%g" % s[0],
@@ -382,7 +382,6 @@ else: print
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_test
-: Proportion missing 0.500375 and correlations are -0.9993 and -0.9803. Singular value=150.989
 
 
 ** Test of construction of approximation to CE
