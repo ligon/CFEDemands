@@ -46,13 +46,13 @@ corresponding to period-households, indexed by $(t,j)$.
       aggshares=aggshares.div(aggshares.sum(axis=1),axis=0).T
       meanshares=df.div(df.sum(axis=1),level='j',axis=0).groupby(level='t').mean().T
 
-      mratio=(np.log(meanshares)-np.log(aggshares))
+      mratio=(np.log(aggshares)-np.log(meanshares))
       sharesdf=pd.Panel({'Mean shares':meanshares,'Agg. shares':aggshares})
 
       return sharesdf,mratio
 
   def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None):
-      """Figure of log mean shares - log agg shares.
+      """Figure of log agg shares - log mean shares.
 
       Input df is a pd.DataFrame of expenditures, indexed by (t,j).
 
