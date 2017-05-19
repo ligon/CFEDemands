@@ -558,9 +558,11 @@ Estimates =b=
         b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
         a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD[useDateLocs].mean().values)
 
+
     b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
     #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
     b = b.T
+    sed = sed.T
 
     if b.shape[1]==1: # Only a single time-market
       assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
