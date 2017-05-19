@@ -1655,7 +1655,7 @@ print x.head()
           X = X - X.groupby(level=clusterby).transform(np.mean)
           #u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
           #X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
-          Xu=X.mul(u,axis=0)
+          Xu=X.mul(u.squeeze(),axis=0)
           if len(X.shape)==1:
               XXinv=np.array([1./(X.T.dot(X))])
           else:
