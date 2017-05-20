@@ -1725,7 +1725,14 @@ print x.head()
 
 #+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
-  def broadcast_binary_op(x, op, y,how='left'):
+  def merge_multi(df1, df2, on):
+      """Merge on subset of multiindex.
+     
+      Idea due to http://stackoverflow.com/questions/23937433/efficiently-joining-two-dataframes-based-on-multiple-levels-of-a-multiindex
+      """
+      return df1.reset_index().join(df2,on=on).set_index(df1.index.names)
+
+  def broadcast_binary_op(x, op, y):
       """Perform x op y, allowing for broadcasting over a multiindex.
 
       Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
@@ -1733,7 +1740,7 @@ print x.head()
       x = pd.DataFrame(x.copy())
       y = pd.DataFrame(y.copy())
       xix= x.index.copy()
-    
+  
       if y.shape[1]==1: # If y a series, expand to match x.
           y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
 
@@ -1742,20 +1749,12 @@ print x.head()
       yindex = list(y.index.names)
 
       dif = list(set(xindex)-set(yindex))
-      x.reset_index(dif, inplace=True)
-      x.index = x.index.tolist()
-      y.index = y.index.tolist()
 
-      z = pd.DataFrame(index=x.index)
-      z = z.join(y,how=how)
-      zix = z.index
+      z = pd.DataFrame(index=xix)
+      z = merge_multi(z,y,on=yindex)
 
-      z.reset_index(inplace=True)
-      x.reset_index(inplace=True)
       newdf = op(x[cols],z[cols])
 
-      newdf.index=xix
-    
       return newdf
 #+END_SRC
 
@@ -1799,6 +1798,7 @@ idx=[ (u'101005', u'2009Q1', u'BGD'),  (u'101005', u'2011Q1', u'BGD'),
       (u'3015', u'2010Q4', u'UGA'),    (u'3016', u'2010Q4', u'UGA')]
 
 foo=pd.DataFrame(foo,index=pd.MultiIndex.from_tuples(idx,names=['j','t','mkt']))
+foo=foo.sort_index()
 
 bar=array([[ 0.24921932,         nan,         nan],
        [ 0.21093294,         nan,         nan],
@@ -1818,11 +1818,36 @@ idx=[(u'2009Q1', u'BGD'), (u'2011Q1', u'BGD'), (u'2011Q3', u'UGA'),
 
 bar = pd.DataFrame(bar,index=pd.MultiIndex.from_tuples(idx,names=['t','mkt']))
 
-baz=broadcast_binary_op(foo, lambda x,y: x+y, bar,how='left')
+baz=broadcast_binary_op(foo, lambda x,y: x+y, bar)
 
 assert baz.shape == foo.shape
+print baz
 
 #+END_SRC
 
 #+results: test_broadcast_binary_op
+#+begin_example
+                           0   1         2
+j       t      mkt                        
+1002    2014Q3 SSD       NaN NaN       NaN
+        2015Q2 SSD       NaN NaN       NaN
+1006    2014Q3 SSD       NaN NaN       NaN
+        2015Q2 SSD  1.507158 NaN       NaN
+00L0101 2013Q3 GHA       NaN NaN -0.556732
+        2014Q3 GHA  0.134827 NaN  1.162398
+00L0202 2013Q3 GHA       NaN NaN -0.318084
+        2014Q3 GHA       NaN NaN  0.835955
+02L0101 2012Q1 GHA  0.588095 NaN       NaN
+        2012Q3 GHA       NaN NaN  0.308492
+        2013Q1 GHA       NaN NaN  0.002025
+02L0202 2012Q1 GHA  0.651811 NaN -0.307470
+        2013Q1 GHA  0.022998 NaN -0.491268
+02L0238 2012Q3 GHA  0.551903 NaN  1.001639
+101005  2009Q1 BGD       NaN NaN       NaN
+        2011Q1 BGD       NaN NaN       NaN
+101007  2009Q1 BGD       NaN NaN       NaN
+        2011Q1 BGD       NaN NaN       NaN
+3015    2010Q4 UGA       NaN NaN       NaN
+3016    2010Q4 UGA       NaN NaN       NaN
+#+end_example
 
