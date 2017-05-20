@@ -13,7 +13,7 @@ CHANGES.txt:
 	git log --pretty='medium' > CHANGES.txt
 
 localinstall: clean sdist
-	(cd dist; sudo -H pip install CFEDemands*.tar.gz --upgrade)
+	(cd dist; sudo -H pip2 install CFEDemands*.tar.gz --upgrade)
 
 upload: sdist #wininst
 	python setup.py sdist upload
