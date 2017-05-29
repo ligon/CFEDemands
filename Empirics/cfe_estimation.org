@@ -560,7 +560,6 @@ Estimates =b=
 
 
     b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
-    #b.index=pd.MultiIndex.from_tuples(b.index,names=['t','mkt'])
     b = b.T
     sed = sed.T
 
@@ -1850,4 +1849,29 @@ j       t      mkt
 3015    2010Q4 UGA       NaN NaN       NaN
 3016    2010Q4 UGA       NaN NaN       NaN
 #+end_example
+
+#+name: test_broadcast_binary_op2
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/broadcast_binary_op2.py
+  import pandas as pd
+  from numpy import array, nan
+
+  <<broadcast_binary_op>>
+
+  idx=pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(0,1,0),(0,1,1),
+                                 (1,0,0),(1,0,1),(1,1,0),(1,1,1)],names=('a','b','c'))
+
+  foo = pd.DataFrame({'x':range(8)},index=idx)
+
+  idx=pd.MultiIndex.from_tuples([(0,0),(0,1),(1,0),(1,1)],names=('b','c'))
+
+  bar = pd.DataFrame({'y':range(4)},index=idx)
+
+  baz = broadcast_binary_op(foo,lambda x,y:x+y,bar)
+
+  assert baz.iloc[3,0]==6
+
+#+END_SRC
+
+#+results: test_broadcast_binary_op2
+
 
