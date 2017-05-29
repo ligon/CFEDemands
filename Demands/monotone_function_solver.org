@@ -1,3 +1,4 @@
+:SETUP:
 #+TITLE: Algorithm to find the root of a monotone function
 #+DATE: <2013-10-21 Mon>
 #+AUTHOR: Ethan Ligon
@@ -16,8 +17,7 @@
 #+LATEX_CLASS: amsart
 #+LATEX_CLASS_OPTIONS:
 #+LATEX_HEADER: \newcommand{\R}{\mathbb{R}}
-#+LATEX_HEADER_EXTRA:
-##+PROPERTIES: header-args :tangle yes
+:END:
 
 Consider a function $f:\R\rightarrow\R$.  The function is continuous, monotonic, and is known
 to have a root $x_0$ in a bounded interval $[a,b]$.  
@@ -449,7 +449,7 @@ to specify a precision and get back a number, rather than a convergent
 sequence.  The following code provides this facility, using the
 =newton= algorithm for selecting =middle=.
 #+name: root_with_precision
-#+begin_src python :noweb no-export :exports code :tangle root_with_precision.py
+#+begin_src python :noweb no-export :exports code :tangle ../cfe/root_with_precision.py
 <<root_in_open_interval>>
 
 def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
@@ -458,7 +458,7 @@ def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
     else:
         seq=root_interval(f,axb,middle)
     x=seq.next() 
-   while abs(x[0]-x[-1])>tol:
+    while abs(x[0]-x[-1])>tol:
         x=seq.next()
 
     return x[1]
