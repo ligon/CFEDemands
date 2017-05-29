@@ -22,38 +22,38 @@ Dependencies:
      - frischian
      - hicksian
      - marshallian
-     - demand_core.lambdavalue
-     - demand_utils.derivative
+     - _core.lambdavalue
+     - _utils.derivative
      - numpy.log
- - demand_core :: 
+ - _core :: 
      - frischian 
      - hicksian.expenditures 
-     - demand_utils.check_args
- - demand_utils ::
+     - _utils.check_args
+ - _utils ::
      - root_with_precision
  - frischian ::
-     - demand_utils.check_args
+     - _utils.check_args
  - marshallian ::
-     - demand_utils.check_args
-     - demand_core.lambdavalue
-     - demand_utils.derivative
+     - _utils.check_args
+     - _core.lambdavalue
+     - _utils.derivative
 
 #+name: demands
 #+BEGIN_SRC python :tangle ../cfe/demands.py
 import frischian
 import hicksian
 import marshallian
-from demand_core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
-from demand_utils import derivative
+from _core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
+from _utils import derivative
 from numpy import array
 #+END_SRC
    
 * Core routines
 #+name: demand_core
-#+BEGIN_SRC python :tangle ../cfe/demand_core.py
+#+BEGIN_SRC python :tangle ../cfe/_core.py
   import frischian
   import hicksian
-  from demand_utils import check_args
+  from _utils import check_args, derivative
   import warnings
   from numpy import nan, Inf
   from root_with_precision import root_with_precision
@@ -175,6 +175,7 @@ from numpy import array
 
       NB: This is also relative risk aversion.
       """
+      n,alpha,beta,phi = check_args(p,alpha,beta,phi)
 
       lmbda=lambda x: lambdavalue(x,p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision')
       dl=derivative(lmbda)
@@ -187,7 +188,7 @@ from numpy import array
 
 * Utility and optimization routines
 #+name: demand_utils
-#+BEGIN_SRC python :tangle ../cfe/demand_utils.py
+#+BEGIN_SRC python :tangle ../cfe/_utils.py
 from scipy import optimize 
 from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all
 import warnings
@@ -252,7 +253,7 @@ def derivative(f,h=2e-5,LIMIT=False):
 * Frischian demand interface
 #+name: frischian
 #+BEGIN_SRC python :tangle ../cfe/frischian.py 
-from demand_utils import check_args
+from _utils import check_args
 from numpy import log
 
 def demands(lbda,p,alpha,beta,phi,NegativeDemands=True):
@@ -297,8 +298,8 @@ V = indirect_utility
 #+name: marshallian
 #+BEGIN_SRC python :tangle ../cfe/marshallian.py 
 import frischian
-from demand_core import lambdavalue
-from demand_utils import check_args, derivative
+from _core import lambdavalue
+from _utils import check_args, derivative
 from numpy import array
 
 def demands(y,p,alpha,beta,phi,NegativeDemands=True):
@@ -374,8 +375,8 @@ def income_elasticity(y,p,alpha,beta,phi,NegativeDemands=True):
 #+name: hicksian
 #+BEGIN_SRC python :tangle ../cfe/hicksian.py 
 import frischian
-from demand_utils import check_args
-from demand_core import lambdaforU
+from _utils import check_args
+from _core import lambdaforU
 from numpy import array
 
 def expenditurefunction(U,p,alpha,beta,phi,NegativeDemands=True):
