@@ -556,7 +556,7 @@ Estimates =b=
         d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
         b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
-        a[Item] = y[Item].mean() - d[Item].dot(z.mean(axis=0)) - np.array(b[Item]).dot(DateLocD[useDateLocs].mean().values)
+        a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[z.columns]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
 
 
     b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
@@ -582,7 +582,7 @@ Estimates =b=
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
-#+BEGIN_SRC python :results value :var T=1 :var N=500 :var n=6 :tangle ../cfe/test/estimate_reduced_form.py
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/estimate_reduced_form.py
 from scipy.stats.distributions import chi2
 
 <<lambdas_dgp>>
@@ -605,6 +605,9 @@ assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equ
 
 print p
 #+END_SRC
+
+#+results: test_estimate_reduced_form
+: [[ 0.82896109]]
 
 The preceding creates a random sample with  known parameters =d=;
 estimates of =d= should all be equal to 1 in expectation.  We

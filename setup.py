@@ -6,7 +6,7 @@ if not sys.version_info[0] == 2:
 
 setup(
     name='CFEDemands',
-    version='0.1.4dev',
+    version='0.1.4.1dev',
     author='Ethan Ligon',
     author_email='ligon@berkeley.edu',
     packages=['cfe',],
