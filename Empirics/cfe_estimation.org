@@ -741,6 +741,16 @@ should deliver a line close to 45 degrees if all is well.
           e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
           e = e - e.mean()
           return e
+       
+      def new_draw(e,clusterby):      
+          if clusterby:
+              S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
+          else:
+              S=resample(e)
+
+          bs,ls=get_loglambdas(S)
+
+          return bs
 
       if outfn: outf=open(outfn,'a')
 
@@ -748,27 +758,26 @@ should deliver a line close to 45 degrees if all is well.
       old=np.array(1)
       new=np.array(0)
       i=1
-      L=[]
+      chunksize=2
       while delta>tol or i < minits:
           delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
-          if VERBOSE and (i % 2)==0 and i>2: 
-              print "Iteration %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
+          if VERBOSE and i>chunksize: 
+              print "Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
           old=new
-          if clusterby:
-              S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
-          else:
-              S=resample(e)
 
-          bs,ls=get_loglambdas(S)
+          bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
         
-          if np.any(np.isnan(bs)):
-              warnings.warn("Resampling draw with no data?")
-          try:
-              B=B.append(bs,ignore_index=True)
-          except NameError:
-              B=pd.DataFrame(bs).T # Create B
+          if outfn: 
+              for bs in bees:
+                  if np.any(np.isnan(bs)):
+                      warnings.warn("Resampling draw with no data?")
+                  outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
+          i+=chunksize
 
-          L.append(ls)
+          try:
+              B=B.append(bees,ignore_index=True)
+          except NameError:
+              B=pd.DataFrame(bees).T # Create B
 
           std0=B.std()
           std1=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
@@ -776,9 +785,6 @@ should deliver a line close to 45 degrees if all is well.
               new=std1
           else:
               new=std0
-
-          if outfn: outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
-          i+=1
 
       if outfn: outf.close()
       if return_samples:
