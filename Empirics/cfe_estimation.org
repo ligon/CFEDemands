@@ -757,8 +757,10 @@ should deliver a line close to 45 degrees if all is well.
       delta=1.
       old=np.array(1)
       new=np.array(0)
-      i=1
+      i=0
       chunksize=2
+
+      assert chunksize>=2, "chunksize must be 2 or more."
       while delta>tol or i < minits:
           delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
           if VERBOSE and i>chunksize: 
@@ -772,12 +774,13 @@ should deliver a line close to 45 degrees if all is well.
                   if np.any(np.isnan(bs)):
                       warnings.warn("Resampling draw with no data?")
                   outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
-          i+=chunksize
 
           try:
               B=B.append(bees,ignore_index=True)
           except NameError:
-              B=pd.DataFrame(bees).T # Create B
+              B=pd.DataFrame(bees,index=range(chunksize)) # Create B
+
+          i+=chunksize
 
           std0=B.std()
           std1=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
