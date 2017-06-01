@@ -483,7 +483,15 @@ Estimates =b=
         - z : pd.DataFrame of household characteristics; index should match that of y.
 
     Outputs:
-        - b : Estimated good-time-market fixed effects; will sum to  zero.
+        - a : Estimated good-time-market fixed effects; will sum to  zero.
+
+        - ce : Residuals (can be provided as an input to get_log_lambdas()).
+
+        - d : Estimated coefficients associated with characteristics z.
+
+        - se : (Optional, if return_se) Estimated standard errors for coefficients d.
+
+        - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
   
     Ethan Ligon                                            February 2017
     """
@@ -673,6 +681,16 @@ should deliver a line close to 45 degrees if all is well.
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
   import pandas as pd
 
+  try: 
+      from joblib import Parallel, delayed
+      #import timeit
+      PARALLEL=True
+  except ImportError:
+      PARALLEL=False
+      warnings.warn("Install joblib for parallel bootstrap.")
+
+  PARALLEL = False # Not yet working.
+
   def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
       """
       Use singular-value decomposition to compute loglambdas and price elasticities,
@@ -715,7 +733,7 @@ should deliver a line close to 45 degrees if all is well.
   def iqr(x):
       """The interquartile range of a pd.Series of observations x."""
       q=x.quantile([0.25,0.75])
-   
+ 
       try:
           return q.diff().iloc[1]
       except AttributeError:
@@ -736,12 +754,12 @@ should deliver a line close to 45 degrees if all is well.
 
       Ethan Ligon                              January 2017
       """
-      #bhat,Lhat=get_loglambdas(e)
+
       def resample(e):
           e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
           e = e - e.mean()
           return e
-       
+   
       def new_draw(e,clusterby):      
           if clusterby:
               S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
@@ -767,8 +785,15 @@ should deliver a line close to 45 degrees if all is well.
               print "Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
           old=new
 
-          bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
-        
+          if PARALLEL:
+              #start=timeit.timeit()
+              bees = Parallel(n_jobs=chunksize)(delayed(new_draw)(e,clusterby) for chunk in range(chunksize))
+              #print timeit.timeit() - start
+          else:
+              #start=timeit.timeit()
+              bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
+              #print timeit.timeit() - start
+    
           if outfn: 
               for bs in bees:
                   if np.any(np.isnan(bs)):
