@@ -759,7 +759,7 @@ should deliver a line close to 45 degrees if all is well.
           e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
           e = e - e.mean()
           return e
-   
+ 
       def new_draw(e,clusterby):      
           if clusterby:
               S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
@@ -782,7 +782,8 @@ should deliver a line close to 45 degrees if all is well.
       while delta>tol or i < minits:
           delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
           if VERBOSE and i>chunksize: 
-              print "Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta,np.nanmax(np.abs(std0.reshape(-1)-std1.reshape(-1))))
+              stat = np.nanmax(np.abs((std0.reshape(-1)-std1.reshape(-1))/std0.reshape(-1)))
+              print "Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat)
           old=new
 
           if PARALLEL:
@@ -793,7 +794,7 @@ should deliver a line close to 45 degrees if all is well.
               #start=timeit.timeit()
               bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
               #print timeit.timeit() - start
-    
+  
           if outfn: 
               for bs in bees:
                   if np.any(np.isnan(bs)):
