@@ -432,20 +432,13 @@ else: print
     expenditures and characteristics, and takes data defining markets
     and perhaps some prices.
 
-    Data on markets and prices is specified by providing a
-    =pd.DataFrame= =P= with a MultiIndex of (period,market) indicated
-    as =('t','mkt')=.  =P= may be otherwise empty, in which case the
-    multiindex simply defines the market structure; e.g.,
-#+BEGIN_SRC python :exports code
-    ix=pd.MultiIndex.from_tuples([(1975,'Aurepalle'),(1975,'Shirapur'),(1975,'Kanzara'),
-                                  (1976,'Aurepalle'),(1976,'Shirapur'),(1976,'Kanzara'),
-                                  (1977,'Aurepalle'),(1977,'Shirapur'),(1977,'Kanzara'),
-                                  (1978,'Aurepalle'),(1978,'Shirapur'),(1978,'Kanzara')],names=['t','mkt'])
-    P=pd.DataFrame(index=ix)
-#+END_SRC
-    Alternatively, the dataframe =P= can include data on actual prices
-    observed in different period-markets.  In this case one of the
-    commodities should be chosen as a numéraire e.g.,
+    Data on prices is specified by providing a =pd.DataFrame= =P= with
+    a MultiIndex of (period,market) indicated as =('t','mkt')=.  If
+    provided, the dataframe =P= includes data on actual prices
+    observed in different period-markets.  These data need not be
+    complete, and in particular it's fine to provide prices for only a
+    subset of goods.  However, if one or more prices is provided, one
+    of the commodities should be chosen as a numéraire e.g.,
 #+BEGIN_SRC python :exports code
     ix=pd.MultiIndex.from_tuples([(1975,'Aurepalle'),(1975,'Shirapur'),(1975,'Kanzara'),
                                   (1976,'Aurepalle'),(1976,'Shirapur'),(1976,'Kanzara'),
@@ -461,8 +454,6 @@ observed need to have  price supplied.  If prices for one good are
 supplied, it should be the numéraire; if prices for two or more goods
 are supplied it's possible to identify Frisch elasticities $\beta$ and
 to estimate any missing prices.  
-
-Estimates =b=
 
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
@@ -492,7 +483,7 @@ Estimates =b=
         - se : (Optional, if return_se) Estimated standard errors for coefficients d.
 
         - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
-  
+
     Ethan Ligon                                            February 2017
     """
     try: # Be a little forgiving if t or mkt index is missing.
@@ -558,8 +549,9 @@ Estimates =b=
         ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
         if return_v or return_se:
-            V[Item]=arellano_robust_cov(z,ce[Item])
-            sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+            if z.shape[1]:
+                V[Item]=arellano_robust_cov(z,ce[Item])
+                sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
         d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
@@ -1106,6 +1098,153 @@ print x.head()
 #+END_SRC
 
 #+results:
+
+* Analysis Omnibus
+  This describes a sort of `wrapper' routine which at a minimum takes
+  as input a =pd.DataFrame= of log expenditures, indexed by household,
+  period, and  market =("j","t","mkt")=, with  columns corresponding
+  to different goods.  
+
+  In addition, one may provide a dataframe of household
+  characteristics with a similar structure to the dataframe of
+  expenditures, save that columns will correspond to different
+  household characteristics.  
+
+  Finally, one may provide a dataframe of prices.  The structure of
+  this dataframe is described above in Section [[*Estimation of reduced form][Estimation of reduced
+  form]]. 
+
+#+name: analysis_omnibus
+#+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
+  # -*- coding: utf-8 -*-
+
+  import tempfile
+  import numpy as np
+  import pandas as pd
+  from numpy.linalg import norm
+
+  def analysis_omnibus(y, z=None, prices=None, numeraire=None,
+                       VERBOSE=True, BOOTSTRAP=False):
+
+      if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
+          BOOTSTRAP = 1e-3
+
+      if z is None:
+         z = pd.DataFrame(index=y.index)
+
+      if prices is not None: # Check price indices (t,mkt) consistent with indices in y
+          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), "Must have prices for every (t,mkt) in expenditures y."
+
+      firstround=y.reset_index().iloc[0]['t']  
+
+      # Deflate expenditures and prices by prices of numeraire good.
+      if numeraire is not None:
+          y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+          logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+
+      use_goods=y.columns.tolist()
+
+      # The criterion below (hh must have observations for at least 1/8 of goods) ad hoc
+      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods)/8.))
+      y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+      y = drop_columns_wo_covariance(y,min_obs=30,VERBOSE=False)
+      # Only keep goods with observations in each (t,mkt)
+      y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
+
+      results={'y':y,'z':z}
+
+      a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+      ce.dropna(how='all',inplace=True)
+
+      results['ce']=ce
+      results['d_covariance'] = V
+
+      bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
+
+      cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+      cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+      results['cehat']=cehat
+
+      if VERBOSE:
+          print "Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce))
+
+      # Some naive standard errors & ANOVA
+      miss2nan = ce*0
+      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),'Characteristics':z.dot(d.T).var(ddof=0),'$\log\lambda$':(cehat + miss2nan).var(ddof=0),'Residual':(ce-cehat).var(ddof=0)})
+      anova=anova.div(y.var(ddof=0),axis=0)
+      anova['Total var']=y.var(ddof=0)
+      anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+
+      results['anova'] = anova
+
+      yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
+
+      yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
+
+      e = y.sub(yhat)
+      e0 = y.sub(yhat0)
+
+      goodsdf=d.copy()
+
+      pref_params=[r'$\phi\beta_i$']
+      if numeraire is not None:
+          barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
+          logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
+          a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+
+          # FIXME: Should really use weighted mean, since different precisions for a across different  markets
+          logalpha = a[firstround].T.mean() 
+          goodsdf[r'$\log\alpha_i$']=logalpha
+          pref_params += [r'$\log\alpha_i$']
+      else:
+          pidx=a.mean()
+          logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
+          a = a - pidx
+
+      if VERBOSE:
+          print "Mean of errors:"
+          print e.mean(axis=0)
+
+      goodsdf[r'$\phi\beta_i$']=bphi
+      goodsdf['$R^2$']=1-e.var()/y.var()
+
+      goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
+      goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
+
+      ehat=e.dropna(how='all')
+      ehat=ehat-ehat.mean()
+
+      if BOOTSTRAP:
+          if VERBOSE: print "Bootstrapping..."
+          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tempfile.mktemp(suffix='.csv',dir=resultsdir))
+          results['Bs'] = Bs
+          se[r'$\phi\beta_i$']=sel
+      else:
+          sel=[]
+          for i in ehat:
+              foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
+              sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).as_matrix()[0,0]))
+          se[r'$\phi\beta_i$']=np.array(sel)
+
+      if numeraire is not None:
+          se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
+
+      se.dropna(how='any',inplace=True)
+
+      results['se'] = se
+      goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
+
+      goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
+      goodsdf.dropna(how='any',inplace=True)
+      results['goods'] = goodsdf
+
+      results['a'] = a
+      results['loglambda'] = logL
+      results['logexpenditures'] = y
+      results['logexpenditures_hat'] = yhat
+
+      return results
+#+end_src
 
 * Distance between two estimates of \beta
   When we compute the Frisch elasticities, these are only identified
@@ -1685,6 +1824,12 @@ print x.head()
   def use_indices(df,idxnames):
       return df.reset_index()[idxnames].set_index(df.index)
 
+#+END_SRC
+
+** Some econometric routines
+
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
+
   def arellano_robust_cov(X,u,clusterby=['t','mkt']):
       X,u = drop_missing([X,u])
       clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
@@ -1759,6 +1904,8 @@ print x.head()
               out.append(u)
       return tuple(out)
 #+END_SRC
+
+** Utility functions for dealing with some awkward multiindex issues
 
 #+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
