@@ -242,6 +242,7 @@ def derivative(f,h=2e-5,LIMIT=False):
     Computes the numerical derivative of a function with a single scalar argument.
 
     - h :: A precision parameter.  
+
     BUGS: Would be better to actually take a limit, instead of assuming that h 
     is infinitesimal.  
     """
@@ -430,7 +431,7 @@ def main(y,p,alpha,beta,phi,NegativeDemands=True):
     tol=1e-6
 
     try:
-        print "Evaluating lambda-V'''...",
+        print "Evaluating lambda-V'...",
         lbda=lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
         assert abs(dV(y)-lbda)<tol
         print "within tolerance %f" % tol
