@@ -392,11 +392,11 @@ def root_in_open_interval(f,x,middle=middle):
         else:
             radius[0]+=radius[0]
             xc[0]=x0-radius[0]/2.
-        if b-xc[1] < radius[1]:
-            xc[1]=(a+xc[1])/2.
+        if b-xc[-1] < radius[1]:
+            xc[-1]=(a+xc[-1])/2.
         else:
             radius[1]+=radius[1]
-            xc[1]=x0+radius[1]/2.
+            xc[-1]=x0+radius[1]/2.
 
     return root_interval(f,xc,middle)
 #+end_src
