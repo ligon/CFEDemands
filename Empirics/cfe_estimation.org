@@ -1114,6 +1114,11 @@ print x.head()
   this dataframe is described above in Section [[*Estimation of reduced form][Estimation of reduced
   form]]. 
 
+  The analysis omnibus performs a sequence of estimation steps,
+  returning an "omnibus" of outputs in a dictionary.  These include
+  estimated demand parameters, household IMUEs, and output from an ANOVA
+  analysis, among others.
+
 #+name: analysis_omnibus
 #+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
   # -*- coding: utf-8 -*-
@@ -1124,7 +1129,7 @@ print x.head()
   from numpy.linalg import norm
 
   def analysis_omnibus(y, z=None, prices=None, numeraire=None,
-                       VERBOSE=True, BOOTSTRAP=False):
+                       VERBOSE=False, BOOTSTRAP=False):
 
       if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
           BOOTSTRAP = 1e-3
@@ -1133,7 +1138,8 @@ print x.head()
          z = pd.DataFrame(index=y.index)
 
       if prices is not None: # Check price indices (t,mkt) consistent with indices in y
-          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), "Must have prices for every (t,mkt) in expenditures y."
+          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
+                 "Must have prices for every (t,mkt) in expenditures y."
 
       firstround=y.reset_index().iloc[0]['t']  
 
@@ -1161,6 +1167,9 @@ print x.head()
 
       bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
 
+      assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+             "Problem with normalization of loglambdas"
+
       cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
       cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
       results['cehat']=cehat
@@ -1170,7 +1179,10 @@ print x.head()
 
       # Some naive standard errors & ANOVA
       miss2nan = ce*0
-      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),'Characteristics':z.dot(d.T).var(ddof=0),'$\log\lambda$':(cehat + miss2nan).var(ddof=0),'Residual':(ce-cehat).var(ddof=0)})
+      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
+                          'Characteristics':z.dot(d.T).var(ddof=0),
+                          '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
+                          'Residual':(ce-cehat).var(ddof=0)})
       anova=anova.div(y.var(ddof=0),axis=0)
       anova['Total var']=y.var(ddof=0)
       anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
@@ -1188,6 +1200,8 @@ print x.head()
 
       pref_params=[r'$\phi\beta_i$']
       if numeraire is not None:
+          # FIXME: Issue here with dividing by a random variable.  What
+          # properties do we want estimator of barloglambda_t to have?
           barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
           logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
           a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
@@ -1215,8 +1229,10 @@ print x.head()
       ehat=ehat-ehat.mean()
 
       if BOOTSTRAP:
-          if VERBOSE: print "Bootstrapping..."
-          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tempfile.mktemp(suffix='.csv',dir=resultsdir))
+          tmpf = tempfile.mkstemp(suffix='.csv')
+          if VERBOSE: print "Bootstrapping.  Interim results written to %s." % tmpf[1]
+
+          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
           results['Bs'] = Bs
           se[r'$\phi\beta_i$']=sel
       else:
