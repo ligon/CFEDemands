@@ -74,14 +74,18 @@ corresponding to period-households, indexed by $(t,j)$.
       mratio.sort_values(by=mratio.columns[0],inplace=True)
 
       if VERTICAL:
+          if np.isscalar(VERTICAL):
+              vertical_scale=VERTICAL
+          else:
+              vertical_scale=6.
           ax.plot(mratio.as_matrix(),range(mratio.shape[0]), 'o')
           ax.legend(mratio.columns,loc=2)
           ax.set_xlabel('Log Aggregate shares divided by Mean shares')
           ax.set_yticks(range(mratio.shape[0]))
-          ax.set_yticklabels(mratio.index.values.tolist(),rotation=0)
+          ax.set_yticklabels(mratio.index.values.tolist(),rotation=0,size='small')
           ax.axvline()
           v = ax.axis()
-          ax.figure.set_figheight((v[-1]/24)*6)
+          ax.figure.set_figheight((v[-1]/24)*vertical_scale)
           pl.tight_layout()
       else:
           ax.plot(range(mratio.shape[0]),mratio.as_matrix(), 'o')
@@ -1128,7 +1132,7 @@ print x.head()
   import pandas as pd
   from numpy.linalg import norm
 
-  def analysis_omnibus(y, z=None, prices=None, numeraire=None,
+  def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
                        VERBOSE=False, BOOTSTRAP=False):
 
       if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
@@ -1141,6 +1145,9 @@ print x.head()
           assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
                  "Must have prices for every (t,mkt) in expenditures y."
 
+      results={'y':y,'z':z}
+      if prices is not None: results['prices'] = prices
+
       firstround=y.reset_index().iloc[0]['t']  
 
       # Deflate expenditures and prices by prices of numeraire good.
@@ -1150,14 +1157,12 @@ print x.head()
 
       use_goods=y.columns.tolist()
 
-      # The criterion below (hh must have observations for at least 1/8 of goods) ad hoc
-      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods)/8.))
+      # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
       y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
-      y = drop_columns_wo_covariance(y,min_obs=30,VERBOSE=False)
+      y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
       # Only keep goods with observations in each (t,mkt)
       y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
-
-      results={'y':y,'z':z}
 
       a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
       ce.dropna(how='all',inplace=True)
@@ -1668,7 +1673,7 @@ print x.head()
           for i in df.index:
               s+='| %s  ' % i
               for j in df.columns: # Point estimates
-                  entry='| $'+float_fmt+'$  '
+                  entry='| \('+float_fmt+'\)  '
                   if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
@@ -1689,7 +1694,7 @@ print x.head()
                           stars='^{'+'*'*stars + '}'
                       else: stars=''
                   except KeyError: stars=''
-                  entry='| $'+float_fmt+stars+'$  '
+                  entry='| \('+float_fmt+stars+'\) '
                   if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
@@ -1718,7 +1723,7 @@ print x.head()
                           else: stars=''
                       except KeyError: stars=''
                   else: stars=''
-                  entry='| $'+float_fmt+stars+'$  '
+                  entry='| \('+float_fmt+stars+'\)  '
                   if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
@@ -1732,7 +1737,7 @@ print x.head()
                       elif np.isnan(sedf[j][i]):
                           se='(---)'
                       else:
-                          se='$(' + float_fmt % sedf[j][i] + ')$' 
+                          se='\((' + float_fmt % sedf[j][i] + ')\)' 
                   except KeyError: se=''
                   entry='| '+se+'  '
                   s+=entry 
@@ -1759,7 +1764,7 @@ print x.head()
                           else: stars=''
                       except KeyError: stars=''
                   else: stars=''
-                  entry='| $'+float_fmt+stars+'$  '
+                  entry='| \('+float_fmt+stars+'\) '
                   if np.isnan(df[j][i]):
                       s+='| --- '
                   else:
@@ -1768,7 +1773,7 @@ print x.head()
               for j in df.columns: # Now confidence intervals
                   s+='  '
                   try:
-                      ci='$[' + float_fmt +','+ float_fmt + ']$'
+                      ci='\([' + float_fmt +','+ float_fmt + ']\)'
                       ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
                   except KeyError: ci=''
                   entry='| '+ci+'  '
