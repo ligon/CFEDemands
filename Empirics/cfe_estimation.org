@@ -78,17 +78,17 @@ corresponding to period-households, indexed by $(t,j)$.
               vertical_scale=VERTICAL
           else:
               vertical_scale=6.
-          ax.plot(mratio.as_matrix(),range(mratio.shape[0]), 'o')
+          ax.plot(mratio.as_matrix(),list(range(mratio.shape[0])), 'o')
           ax.legend(mratio.columns,loc=2)
           ax.set_xlabel('Log Aggregate shares divided by Mean shares')
-          ax.set_yticks(range(mratio.shape[0]))
+          ax.set_yticks(list(range(mratio.shape[0])))
           ax.set_yticklabels(mratio.index.values.tolist(),rotation=0,size='small')
           ax.axvline()
           v = ax.axis()
           ax.figure.set_figheight((v[-1]/24)*vertical_scale)
           pl.tight_layout()
       else:
-          ax.plot(range(mratio.shape[0]),mratio.as_matrix(), 'o')
+          ax.plot(list(range(mratio.shape[0])),mratio.as_matrix(), 'o')
           ax.legend(mratio.columns,loc=2)
           ax.set_ylabel('Log Aggregate shares divided by Mean shares')
 
@@ -135,7 +135,7 @@ corresponding to period-households, indexed by $(t,j)$.
               # Sample households in each  round with replacement
               bootdf=mydf.iloc[np.random.random_integers(0,df.shape[0]-1,df.shape[0]),:]
               bootdf.reset_index(inplace=True)
-              bootdf['j']=range(bootdf.shape[0])
+              bootdf['j']=list(range(bootdf.shape[0]))
               bootdf.set_index(['t','j'],inplace=True)
               shares,mr=expenditure_shares(bootdf)
               M=np.dstack((M,mr.as_matrix()))
@@ -166,7 +166,7 @@ corresponding to period-households, indexed by $(t,j)$.
 #+begin_src python :noweb yes :tangle ../cfe/estimation.py
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
-    for k,v in groups.iteritems():
+    for k,v in groups.items():
         myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
             
     return myX
@@ -348,9 +348,9 @@ X=pd.DataFrame(X).T
 
 Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 
-print X0
-print X
-print Xhat
+print(X0)
+print(X)
+print(Xhat)
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
@@ -397,10 +397,10 @@ Xhat,u,s,v=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,return_usv=
 rho_a=pd.DataFrame({'a':a.reshape(-1),'u':u}).corr().iloc[0,1]
 rho_b=pd.DataFrame({'b':pd.Series(b.reshape(-1)),'v':v}).corr().iloc[0,1]
 missing=np.isnan(X.as_matrix()).reshape(-1,1).mean()
-print "Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),
-print "Singular value=%g" % s[0],
-if SEED: print "Seed=%g" % SEED
-else: print
+print("Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),)
+print("Singular value=%g" % s[0],)
+if SEED: print("Seed=%g" % SEED)
+else: print()
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_test
@@ -570,7 +570,7 @@ to estimate any missing prices.
       assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
       b[:]=0
 
-    d = pd.concat(d.values())
+    d = pd.concat(list(d.values()))
 
     out = [b.add(a,axis=0),ce,d]
     if return_se:
@@ -606,7 +606,7 @@ J=g.T*A*g
 p=(1 - chi2.cdf(J,len(g)))
 assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
-print p
+print(p)
 #+END_SRC
 
 #+results: test_estimate_reduced_form
@@ -721,7 +721,7 @@ should deliver a line close to 45 degrees if all is well.
       if TEST:
           foo=pd.DataFrame(-np.outer(bphi,loglambdas).T,index=loglambdas.index,columns=bphi.index)
           assert df_norm(foo-chat)<1e-4
-          #print "blogL norm: %f" % np.linalg.norm(foo-chat)
+          #print("blogL norm: %f" % np.linalg.norm(foo-chat))
 
       return bphi,loglambdas
 
@@ -778,17 +778,17 @@ should deliver a line close to 45 degrees if all is well.
           delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
           if VERBOSE and i>chunksize: 
               stat = np.nanmax(np.abs((std0.reshape(-1)-std1.reshape(-1))/std0.reshape(-1)))
-              print "Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat)
+              print("Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat))
           old=new
 
           if PARALLEL:
               #start=timeit.timeit()
               bees = Parallel(n_jobs=chunksize)(delayed(new_draw)(e,clusterby) for chunk in range(chunksize))
-              #print timeit.timeit() - start
+              #print(timeit.timeit() - start)
           else:
               #start=timeit.timeit()
               bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
-              #print timeit.timeit() - start
+              #print(timeit.timeit() - start)
   
           if outfn: 
               for bs in bees:
@@ -905,7 +905,7 @@ We begin by generating some artificial data on expenditures.
   cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
   cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
 
-  print "Norm of error in approximation of CE: %f" % df_norm(cehat,ce)
+  print("Norm of error in approximation of CE: %f" % df_norm(cehat,ce))
 
   # Some naive standard errors
 
@@ -914,7 +914,7 @@ We begin by generating some artificial data on expenditures.
 
   e=y.sub(yhat)
 
-  print "Correlation of log lambda with estimate (before normalization): %f" % pd.DataFrame({"L0":np.log(truth['lambdas'][0]),"Lhat":logL}).corr().iloc[0,1]
+  print("Correlation of log lambda with estimate (before normalization): %f" % pd.DataFrame({"L0":np.log(truth['lambdas'][0]),"Lhat":logL}).corr().iloc[0,1])
 
   if not numeraire is None:
       logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
@@ -924,16 +924,16 @@ We begin by generating some artificial data on expenditures.
       b=b-b.mean()
 
   # Evaluate estimate of beta:
-  print "Norm of (bphi,beta): %f" % np.var(bphi/truth['beta']) # Funny norm deals with fact that b only identified up to a scalar
+  print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals with fact that b only identified up to a scalar
 
   foo=logL.reset_index('mkt')
   foo['loglambda0']=np.log(truth['lambdas'][0])
   foo=foo.reset_index().set_index(['j','t','mkt'])
-  print "Correlation of log lambda with estimate (after normalization):"
-  print foo.groupby(level=['t','mkt']).corr()
+  print("Correlation of log lambda with estimate (after normalization):")
+  print(foo.groupby(level=['t','mkt']).corr())
   
-  print "Mean of errors:"
-  print e.mean(axis=0)
+  print("Mean of errors:")
+  print(e.mean(axis=0))
 
 #+end_src
 
@@ -1097,7 +1097,7 @@ We begin by generating some artificial data on expenditures.
 
 x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.01,sigma_eps=0.01)
 
-print x.head()
+print(x.head())
 
 #+END_SRC
 
@@ -1180,7 +1180,7 @@ print x.head()
       results['cehat']=cehat
 
       if VERBOSE:
-          print "Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce))
+          print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
 
       # Some naive standard errors & ANOVA
       miss2nan = ce*0
@@ -1221,8 +1221,8 @@ print x.head()
           a = a - pidx
 
       if VERBOSE:
-          print "Mean of errors:"
-          print e.mean(axis=0)
+          print("Mean of errors:")
+          print(e.mean(axis=0))
 
       goodsdf[r'$\phi\beta_i$']=bphi
       goodsdf['$R^2$']=1-e.var()/y.var()
@@ -1235,7 +1235,7 @@ print x.head()
 
       if BOOTSTRAP:
           tmpf = tempfile.mkstemp(suffix='.csv')
-          if VERBOSE: print "Bootstrapping.  Interim results written to %s." % tmpf[1]
+          if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
 
           sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
           results['Bs'] = Bs
@@ -1449,7 +1449,7 @@ print x.head()
   foo = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
   C=covb1b2()
 
-  print foo
+  print(foo)
 #+END_SRC  
 
 * Monte Carlo Data Generating Process
@@ -2026,7 +2026,7 @@ bar = pd.DataFrame(bar,index=pd.MultiIndex.from_tuples(idx,names=['t','mkt']))
 baz=broadcast_binary_op(foo, lambda x,y: x+y, bar)
 
 assert baz.shape == foo.shape
-print baz
+print(baz)
 
 #+END_SRC
 
