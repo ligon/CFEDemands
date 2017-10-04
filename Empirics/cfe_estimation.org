@@ -549,7 +549,7 @@ to estimate any missing prices.
         X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
         # Estimate d & b
-        myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+        myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) 
         ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
         if return_v or return_se:
@@ -561,7 +561,6 @@ to estimate any missing prices.
 
         b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
         a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[z.columns]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
-
 
     b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
     b = b.T
@@ -979,6 +978,7 @@ We begin by generating some artificial data on expenditures.
 
            - z : pd.DataFrame of household characteristics; index should match that of y.
 
+
         Ethan Ligon                                            March 2017
       """
       assert(y.index.names==['j','t','mkt'])
@@ -1004,7 +1004,7 @@ We begin by generating some artificial data on expenditures.
 
           rhs['Constant']=1
 
-          myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) # Need version of pandas >0.14.0 (?) for this use of join
+          myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) 
           ce[Item]=mye
 
           if return_v or return_se:
@@ -1151,7 +1151,7 @@ print x.head()
       firstround=y.reset_index().iloc[0]['t']  
 
       # Deflate expenditures and prices by prices of numeraire good.
-      if numeraire is not None:
+      if numeraire is not None and len(numeraire)>0:
           y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
           logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
 
@@ -1204,7 +1204,7 @@ print x.head()
       goodsdf=d.copy()
 
       pref_params=[r'$\phi\beta_i$']
-      if numeraire is not None:
+      if numeraire is not None and len(numeraire)>0:
           # FIXME: Issue here with dividing by a random variable.  What
           # properties do we want estimator of barloglambda_t to have?
           barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
