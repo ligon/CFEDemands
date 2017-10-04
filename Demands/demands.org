@@ -40,23 +40,23 @@ Dependencies:
 
 #+name: demands
 #+BEGIN_SRC python :tangle ../cfe/demands.py
-import frischian
-import hicksian
-import marshallian
-from _core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
-from _utils import derivative
+import . frischian
+import . hicksian
+import . marshallian
+from ._core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
+from ._utils import derivative
 from numpy import array
 #+END_SRC
    
 * Core routines
 #+name: demand_core
 #+BEGIN_SRC python :tangle ../cfe/_core.py
-  import frischian
-  import hicksian
-  from _utils import check_args, derivative
+  from . import frischian
+  from . import hicksian
+  from ._utils import check_args, derivative
   import warnings
   from numpy import nan, Inf
-  from root_with_precision import root_with_precision
+  from .root_with_precision import root_with_precision
 
   def excess_expenditures(y,p,alpha,beta,phi,NegativeDemands=True):
       """
@@ -140,7 +140,7 @@ from numpy import array
       elif method=='root_with_precision':
           return root_with_precision(f,[0,ub,Inf],1e-13,open_interval=True)
       else:
-          raise ValueError, "Method not defined."
+          raise ValueError("Method not defined.")
 
   def lambdaforU(U,p,alpha,beta,phi,NegativeDemands=True,ub=10):
       """
@@ -410,18 +410,18 @@ def budgetshares(U,p,alpha,beta,phi,NegativeDemands=True):
 def main(y,p,alpha,beta,phi,NegativeDemands=True):
 
     n=len(p)
-    print 'lambda=%f' % lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
-    print 'budget shares '+'%6.5f\t'*n % tuple(marshallian.budgetshares(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands))
-    print 'share income elasticities '+'%6.5f\t'*n % tuple(marshallian.share_income_elasticity(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands))
-    print 'indirect utility=%f' % marshallian.indirect_utility(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
+    print('lambda=%f' % lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands))
+    print('budget shares '+'%6.5f\t'*n % tuple(marshallian.budgetshares(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)))
+    print('share income elasticities '+'%6.5f\t'*n % tuple(marshallian.share_income_elasticity(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)))
+    print('indirect utility=%f' % marshallian.indirect_utility(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands))
     
     # Here's a test of the connections between different demand
     # representations:
-    print "Testing identity relating expenditures and indirect utility...",
+    print("Testing identity relating expenditures and indirect utility...", end=' ')
     V=marshallian.indirect_utility(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
     X=hicksian.expenditurefunction(V,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
     assert abs(y-X)<1e-6
-    print "passed."
+    print("passed.")
     
     def V(xbar):
         return marshallian.indirect_utility(xbar,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
@@ -431,31 +431,31 @@ def main(y,p,alpha,beta,phi,NegativeDemands=True):
     tol=1e-6
 
     try:
-        print "Evaluating lambda-V'...",
+        print("Evaluating lambda-V'...", end=' ')
         lbda=lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
         assert abs(dV(y)-lbda)<tol
-        print "within tolerance %f" % tol
+        print("within tolerance %f" % tol)
     except AssertionError:
-        print "dV=%f; lambda=%f" % (dV(y),lbda)
+        print("dV=%f; lambda=%f" % (dV(y),lbda))
 
 if __name__=="__main__":
-    print "Single good; negative phi"
+    print("Single good; negative phi")
     main(3.,[1],[1],[1],[-2.],NegativeDemands=False)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
-    print "Two goods; phis of different signs; no negative demands"
+    print("Two goods; phis of different signs; no negative demands")
     main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=False)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
-    print "Two goods; phis of different signs; negative demands allowed"
+    print("Two goods; phis of different signs; negative demands allowed")
     main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=True)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
     y=6
     p=array([10.0,15.0])

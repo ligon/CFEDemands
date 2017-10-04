@@ -35,7 +35,7 @@ def root_interval(f,x,middle,fp=None):
             x=[x[-1]]*3
             yield x
         elif sign(y[0])==sign(y[-1]):
-            raise ValueError, "No root in interval (%f,%f) or function not monotone." % (a,b)
+            raise ValueError("No root in interval (%f,%f) or function not monotone." % (a,b))
         elif sign(y[0])==sign(y[1]): # Root must be in upper sub-interval
             x=[x[1],middle(f,[x[1],x[-1]],fp),x[-1]]
             y=[y[1],f(x[1]),y[-1]]
@@ -45,11 +45,11 @@ def root_interval(f,x,middle,fp=None):
             y=[y[0],f(x[1]),y[1]]
             yield x
         elif any(isnan(y)):
-            print x,y
-            raise FloatingPointError, "Function not a number at some point in x."
+            print(x,y)
+            raise FloatingPointError("Function not a number at some point in x.")
         else:
-            print x,y
-            raise AssertionError, "Something impossible happened."
+            print(x,y)
+            raise AssertionError("Something impossible happened.")
 
 def root_in_open_interval(f,x,middle=middle):
     (a,x0,b)=x
@@ -75,8 +75,8 @@ def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
         seq=root_in_open_interval(f,axb,middle)
     else:
         seq=root_interval(f,axb,middle)
-    x=seq.next() 
+    x=next(seq) 
     while abs(x[0]-x[-1])>tol and (x[1]>x[0]) and (x[2]>x[1]):
-        x=seq.next()
+        x=next(seq)
 
     return x[1]

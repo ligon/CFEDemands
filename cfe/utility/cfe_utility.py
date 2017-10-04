@@ -178,7 +178,7 @@ def lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with
     elif method=='root_with_precision':
         return root_with_precision(f,[0,ub,Inf],1e-13,open_interval=True)
     else:
-        raise ValueError, "Method not defined."
+        raise ValueError("Method not defined.")
 
 def relative_risk_aversion(p,alpha,gamma,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
     """
@@ -314,18 +314,18 @@ def income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=True):
 def main(y,p,alpha,gamma,phi,NegativeDemands=True):
 
     n=len(p)
-    print 'lambda=%f' % lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
-    print 'budget shares '+'%6.5f\t'*n % tuple(budgetshares(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
-    print 'share income elasticities '+'%6.5f\t'*n % tuple(share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
-    print 'indirect utility=%f' % indirectutility(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
+    print('lambda=%f' % lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
+    print('budget shares '+'%6.5f\t'*n % tuple(budgetshares(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)))
+    print('share income elasticities '+'%6.5f\t'*n % tuple(share_income_elasticity(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)))
+    print('indirect utility=%f' % indirectutility(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands))
     
     # Here's a test of the connections between different demand
     # representations:
-    print "Testing identity relating expenditures and indirect utility...",
+    print("Testing identity relating expenditures and indirect utility...", end=' ')
     V=indirectutility(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
     X=expenditurefunction(V,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
     assert abs(y-X)<1e-6
-    print "passed."
+    print("passed.")
     
     def V(xbar):
         return indirectutility(xbar,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
@@ -335,31 +335,31 @@ def main(y,p,alpha,gamma,phi,NegativeDemands=True):
     tol=1e-6
 
     try:
-        print "Evaluating lambda-V'''...",
+        print("Evaluating lambda-V'''...", end=' ')
         lbda=lambdavalue(y,p,alpha,gamma,phi,NegativeDemands=NegativeDemands)
         assert abs(dV(y)-lbda)<tol
-        print "within tolerance %f" % tol
+        print("within tolerance %f" % tol)
     except AssertionError:
-        print "dV=%f; lambda=%f" % (dV(y),lbda)
+        print("dV=%f; lambda=%f" % (dV(y),lbda))
 
 if __name__=="__main__":
-    print "Single good; negative phi"
+    print("Single good; negative phi")
     main(1.,[1],[1],[1],[-2.],NegativeDemands=False)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
-    print "Two goods; phis of different signs; no negative demands"
+    print("Two goods; phis of different signs; no negative demands")
     main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=False)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
-    print "Two goods; phis of different signs; negative demands allowed"
+    print("Two goods; phis of different signs; negative demands allowed")
     main(3,[1]*2,[1]*2,[1]*2,[2,-2.],NegativeDemands=True)
 
-    print "Passed."
-    print
+    print("Passed.")
+    print()
 
     y=6
     p=array([10.0,15.0])
