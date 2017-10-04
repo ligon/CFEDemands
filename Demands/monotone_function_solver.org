@@ -58,7 +58,7 @@ def root_interval(f,x,middle,fp=None):
             x=[x[-1]]*3
             yield x
         elif sign(y[0])==sign(y[-1]):
-            raise ValueError, "No root in interval (%f,%f) or function not monotone." % (a,b)
+            raise ValueError("No root in interval (%f,%f) or function not monotone." % (a,b))
         elif sign(y[0])==sign(y[1]): # Root must be in upper sub-interval
             x=[x[1],middle(f,[x[1],x[-1]],fp),x[-1]]
             y=[y[1],f(x[1]),y[-1]]
@@ -69,7 +69,7 @@ def root_interval(f,x,middle,fp=None):
             yield x
         else:
             print x,y
-            raise AssertionError, "Something impossible happened."
+            raise AssertionError("Something impossible happened.")
 #+end_src
 
 How is the middle point to be chosen?  We discuss three possibilities.
@@ -92,7 +92,7 @@ def middle(f,x,fp):
 f=lambda x: 1./x-1
 seq=root_interval(f,[1e-3,1e3],middle=middle)
 for i in range(20):
-    x=seq.next()
+    x=next(seq)
     print i,x[1]
 #+end_src
 
@@ -156,23 +156,11 @@ $f(x)=1-x^{0.9}$ shows.
 f=lambda x: 1-x**.9
 seq=root_interval(f,[1e-3,1e3],middle=middle)
 for i in range(10):
-    x=seq.next()
+    x = next(seq)
     print i,x[1]
 #+end_src
 
 #+results: line_example0
-#+begin_example
-0 1.99228717944
-1 1.07083298732
-2 1.00680677196
-3 1.000672523
-4 1.00006662865
-5 1.00000660287
-6 1.00000065436
-7 1.00000006485
-8 1.00000000643
-9 1.00000000064
-#+end_example
 
 But as one might expect, if $f$ is quite non-linear then convergence
 can be very slow.  A very bad case is when $f$ is hyperbolic, with
@@ -183,9 +171,9 @@ $f(x)=1/x -1$.
 <<line>>
 
 f=lambda x: 1./x-1
-seq=root_interval(f,[1e-2,1e2],middle=middle)
+seq = root_interval(f,[1e-2,1e2],middle=middle)
 for i in range(100):
-    x=seq.next()
+    x = next(seq)
     print i,x[1]
 #+end_src
 
@@ -458,20 +446,20 @@ def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
         seq=root_in_open_interval(f,axb,middle)
     else:
         seq=root_interval(f,axb,middle)
-    x=seq.next() 
+    x = next(seq)
     while abs(x[0]-x[-1])>tol:
-        x=seq.next()
+        x = next(seq)
 
     return x[1]
 #+end_src
 
-#+begin_src python :noweb no-export :exports results :results output
+#+NAME: gee-tennis-connecticut-jersey
+#+begin_src ipython :noweb no-export :exports results :results output
 <<root_with_precision>>
 
-print root_with_precision(lambda x: 1./x-1,[0,100,Inf],1e-12,open_interval=True)
+print(root_with_precision(lambda x: 1./x-1,[0,100,Inf],1e-12,open_interval=True))
 
 #+end_src
 
-#+results:
-: 1.0
+
 

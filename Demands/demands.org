@@ -254,7 +254,7 @@ def derivative(f,h=2e-5,LIMIT=False):
 * Frischian demand interface
 #+name: frischian
 #+BEGIN_SRC python :tangle ../cfe/frischian.py 
-from _utils import check_args
+from ._utils import check_args
 from numpy import log
 
 def demands(lbda,p,alpha,beta,phi,NegativeDemands=True):
@@ -298,9 +298,9 @@ V = indirect_utility
 * Marshallian demand interface
 #+name: marshallian
 #+BEGIN_SRC python :tangle ../cfe/marshallian.py 
-import frischian
-from _core import lambdavalue
-from _utils import check_args, derivative
+from . import frischian
+from ._core import lambdavalue
+from ._utils import check_args, derivative
 from numpy import array
 
 def demands(y,p,alpha,beta,phi,NegativeDemands=True):
@@ -375,9 +375,9 @@ def income_elasticity(y,p,alpha,beta,phi,NegativeDemands=True):
 * Hicksian demand interface
 #+name: hicksian
 #+BEGIN_SRC python :tangle ../cfe/hicksian.py 
-import frischian
-from _utils import check_args
-from _core import lambdaforU
+from . import frischian
+from ._utils import check_args
+from ._core import lambdaforU
 from numpy import array
 
 def expenditurefunction(U,p,alpha,beta,phi,NegativeDemands=True):
