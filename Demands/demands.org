@@ -40,9 +40,10 @@ Dependencies:
 
 #+name: demands
 #+BEGIN_SRC python :tangle ../cfe/demands.py
-import . frischian
-import . hicksian
-import . marshallian
+from __future__ import print_function
+from . import frischian
+from . import hicksian
+from . import marshallian
 from ._core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
 from ._utils import derivative
 from numpy import array
