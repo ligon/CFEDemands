@@ -68,7 +68,7 @@ def root_interval(f,x,middle,fp=None):
             y=[y[0],f(x[1]),y[1]]
             yield x
         else:
-            print x,y
+            print(x,y)
             raise AssertionError("Something impossible happened.")
 #+end_src
 
@@ -300,17 +300,17 @@ for i in range(100):
 
  #+name: newton
  #+begin_src python :noweb no-export :exports code
- def middle(f,x,fp):
-     if len(x)==2:
-         return (x[0]+x[-1])/2.
-     else:
-         xp=f(x[1])/fp(x[1])
-         if x[0]<xp<x[-1]:
-             return xp
-         else:
-             return (x[0]+x[-1])/2.
- 
- <<root_interval>>
+def middle(f,x,fp):
+    if len(x)==2:
+        return (x[0]+x[-1])/2.
+    else:
+        xp=f(x[1])/fp(x[1])
+        if x[0]<xp<x[-1]:
+            return xp
+        else:
+            return (x[0]+x[-1])/2.
+
+<<root_interval>>
  #+end_src
 
 #+name: newton_example0
