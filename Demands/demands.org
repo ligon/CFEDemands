@@ -53,7 +53,6 @@ from numpy import array
 #+name: demand_core
 #+BEGIN_SRC python :tangle ../cfe/_core.py
   from . import frischian
-  from . import hicksian
   from ._utils import check_args, derivative
   import warnings
   from numpy import nan, Inf
@@ -163,12 +162,13 @@ from numpy import array
           return lambdaforU(U,p,alpha,beta,phi,NegativeDemands=True,ub=ub*2.0)
 
   def expenditures(lbda,p,alpha,beta,phi,NegativeDemands=True):
+      from .hicksian import expenditure_function
 
       n,alpha,beta,phi = check_args(p,alpha,beta,phi)
 
       U=frischian.indirect_utility(lbda,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
 
-      return hicksian.expenditurefunction(U,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
+      return expenditurefunction(U,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
 
   def relative_risk_aversion(p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
       """

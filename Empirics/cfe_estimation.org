@@ -867,6 +867,7 @@ should deliver a line close to 45 degrees if all is well.
 #+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/test/test_get_loglambdas.py
   import numpy as np
   import pandas as pd
+  import warnings
 
   # Tangling may not include :vars from header
   try: 
