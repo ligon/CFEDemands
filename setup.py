@@ -14,4 +14,6 @@ setup(
     description='Tools for estimating and computing Constant Frisch Elasticity (CFE) demands.',
     url='https://bitbucket.org/ligonresearch/cfedemands',
     long_description=open('README.txt').read(),
+    setup_requires = ['pytest_runner'],
+    tests_require = ['pytest']
 )
