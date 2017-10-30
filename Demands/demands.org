@@ -162,6 +162,7 @@ from numpy import array
           return lambdaforU(U,p,alpha,beta,phi,NegativeDemands=True,ub=ub*2.0)
 
   def expenditures(lbda,p,alpha,beta,phi,NegativeDemands=True):
+      # See https://gist.github.com/datagrok/40bf84d5870c41a77dc6 for this import rationale
       from .hicksian import expenditure_function
 
       n,alpha,beta,phi = check_args(p,alpha,beta,phi)
