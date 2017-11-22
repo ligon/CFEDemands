@@ -54,12 +54,23 @@ corresponding to period-households, indexed by $(t,j)$.
   def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False):
       """Figure of log agg shares - log mean shares.
 
-      Input df is a pd.DataFrame of expenditures, indexed by (t,j).
+      Required argument is a pd.DataFrame of expenditures, indexed by (t,j).
 
-      ConfidenceIntervalues is an optional argument.  
-      If True, the returned figure will have 95% confidence intervals.  
-      If a float in (0,1) that will be used for the size of the confidence 
-      interval instead.
+      Optional arguments
+      ------------------
+      figname : string; default None.
+          If supplied, will save figure to file named figname.
+
+      ConfidenceIntervals : Boolean or float in (0,1);  default False.
+          If True, the returned figure will have 95% confidence intervals.  
+          If in (0,1) that will be used for the size of the confidence interval instead.
+
+      ax : matplotlib.Axes object; default None.
+          If supplied, will draw figure on existing Axes object.
+
+      VERTICAL : Boolean or scalar; default False.
+          If True or non-zero scalar produce figure with expenditures arranged in vertical list. 
+          If non-zero scalar used to control vertical spacing of figure.
       """
 
       shares,mratio=expenditure_shares(df)
