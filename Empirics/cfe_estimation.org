@@ -551,7 +551,7 @@ to estimate any missing prices.
 
     # Time-market dummies
     DateLocD = use_indices(y,['t','mkt'])
-    DateLocD = pd.get_dummies(zip(DateLocD['t'],DateLocD['mkt']))
+    DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['mkt'])))
     DateLocD.index = y.index
 
     sed = pd.DataFrame(columns=y.columns)
@@ -1284,13 +1284,16 @@ print(x.head())
       if numeraire is not None and len(numeraire)>0:
           # FIXME: Issue here with dividing by a random variable.  What
           # properties do we want estimator of barloglambda_t to have?
-          barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
-          logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
-          a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+          try:
+              barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
+              logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
+              a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+          except KeyError:
+              pass
 
           # FIXME: Should really use weighted mean, since different precisions for a across different  markets
           logalpha = a[firstround].T.mean() 
-          goodsdf[r'$\log\alpha_i$']=logalpha
+          goodsdf[r'$\log\alpha_i$'] = logalpha
           pref_params += [r'$\log\alpha_i$']
       else:
           pidx=a.mean()
@@ -1750,11 +1753,14 @@ print(x.head())
           for i in df.index:
               s+='| %s  ' % i
               for j in df.columns: # Point estimates
-                  entry='| \('+float_fmt+'\)  '
-                  if np.isnan(df[j][i]):
-                      s+='| --- '
-                  else:
-                      s+=entry % df[j][i]
+                  try:
+                      entry='| \('+float_fmt+'\)  '
+                      if np.isnan(df[j][i]):
+                          s+='| --- '
+                      else:
+                          s+=entry % df[j][i]
+                  except ValueError:
+                      s += '| %s ' % str(df[j][i]
               s+='|\n'
           return s
       elif not (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -1871,7 +1877,7 @@ print(x.head())
 
     if col_name_size==0:
       return pd.DataFrame(table)
- 
+
     colnames = table[:col_name_size]
 
     if col_name_size==1:
@@ -1889,7 +1895,7 @@ print(x.head())
           new_colnames.append(str(curr_tuple))
 
     df = pd.DataFrame(table[col_name_size:], columns=new_colnames)
- 
+
     if index:
       df.set_index(index, inplace=True)
 
