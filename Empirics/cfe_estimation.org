@@ -1760,7 +1760,7 @@ print(x.head())
                       else:
                           s+=entry % df[j][i]
                   except ValueError:
-                      s += '| %s ' % str(df[j][i]
+                      s += '| %s ' % str(df[j][i])
               s+='|\n'
           return s
       elif not (tdf is None) and (sedf is None) and (conf_ints is None):
