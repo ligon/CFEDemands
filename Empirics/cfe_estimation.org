@@ -1940,9 +1940,16 @@ print(x.head())
 #+BEGIN_SRC python :noweb no-export :results output raw table :var X=test_df_to_orgtbl_tbl :colnames no :tangle ../cfe/test/test_df_to_orgtbl.py
 <<df_utils>>
 
-df = orgtbl_to_df(X).set_index('A')
+try:
+    df = orgtbl_to_df(X).set_index('A')
+except NameError: # Some tangling doesn't include var declarations?
+    X=[["A", "B", "C"], ["a", 1, "m"], ["b", 2, "c"]]
+    df = orgtbl_to_df(X).set_index('A')
 
-print(df_to_orgtbl(df))
+
+s = df_to_orgtbl(df)
+assert(s[-4]=='c')
+print(s)
 #+END_SRC
 
 #+results: test_df_to_orgtbl
