@@ -1759,7 +1759,7 @@ print(x.head())
                           s+='| --- '
                       else:
                           s+=entry % df[j][i]
-                  except ValueError:
+                  except TypeError:
                       s += '| %s ' % str(df[j][i])
               s+='|\n'
           return s
@@ -1929,6 +1929,27 @@ print(x.head())
       return df.reset_index()[idxnames].set_index(df.index)
 
 #+END_SRC
+
+#+name: test_df_to_orgtbl_tbl
+| A |  B | C |
+|---+----+---|
+| a |  1 | m |
+| b | 2. | c |
+
+#+name: test_df_to_orgtbl
+#+BEGIN_SRC python :noweb no-export :results output raw table :var X=test_df_to_orgtbl_tbl :colnames no :tangle ../cfe/test/test_df_to_orgtbl.py
+<<df_utils>>
+
+df = orgtbl_to_df(X).set_index('A')
+
+print(df_to_orgtbl(df))
+#+END_SRC
+
+#+results: test_df_to_orgtbl
+|   | B         | C |
+|---+-----------+---|
+| a | \(1.000\) | m |
+| b | \(2.000\) | c |
 
 ** Some econometric routines
 
