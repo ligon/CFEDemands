@@ -1906,7 +1906,7 @@ class Result:
         """
         if self.logalpha is not None:
             return self.logalpha
-        elif numeraire is not None and np.any(self.logp[numeraire] neq 0):
+        elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
             self.set_numeraire(numeraire=numeraire)
 
         self.logalpha = self.a[self.firstround].T.mean()
