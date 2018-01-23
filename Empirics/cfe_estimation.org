@@ -1941,8 +1941,10 @@ class Result:
                 pass
 #+END_SRC
 
-Further, it's useful to have a way to save a =Result= instance to a
-file.  
+** Persistent =Results=
+It's useful to be able to make a =Result= instance be persistent.
+Here we experiment with a way to save a =Result= instance to a
+file, using the =xarray= package.
 
 #+name: result_to_file
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
@@ -1954,6 +1956,13 @@ file.
         D.reset_index('dim_0',inplace=True)
 
         D.to_netcdf(fn)
+
+def from_dataset(fn):
+    """
+    Read persistent netcdf (xarray.Dataset) file to Result.
+    """
+ 
+    D = xr.open_dataset(fn)
 #+END_SRC
 
 
