@@ -35,143 +35,145 @@ corresponding to period-households, indexed by $(t,j)$.
 
 #+name: agg_shares_and_mean_shares
 #+begin_src python :exports none :tangle ../cfe/estimation.py
-  import pylab as pl 
-  import pandas as pd
-  import numpy as np
-  from cfe.df_utils import broadcast_binary_op
+import pylab as pl 
+import pandas as pd
+import numpy as np
+from cfe.df_utils import broadcast_binary_op
 
-  def expenditure_shares(df):
+def expenditure_shares(df):
 
-      aggshares=df.groupby(level='t').sum()
-      aggshares=aggshares.div(aggshares.sum(axis=1),axis=0).T
-      meanshares=df.div(df.sum(axis=1),level='j',axis=0).groupby(level='t').mean().T
+    aggshares=df.groupby(level='t').sum()
+    aggshares=aggshares.div(aggshares.sum(axis=1),axis=0).T
+    meanshares=df.div(df.sum(axis=1),level='j',axis=0).groupby(level='t').mean().T
 
-      mratio=(np.log(aggshares)-np.log(meanshares))
-      sharesdf=pd.Panel({'Mean shares':meanshares,'Agg. shares':aggshares})
+    mratio=(np.log(aggshares)-np.log(meanshares))
+    sharesdf=pd.Panel({'Mean shares':meanshares,'Agg. shares':aggshares})
 
-      return sharesdf,mratio
+    return sharesdf,mratio
 
-  def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False):
-      """Figure of log agg shares - log mean shares.
+def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False):
+    """Figure of log agg shares - log mean shares.
 
-      Required argument is a pd.DataFrame of expenditures, indexed by (t,j).
+    Required argument is a pd.DataFrame of expenditures, indexed by (t,j).
 
-      Optional arguments
-      ------------------
-      figname : string; default None.
-          If supplied, will save figure to file named figname.
+    Optional arguments
+    ------------------
+    figname : string; default None.
+        If supplied, will save figure to file named figname.
 
-      ConfidenceIntervals : Boolean or float in (0,1);  default False.
-          If True, the returned figure will have 95% confidence intervals.  
-          If in (0,1) that will be used for the size of the confidence interval instead.
+    ConfidenceIntervals : Boolean or float in (0,1);  default False.
+        If True, the returned figure will have 95% confidence intervals.  
+        If in (0,1) that will be used for the size of the confidence interval instead.
 
-      ax : matplotlib.Axes object; default None.
-          If supplied, will draw figure on existing Axes object.
+    ax : matplotlib.Axes object; default None.
+        If supplied, will draw figure on existing Axes object.
 
-      VERTICAL : Boolean or scalar; default False.
-          If True or non-zero scalar produce figure with expenditures arranged in vertical list. 
-          If non-zero scalar used to control vertical spacing of figure.
-      """
+    VERTICAL : Boolean or scalar; default False.
+        If True or non-zero scalar produce figure with expenditures arranged in vertical list. 
+        If non-zero scalar used to control vertical spacing of figure.
+    """
 
-      shares,mratio=expenditure_shares(df)
-      meanshares=shares['Mean shares']
+    shares,mratio=expenditure_shares(df)
+    meanshares=shares['Mean shares']
 
-      tab=shares.to_frame().unstack()
-      tab.sort_values(by=('Agg. shares',meanshares.columns[0]),ascending=False,inplace=True)
+    tab=shares.to_frame().unstack()
+    tab.sort_values(by=('Agg. shares',meanshares.columns[0]),ascending=False,inplace=True)
 
-      if ax is None:
-          fig, ax = pl.subplots()
+    if ax is None:
+        fig, ax = pl.subplots()
 
-      mratio.sort_values(by=mratio.columns[0],inplace=True)
+    mratio.sort_values(by=mratio.columns[0],inplace=True)
 
-      if VERTICAL:
-          if np.isscalar(VERTICAL):
-              vertical_scale=VERTICAL
-          else:
-              vertical_scale=6.
-          ax.plot(mratio.as_matrix(),list(range(mratio.shape[0])), 'o')
-          ax.legend(mratio.columns,loc=2)
-          ax.set_xlabel('Log Aggregate shares divided by Mean shares')
-          ax.set_yticks(list(range(mratio.shape[0])))
-          ax.set_yticklabels(mratio.index.values.tolist(),rotation=0,size='small')
-          ax.axvline()
-          v = ax.axis()
-          ax.figure.set_figheight((v[-1]/24)*vertical_scale)
-          pl.tight_layout()
-      else:
-          ax.plot(list(range(mratio.shape[0])),mratio.as_matrix(), 'o')
-          ax.legend(mratio.columns,loc=2)
-          ax.set_ylabel('Log Aggregate shares divided by Mean shares')
+    if VERTICAL:
+        if np.isscalar(VERTICAL):
+            vertical_scale=VERTICAL
+        else:
+            vertical_scale=6.
+        ax.plot(mratio.as_matrix(),list(range(mratio.shape[0])), 'o')
+        ax.legend(mratio.columns,loc=2)
+        ax.set_xlabel('Log Aggregate shares divided by Mean shares')
+        ax.set_yticks(list(range(mratio.shape[0])))
+        ax.set_yticklabels(mratio.index.values.tolist(),rotation=0,size='small')
+        ax.axvline()
+        v = ax.axis()
+        ax.figure.set_figheight((v[-1]/24)*vertical_scale)
+        pl.tight_layout()
+    else:
+        ax.plot(list(range(mratio.shape[0])),mratio.as_matrix(), 'o')
+        ax.legend(mratio.columns,loc=2)
+        ax.set_ylabel('Log Aggregate shares divided by Mean shares')
 
-          v=ax.axis()
+        v=ax.axis()
 
-          if  len(mratio)>=12:
-              i=0
-              for i in range(len(mratio)):
-                  name=mratio.ix[i].name # label of expenditure item
+        if  len(mratio)>=12:
+            i=0
+            for i in range(len(mratio)):
+                name=mratio.ix[i].name # label of expenditure item
 
-                  if mratio.iloc[i,0]>0.2:
-                      #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
+                if mratio.iloc[i,0]>0.2:
+                    #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
 
-                      # The key option here is `bbox`. 
-                      ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
-                                  textcoords='offset points', ha='right', va='bottom',
-                                  bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                                  arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                                  color='red'),fontsize='xx-small')
+                    # The key option here is `bbox`. 
+                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
+                                textcoords='offset points', ha='right', va='bottom',
+                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                color='red'),fontsize='xx-small')
 
-                  if mratio.iloc[i,0]<-0.2:
-                      #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
-                      ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
-                                  textcoords='offset points', ha='left', va='top',
-                                  bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                                  arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
-                                  color='red'),fontsize='xx-small')
-          else: #Put labels on xaxis
-              ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
+                if mratio.iloc[i,0]<-0.2:
+                    #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
+                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
+                                textcoords='offset points', ha='left', va='top',
+                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                color='red'),fontsize='xx-small')
+        else: #Put labels on xaxis
+            ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
 
-          ax.axhline()
+        ax.axhline()
 
-    
+  
 
-      if ConfidenceIntervals>0: # Bootstrap some confidence intervals
-          if ConfidenceIntervals==1: ConfidenceIntervals=0.95
-          current=0
-          last=1
-          M=np.array([],ndmin=3).reshape((mratio.shape[0],mratio.shape[1],0))
-          i=0
-          mydf=df.loc[:,mratio.index]
-          while np.max(np.abs(current-last))>0.001 or i < 1000:
-              last=current
-              # Sample households in each  round with replacement
-              bootdf=mydf.iloc[np.random.random_integers(0,df.shape[0]-1,df.shape[0]),:]
-              bootdf.reset_index(inplace=True)
-              bootdf['j']=list(range(bootdf.shape[0]))
-              bootdf.set_index(['t','j'],inplace=True)
-              shares,mr=expenditure_shares(bootdf)
-              M=np.dstack((M,mr.as_matrix()))
-              M.sort(axis=2)
-              a=(1-ConfidenceIntervals)/2.
-              lb= mratio.as_matrix() - M[:,:,int(np.floor(M.shape[-1]*a))]
-              ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.as_matrix()
-              current=np.c_[lb,ub]
-              i+=1
+    if ConfidenceIntervals>0: # Bootstrap some confidence intervals
+        if ConfidenceIntervals==1: ConfidenceIntervals=0.95
+        current=0
+        last=1
+        M=np.array([],ndmin=3).reshape((mratio.shape[0],mratio.shape[1],0))
+        i=0
+        mydf=df.loc[:,mratio.index]
+        while np.max(np.abs(current-last))>0.001 or i < 1000:
+            last=current
+            # Sample households in each  round with replacement
+            bootdf=mydf.iloc[np.random.random_integers(0,df.shape[0]-1,df.shape[0]),:]
+            bootdf.reset_index(inplace=True)
+            bootdf['j']=list(range(bootdf.shape[0]))
+            bootdf.set_index(['t','j'],inplace=True)
+            shares,mr=expenditure_shares(bootdf)
+            M=np.dstack((M,mr.as_matrix()))
+            M.sort(axis=2)
+            a=(1-ConfidenceIntervals)/2.
+            lb= mratio.as_matrix() - M[:,:,int(np.floor(M.shape[-1]*a))]
+            ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.as_matrix()
+            current=np.c_[lb,ub]
+            i+=1
 
-          T=mratio.shape[1]
-          for t in range(T):
-              if VERTICAL:
-                  ax.errorbar(mratio.as_matrix()[:,t],np.arange(mratio.shape[0]),xerr=current[:,[t,t-T]].T.tolist())
-              else:
-                  ax.errorbar(np.arange(mratio.shape[0]),mratio.as_matrix()[:,t],yerr=current[:,[t,t-T]].T.tolist())
+        T=mratio.shape[1]
+        for t in range(T):
+            if VERTICAL:
+                ax.errorbar(mratio.as_matrix()[:,t],np.arange(mratio.shape[0]),xerr=current[:,[t,t-T]].T.tolist())
+            else:
+                ax.errorbar(np.arange(mratio.shape[0]),mratio.as_matrix()[:,t],yerr=current[:,[t,t-T]].T.tolist())
 
-              tab[(df.index.levels[0][t],'Upper Int')]=current[:,t-T]
-              tab[(df.index.levels[0][t],'Lower Int')]=current[:,t]
+            tab[(df.index.levels[0][t],'Upper Int')]=current[:,t-T]
+            tab[(df.index.levels[0][t],'Lower Int')]=current[:,t]
 
-      if figname:
-          pl.savefig(figname)
+    if figname:
+        pl.savefig(figname)
 
-      return tab,ax
+    return tab,ax
 #+end_src
+
+#+results: agg_shares_and_mean_shares
 
 #+name: group_expenditures
 #+begin_src python :noweb yes :tangle ../cfe/estimation.py
@@ -182,6 +184,8 @@ def group_expenditures(df,groups):
             
     return myX
 #+end_src
+
+#+results: group_expenditures
 
 * Rank 1 SVD Approximation to Matrix with Missing Data
 ** Eigenvalue Decomposition Approach to Computing the SVD
@@ -281,6 +285,8 @@ def svd_missing(A,max_rank=None,min_obs=None):
     return np.matrix(u),s,np.matrix(v).T
 #+END_SRC
 
+#+results: svd_missing
+
 ** Rank 1 Approximation
 
 Once we've computed the SVD of a matrix we can construct an optimal rank one
@@ -327,6 +333,8 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
     else: return xhat
 #+end_src
 
+#+results: svd_rank1_approximation_with_missing_data
+
 ** Test of Rank 1 SVD Approximation to Matrix with Missing Data
 
 First, some code to check if approximation works for a simple, small
@@ -334,47 +342,47 @@ scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_example
 #+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_svd_rank1_approximation_with_missing_data_example.py
-  import numpy as np
-  import pandas as pd
-  <<svd_rank1_approximation_with_missing_data>>
+import numpy as np
+import pandas as pd
+<<svd_rank1_approximation_with_missing_data>>
 
-  (n,m)=(5,3)
-  a=np.random.normal(size=(n,1))
-  b=np.random.normal(size=(1,m))
-  e=np.random.normal(size=(n,m))*1e-5*0
+(n,m)=(5,3)
+a=np.random.normal(size=(n,1))
+b=np.random.normal(size=(1,m))
+e=np.random.normal(size=(n,m))*1e-5*0
 
-  X0=np.array([[-0.22,  0.32, -0.43],
-               [0.01, 0.00,  0.00],
-               [-0.22,  0.31, -0.42],
-               [0.01, -0.03,  0.04],
-               [-0.21, 0.31, -0.38]])
-  #X0 = np.outer(a,b) + e
+X0=np.array([[-0.22,  0.32, -0.43],
+             [0.01, 0.00,  0.00],
+             [-0.22,  0.31, -0.42],
+             [0.01, -0.03,  0.04],
+             [-0.21, 0.31, -0.38]])
+#X0 = np.outer(a,b) + e
 
-  #X0=X0-X0.mean(axis=1).reshape((-1,1))
+#X0=X0-X0.mean(axis=1).reshape((-1,1))
 
-  X=X0.copy()
-  #X[0,0]=np.nan
-  #X[0,1]=np.nan
+X=X0.copy()
+#X[0,0]=np.nan
+#X[0,1]=np.nan
 
-  X0=pd.DataFrame(X0).T
-  X=pd.DataFrame(X).T
+X0=pd.DataFrame(X0).T
+X=pd.DataFrame(X).T
 
-  def test_symmetry_of_svd_rank1_approximation():
-      Xhat=svd_rank1_approximation_with_missing_data(X0,VERBOSE=False)
-      XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
-      assert np.all(Xhat.T == XhatT)
+def test_symmetry_of_svd_rank1_approximation():
+    Xhat=svd_rank1_approximation_with_missing_data(X0,VERBOSE=False)
+    XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
+    assert np.all(Xhat.T == XhatT)
 
-  def test_accuracy_of_svd_rank1_approximation():
-      Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
-      error = X0 - Xhat
-      assert np.max(np.max(error)<1e-2)
-    
-  Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
+def test_accuracy_of_svd_rank1_approximation():
+    Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
+    error = X0 - Xhat
+    assert np.max(np.max(error)<1e-2)
+  
+Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 
-  print(X0)
-  print(X)
-  print(Xhat)
-  print((X0-Xhat)/X0)
+print(X0)
+print(X)
+print(Xhat)
+print((X0-Xhat)/X0)
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
@@ -399,74 +407,77 @@ scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_test
 #+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle ../cfe/test/svd_rank1_approximation_with_missing_data_test.py
-  import numpy as np
-  import pandas as pd
+import numpy as np
+import pandas as pd
 
-  # Tangling may not include :vars from header
-  try: 
-      SEED
-  except NameError: # :var inputs not set?
-      n=12
-      m=2000
-      percent_missing=0.5
-      SEED=0
-    
-  <<svd_rank1_approximation_with_missing_data>>
+# Tangling may not include :vars from header
+try: 
+    SEED
+except NameError: # :var inputs not set?
+    n=12
+    m=2000
+    percent_missing=0.5
+    SEED=0
+  
+<<svd_rank1_approximation_with_missing_data>>
 
-  if SEED:
-      np.random.seed(SEED)
+if SEED:
+    np.random.seed(SEED)
 
-  a=np.random.normal(size=(n,1))
-  b=np.random.normal(size=(1,m))
-  e=np.random.normal(size=(n,m))*5e-1
+a=np.random.normal(size=(n,1))
+b=np.random.normal(size=(1,m))
+e=np.random.normal(size=(n,m))*5e-1
 
-  X0=np.outer(a,b) + e
-  X0=X0-X0.mean(axis=0)
+X0=np.outer(a,b) + e
+X0=X0-X0.mean(axis=0)
 
-  X=X0.copy()
-  X[np.random.random_sample(X.shape)<percent_missing]=np.nan
+X=X0.copy()
+X[np.random.random_sample(X.shape)<percent_missing]=np.nan
 
-  X0=pd.DataFrame(X0).T
-  X=pd.DataFrame(X).T
+X0=pd.DataFrame(X0).T
+X=pd.DataFrame(X).T
 
-  Xhat,u,s,v=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,return_usv=True)
+Xhat,u,s,v=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,return_usv=True)
 
-  #rho_a=np.corrcoef(np.c_[a,u[:,0]],rowvar=0)[0,1]
-  rho_a=pd.DataFrame({'a':a.reshape(-1),'u':u}).corr().iloc[0,1]
-  rho_b=pd.DataFrame({'b':pd.Series(b.reshape(-1)),'v':v}).corr().iloc[0,1]
-  missing=np.isnan(X.as_matrix()).reshape(-1,1).mean()
-  print("Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),)
-  print("Singular value=%g" % s[0],)
-  if SEED: print("Seed=%g" % SEED)
-  else: print()
-
-
+#rho_a=np.corrcoef(np.c_[a,u[:,0]],rowvar=0)[0,1]
+rho_a=pd.DataFrame({'a':a.reshape(-1),'u':u}).corr().iloc[0,1]
+rho_b=pd.DataFrame({'b':pd.Series(b.reshape(-1)),'v':v}).corr().iloc[0,1]
+missing=np.isnan(X.as_matrix()).reshape(-1,1).mean()
+print("Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),)
+print("Singular value=%g" % s[0],)
+if SEED: print("Seed=%g" % SEED)
+else: print()
 #+end_src
+
+#+results: svd_rank1_approximation_with_missing_data_test
+: Proportion missing 0.499417 and correlations are 0.9996 and 0.9479.
+: Singular value=145.421
+: 
 
 
 
 
 ** Test of construction of approximation to CE
 #+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
-  import numpy as np
-  <<estimate_reduced_form>>
-  <<artificial_data>>
-  <<df_utils>>
-  <<svd_rank1_approximation_with_missing_data>>
+import numpy as np
+<<estimate_reduced_form>>
+<<artificial_data>>
+<<df_utils>>
+<<svd_rank1_approximation_with_missing_data>>
 
-  y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
-  #y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
-  beta,L,dz,p=truth
+y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
+#y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
+beta,L,dz,p=truth
 
-  numeraire='x0'
+numeraire='x0'
 
-  b0,ce0,d0=estimate_bdce_with_missing_values(y,np.log(dz),return_v=False)
-  myce0=ce0.copy()
-  cehat=svd_rank1_approximation_with_missing_data(myce0)
+b0,ce0,d0=estimate_bdce_with_missing_values(y,np.log(dz),return_v=False)
+myce0=ce0.copy()
+cehat=svd_rank1_approximation_with_missing_data(myce0)
 
-  rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
+rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
 
-  print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
+print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
 #+end_src
 
 #+results:
@@ -484,14 +495,14 @@ scale example.
     subset of goods.  However, if one or more prices is provided, one
     of the commodities should be chosen as a numéraire e.g.,
 #+BEGIN_SRC python :exports code
-    ix=pd.MultiIndex.from_tuples([(1975,'Aurepalle'),(1975,'Shirapur'),(1975,'Kanzara'),
-                                  (1976,'Aurepalle'),(1976,'Shirapur'),(1976,'Kanzara'),
-                                  (1977,'Aurepalle'),(1977,'Shirapur'),(1977,'Kanzara'),
-                                  (1978,'Aurepalle'),(1978,'Shirapur'),(1978,'Kanzara')],names=['t','mkt'])
-    P=pd.DataFrame({'Rice':[4,5,4,5,6,5,6,7,6,7,8,7],
-                    'Sorghum':[2,3,2,2,3,2,3,4,3,4,5,6]},index=ix)
+ix=pd.MultiIndex.from_tuples([(1975,'Aurepalle'),(1975,'Shirapur'),(1975,'Kanzara'),
+                              (1976,'Aurepalle'),(1976,'Shirapur'),(1976,'Kanzara'),
+                              (1977,'Aurepalle'),(1977,'Shirapur'),(1977,'Kanzara'),
+                              (1978,'Aurepalle'),(1978,'Shirapur'),(1978,'Kanzara')],names=['t','mkt'])
+P=pd.DataFrame({'Rice':[4,5,4,5,6,5,6,7,6,7,8,7],
+                'Sorghum':[2,3,2,2,3,2,3,4,3,4,5,6]},index=ix)
 
-    numeraire='Rice'
+numeraire='Rice'
 #+END_SRC
 Note that not all goods for which household level expenditures are
 observed need to have  price supplied.  If prices for one good are
@@ -501,123 +512,129 @@ to estimate any missing prices.
 
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
-  import pandas as pd
-  import warnings
-  import sys
-  from collections import OrderedDict
-  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices, df_norm
+import pandas as pd
+import warnings
+import sys
+from collections import OrderedDict
+from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices, df_norm
 
-  def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
-    """Estimate reduced-form Frisch expenditure/demand system.
+def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
+  """Estimate reduced-form Frisch expenditure/demand system.
 
-    Inputs:
-        - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-              where j indexes the household, t the period, and mkt the market.  
-              Columns are different expenditure items.
+  Inputs:
+      - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
+            where j indexes the household, t the period, and mkt the market.  
+            Columns are different expenditure items, indexed by i.
 
-        - z : pd.DataFrame of household characteristics; index should match that of y.
+      - z : pd.DataFrame of household characteristics; index should match that of y.  
+            Columns are different characteristics, indexed by l.
 
-    Outputs:
-        - a : Estimated good-time-market fixed effects; will sum to  zero.
+  Outputs:
+      - a : Estimated good-time-market fixed effects; will sum to  zero.
 
-        - ce : Residuals (can be provided as an input to get_log_lambdas()).
+      - ce : Residuals (can be provided as an input to get_log_lambdas()).
 
-        - d : Estimated coefficients associated with characteristics z.
+      - d : Estimated coefficients associated with characteristics z.
 
-        - se : (Optional, if return_se) Estimated standard errors for coefficients d.
+      - se : (Optional, if return_se) Estimated standard errors for coefficients d.
 
-        - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
+      - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
 
-    Ethan Ligon                                            February 2017
-    """
-    try: # Be a little forgiving if t or mkt index is missing.
-        assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-    except AssertionError:
-        y = y.reset_index()
-        if not 'mkt' in y.columns: y['mkt']=1
-        if not 't' in y.columns: y['t']=1
-        y = y.set_index(['j','t','mkt'])
+  Ethan Ligon                                            February 2017
+  """
+  try: # Be a little forgiving if t or mkt index is missing.
+      assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+      assert y.column.name == 'i', "Name of column index should be i?"
+  except AssertionError:
+      y = y.reset_index()
+      if not 'mkt' in y.columns: y['mkt']=1
+      if not 't' in y.columns: y['t']=1
+      y = y.set_index(['j','t','mkt'])
+      y.columns.set_names('i',inplace=True)
 
-    try:
-        assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-    except AssertionError:
-        z = z.reset_index()
-        if not 'mkt' in z.columns: z['mkt']=1
-        if not 't' in z.columns: z['t']=1
-        z = z.set_index(['j','t','mkt'])
+  try:
+      assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+      assert z.column.name == 'l', "Name of column index should be l?"
+  except AssertionError:
+      z = z.reset_index()
+      if not 'mkt' in z.columns: z['mkt']=1
+      if not 't' in z.columns: z['t']=1
+      z = z.set_index(['j','t','mkt'])
 
-    periods = list(set(y.index.get_level_values('t')))
-    mkts = list(set(y.index.get_level_values('mkt')))
+      z.columns.set_names('l',inplace=True)
 
-    # Time-market dummies
-    DateLocD = use_indices(y,['t','mkt'])
-    DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['mkt'])))
-    DateLocD.index = y.index
+  periods = list(set(y.index.get_level_values('t')))
+  mkts = list(set(y.index.get_level_values('mkt')))
 
-    sed = pd.DataFrame(columns=y.columns)
-    a = pd.Series(index=y.columns)
-    b = OrderedDict() #pd.DataFrame(index=y.columns)
-    d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
-    ce = pd.DataFrame(index=y.index,columns=y.columns)
-    V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
+  # Time-market dummies
+  DateLocD = use_indices(y,['t','mkt'])
+  DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['mkt'])))
+  DateLocD.index = y.index
 
-    for i,Item in enumerate(y.columns):
-        if VERBOSE: print(Item)
+  sed = pd.DataFrame(columns=y.columns)
+  a = pd.Series(index=y.columns)
+  b = OrderedDict() #pd.DataFrame(index=y.columns)
+  d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
+  ce = pd.DataFrame(index=y.index,columns=y.columns)
+  V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
 
-        lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
-        rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
-        useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
+  for i,Item in enumerate(y.columns):
+      if VERBOSE: print(Item)
 
-        # Calculate deviations
-        lhsbar=lhs.mean(axis=0)
-        assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
-        lhs=lhs-lhsbar
-        lhs=lhs-lhs.mean(axis=0)
+      lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
+      rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
+      useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
-        rhsbar=rhs.mean(axis=0)
-        assert ~np.any(np.isnan(rhsbar)), "Missing data in rhs?"
-        rhs=rhs-rhsbar
-        rhs=rhs-rhs.mean(axis=0)
+      # Calculate deviations
+      lhsbar=lhs.mean(axis=0)
+      assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
+      lhs=lhs-lhsbar
+      lhs=lhs-lhs.mean(axis=0)
 
-        # Need to make sure time-market effects sum to zero; add
-        # constraints to estimate restricted least squares
-        ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
-        znil=pd.DataFrame([[0]*z.shape[1]],index=[(-1,0,0)],columns=z.columns)
-        timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
+      rhsbar=rhs.mean(axis=0)
+      assert ~np.any(np.isnan(rhsbar)), "Missing data in rhs?"
+      rhs=rhs-rhsbar
+      rhs=rhs-rhs.mean(axis=0)
 
-        X=rhs.append(znil.join(timednil))
-        X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
+      # Need to make sure time-market effects sum to zero; add
+      # constraints to estimate restricted least squares
+      ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
+      znil=pd.DataFrame([[0]*z.shape[1]],index=[(-1,0,0)],columns=z.columns)
+      timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
-        # Estimate d & b
-        myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) 
-        ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
+      X=rhs.append(znil.join(timednil))
+      X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
-        if return_v or return_se:
-            if z.shape[1]:
-                V[Item]=arellano_robust_cov(z,ce[Item])
-                sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+      # Estimate d & b
+      myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) 
+      ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
-        d[Item]=myb[z.columns] # reduced form coefficients on characteristics
+      if return_v or return_se:
+          if z.shape[1]:
+              V[Item]=arellano_robust_cov(z,ce[Item])
+              sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
-        b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
-        a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[z.columns]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
+      d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
-    b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
-    b = b.T
-    sed = sed.T
+      b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
+      a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[z.columns]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
 
-    if b.shape[1]==1: # Only a single time-market
-      assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
-      b[:]=0
+  b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
+  b = b.T
+  sed = sed.T
 
-    d = pd.concat(list(d.values()))
+  if b.shape[1]==1: # Only a single time-market
+    assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
+    b[:]=0
 
-    out = [b.add(a,axis=0),ce,d]
-    if return_se:
-        out += [sed]
-    if return_v:
-        out += [V]
-    return out
+  d = pd.concat(list(d.values()))
+
+  out = [b.add(a,axis=0),ce,d]
+  if return_se:
+      out += [sed]
+  if return_v:
+      out += [V]
+  return out
 #+END_SRC
 
 ** Test
@@ -626,35 +643,35 @@ to estimate any missing prices.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
 #+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/estimate_reduced_form.py
-  from scipy.stats.distributions import chi2
+from scipy.stats.distributions import chi2
 
-  # Tangling may not include :vars from header
-  try: 
-      N
-  except NameError: # :var inputs not set?
-      N=5000
-      T=1
-      n=6
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=6
 
-  <<lambdas_dgp>>
-  <<characteristics_dgp>>
-  <<prices_dgp>>
-  <<expenditures_dgp>>
-  <<estimate_reduced_form>>
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
 
-  x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0001,sigma_eps=0.0001)
-  x = x.replace({0.:np.nan}) # Zeros to missing
+x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0001,sigma_eps=0.0001)
+x = x.replace({0.:np.nan}) # Zeros to missing
 
-  b,ce,d,V = estimate_reduced_form(np.log(x),np.log(parts['characteristics']),return_v=True)
+b,ce,d,V = estimate_reduced_form(np.log(x),np.log(parts['characteristics']),return_v=True)
 
-  A=np.matrix(np.diag(V.squeeze())).I
-  g=np.matrix(d-1)
+A=np.matrix(np.diag(V.squeeze())).I
+g=np.matrix(d-1)
 
-  J=g.T*A*g
-  p=(1 - chi2.cdf(J,len(g)))
-  assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
+J=g.T*A*g
+p=(1 - chi2.cdf(J,len(g)))
+assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
-  print(p)
+print(p)
 #+END_SRC
 
 #+results: test_estimate_reduced_form
@@ -668,344 +685,342 @@ match the correct distribution.  We construct  a =pp_plot= which
 should deliver a line close to 45 degrees if all is well.
 
 #+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
-  import pylab as pl
+import pylab as pl
 
-  # Tangling may not include :vars from header
-  try: 
-      DRAWS
-  except NameError: # :var inputs not set?
-      DRAWS = 200
+# Tangling may not include :vars from header
+try: 
+    DRAWS
+except NameError: # :var inputs not set?
+    DRAWS = 200
 
-  T=1
-  N=1000
-  n=6
+T=1
+N=1000
+n=6
 
-  def empirical_cdf(x):
-      """
-      Return the empirical cdf of a univariate vector or series x.
-      """
-      x=np.array(x)
+def empirical_cdf(x):
+    """
+    Return the empirical cdf of a univariate vector or series x.
+    """
+    x=np.array(x)
 
-      return lambda p: (x<p).mean()
+    return lambda p: (x<p).mean()
 
-  def pp_plot(F,G,interval=(0,1),npts=100):
-      """
-      Construct p-p plot of cdf F vs CDF G.
-      """
-      Q=np.linspace(interval[0],interval[1],npts)
-      xy=[]
-      for q in Q:
-          xy.append([F(q),G(q)])
+def pp_plot(F,G,interval=(0,1),npts=100):
+    """
+    Construct p-p plot of cdf F vs CDF G.
+    """
+    Q=np.linspace(interval[0],interval[1],npts)
+    xy=[]
+    for q in Q:
+        xy.append([F(q),G(q)])
 
-      xy=np.array(xy)
-      ax=pl.plot(xy[:,0],xy[:,1])
+    xy=np.array(xy)
+    ax=pl.plot(xy[:,0],xy[:,1])
 
-      return xy
+    return xy
 
-  Jay=[]
-  Dee=[]
-  Vee=[]
-  for i in range(DRAWS):
-      <<test_estimate_reduced_form>>
-      Dee.append(d.as_matrix().squeeze().tolist())
-      Jay.append(J[0,0])
-      Vee.append(V.squeeze().as_matrix().tolist())
+Jay=[]
+Dee=[]
+Vee=[]
+for i in range(DRAWS):
+    <<test_estimate_reduced_form>>
+    Dee.append(d.as_matrix().squeeze().tolist())
+    Jay.append(J[0,0])
+    Vee.append(V.squeeze().as_matrix().tolist())
 
-  Dee=np.array(Dee)
-  Jay=np.array(Jay)
-  Vee=np.array(Vee)
+Dee=np.array(Dee)
+Jay=np.array(Jay)
+Vee=np.array(Vee)
 
-  F=empirical_cdf(Jay)
-  G=lambda x: chi2.cdf(x,len(g))
+F=empirical_cdf(Jay)
+G=lambda x: chi2.cdf(x,len(g))
 
-  xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
+xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
 
-  assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
-
+assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 #+END_SRC
+
 
 
 
 * Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
-  import pandas as pd
+import pandas as pd
 
-  try: 
-      from joblib import Parallel, delayed
-      #import timeit
-      PARALLEL=True
-  except ImportError:
-      PARALLEL=False
-      warnings.warn("Install joblib for parallel bootstrap.")
+try: 
+    from joblib import Parallel, delayed
+    #import timeit
+    PARALLEL=True
+except ImportError:
+    PARALLEL=False
+    warnings.warn("Install joblib for parallel bootstrap.")
 
-  PARALLEL = False # Not yet working.
+PARALLEL = False # Not yet working.
 
-  def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
-      """
-      Use singular-value decomposition to compute loglambdas and price elasticities,
-      up to an unknown factor of proportionality phi.
+def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
+    """
+    Use singular-value decomposition to compute loglambdas and price elasticities,
+    up to an unknown factor of proportionality phi.
 
-      Input e is the residual from a regression of log expenditures purged
-      of the effects of prices and household characteristics.   The residuals
-      should be arranged as a matrix, with columns corresponding to goods. 
-      """ 
+    Input e is the residual from a regression of log expenditures purged
+    of the effects of prices and household characteristics.   The residuals
+    should be arranged as a matrix, with columns corresponding to goods. 
+    """ 
 
-      assert e.shape[0]>e.shape[1], "More goods than observations."
+    assert e.shape[0]>e.shape[1], "More goods than observations."
 
-      chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank,min_obs=min_obs)
+    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank,min_obs=min_obs)
 
-      R2 = chat.var()/e.var()
+    R2 = chat.var()/e.var()
 
-      # Possible that initial elasticity b_i is negative, if inferior goods permitted.
-      # But they must be positive on average.
-      if chat.iloc[0,:].mean()>0:
-          b=chat.iloc[0,:]
-      else:
-          b=-chat.iloc[0,:]
+    # Possible that initial elasticity b_i is negative, if inferior goods permitted.
+    # But they must be positive on average.
+    if chat.iloc[0,:].mean()>0:
+        b=chat.iloc[0,:]
+    else:
+        b=-chat.iloc[0,:]
 
-      loglambdas=(-chat.iloc[:,0]/b.iloc[0])
+    loglambdas=(-chat.iloc[:,0]/b.iloc[0])
 
-      # Find phi that normalizes first round loglambdas
-      phi=loglambdas.groupby(level=time_index).std().iloc[0]
-      loglambdas=loglambdas/phi
+    # Find phi that normalizes first round loglambdas
+    phi=loglambdas.groupby(level=time_index).std().iloc[0]
+    loglambdas=loglambdas/phi
 
-      loglambdas=pd.Series(loglambdas,name='loglambda')
-      bphi=pd.Series(b*phi,index=e.columns,name=r'\phi\beta')
+    loglambdas=pd.Series(loglambdas,name='loglambda')
+    bphi=pd.Series(b*phi,index=e.columns,name=r'\phi\beta')
 
-      if TEST:
-          foo=pd.DataFrame(-np.outer(bphi,loglambdas).T,index=loglambdas.index,columns=bphi.index)
-          assert df_norm(foo-chat)<1e-4
-          #print("blogL norm: %f" % np.linalg.norm(foo-chat))
+    if TEST:
+        foo=pd.DataFrame(-np.outer(bphi,loglambdas).T,index=loglambdas.index,columns=bphi.index)
+        assert df_norm(foo-chat)<1e-4
+        #print("blogL norm: %f" % np.linalg.norm(foo-chat))
 
-      return bphi,loglambdas
+    return bphi,loglambdas
 
-  def iqr(x):
-      """The interquartile range of a pd.Series of observations x."""
-      q=x.quantile([0.25,0.75])
- 
-      try:
-          return q.diff().iloc[1]
-      except AttributeError:
-          return np.nan
+def iqr(x):
+    """The interquartile range of a pd.Series of observations x."""
+    q=x.quantile([0.25,0.75])
 
-  def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
-      """Bootstrap estimates of standard errors for \phi\beta.
+    try:
+        return q.diff().iloc[1]
+    except AttributeError:
+        return np.nan
 
-      Takes pd.DataFrame of residuals as input.
+def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+    """Bootstrap estimates of standard errors for \phi\beta.
 
-      Default is to `cluster' by (t,mkt) via a block bootstrap.
+    Takes pd.DataFrame of residuals as input.
 
-      If optional parameter TRIM is True, then calculations are
-      performed using the interquartile range (IQR) instead of the
-      standard deviation, with the standard deviation computed as
-      IQR*0.7416 (which is a good approximation provided the
-      distribution is normal).
+    Default is to `cluster' by (t,mkt) via a block bootstrap.
 
-      Ethan Ligon                              January 2017
-      """
+    If optional parameter TRIM is True, then calculations are
+    performed using the interquartile range (IQR) instead of the
+    standard deviation, with the standard deviation computed as
+    IQR*0.7416 (which is a good approximation provided the
+    distribution is normal).
 
-      def resample(e):
-          e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
-          e = e - e.mean()
-          return e
- 
-      def new_draw(e,clusterby):      
-          if clusterby:
-              S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
-          else:
-              S=resample(e)
+    Ethan Ligon                              January 2017
+    """
 
-          bs,ls=get_loglambdas(S)
+    def resample(e):
+        e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
+        e = e - e.mean()
+        return e
 
-          return bs
+    def new_draw(e,clusterby):      
+        if clusterby:
+            S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
+        else:
+            S=resample(e)
 
-      if outfn: outf=open(outfn,'a')
+        bs,ls=get_loglambdas(S)
 
-      delta=1.
-      old=np.array(1)
-      new=np.array(0)
-      i=0
-      chunksize=2
+        return bs
 
-      assert chunksize>=2, "chunksize must be 2 or more."
-      while delta>tol or i < minits:
-          delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
-          if VERBOSE and i>chunksize: 
-              stat = np.nanmax(np.abs((std0.reshape(-1)-std1.reshape(-1))/std0.reshape(-1)))
-              print("Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat))
-          old=new
+    if outfn: outf=open(outfn,'a')
 
-          if PARALLEL:
-              #start=timeit.timeit()
-              bees = Parallel(n_jobs=chunksize)(delayed(new_draw)(e,clusterby) for chunk in range(chunksize))
-              #print(timeit.timeit() - start)
-          else:
-              #start=timeit.timeit()
-              bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
-              #print(timeit.timeit() - start)
-  
-          if outfn: 
-              for bs in bees:
-                  if np.any(np.isnan(bs)):
-                      warnings.warn("Resampling draw with no data?")
-                  outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
+    delta=1.
+    old=np.array(1)
+    new=np.array(0)
+    i=0
+    chunksize=2
 
-          try:
-              B=B.append(bees,ignore_index=True)
-          except NameError:
-              B=pd.DataFrame(bees,index=range(chunksize)) # Create B
+    assert chunksize>=2, "chunksize must be 2 or more."
+    while delta>tol or i < minits:
+        delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
+        if VERBOSE and i>chunksize: 
+            stat = np.nanmax(np.abs((std0.reshape(-1)-std1.reshape(-1))/std0.reshape(-1)))
+            print("Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat))
+        old=new
 
-          i+=chunksize
+        if PARALLEL:
+            #start=timeit.timeit()
+            bees = Parallel(n_jobs=chunksize)(delayed(new_draw)(e,clusterby) for chunk in range(chunksize))
+            #print(timeit.timeit() - start)
+        else:
+            #start=timeit.timeit()
+            bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
+            #print(timeit.timeit() - start)
 
-          std0=B.std()
-          std1=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
-          if TRIM:
-              new=std1
-          else:
-              new=std0
+        if outfn: 
+            for bs in bees:
+                if np.any(np.isnan(bs)):
+                    warnings.warn("Resampling draw with no data?")
+                outf.write(','.join(['%6.5f' % b for b in bs])+'\n')
 
-      if outfn: outf.close()
-      if return_samples:
-          B.dropna(how='all',axis=1,inplace=True) # Drop any goods always missing estimate
-          return new,B
-      else:
-          return new
+        try:
+            B=B.append(bees,ignore_index=True)
+        except NameError:
+            B=pd.DataFrame(bees,index=range(chunksize)) # Create B
+
+        i+=chunksize
+
+        std0=B.std()
+        std1=B.apply(iqr)*0.7416 # Estimate of standard deviation, with trimming
+        if TRIM:
+            new=std1
+        else:
+            new=std0
+
+    if outfn: outf.close()
+    if return_samples:
+        B.dropna(how='all',axis=1,inplace=True) # Drop any goods always missing estimate
+        return new,B
+    else:
+        return new
 #+end_src
 
 *** Test of get_loglambdas
 #+name: test_get_loglambdas
 #+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/test/test_get_loglambdas.py
-  import numpy as np
-  import pandas as pd
-  import warnings
+import numpy as np
+import pandas as pd
+import warnings
 
-  # Tangling may not include :vars from header
-  try: 
-      miss_percent
-  except NameError: # :var inputs not set?
-      miss_percent = 0.6
+# Tangling may not include :vars from header
+try: 
+    miss_percent
+except NameError: # :var inputs not set?
+    miss_percent = 0.6
 
-  <<get_loglambdas>>
-  <<svd_rank1_approximation_with_missing_data>>
-  <<df_utils>>
+<<get_loglambdas>>
+<<svd_rank1_approximation_with_missing_data>>
+<<df_utils>>
 
-  (n,m)=(50,5000)
-  a=np.random.random_sample((n,1))
-  b=np.random.random_sample((1,m))
-  e=np.random.random_sample((n,m))*1e-5
+(n,m)=(50,5000)
+a=np.random.random_sample((n,1))
+b=np.random.random_sample((1,m))
+e=np.random.random_sample((n,m))*1e-5
 
-  X0=np.outer(a,b)+e
+X0=np.outer(a,b)+e
 
-  X=X0.copy()
-  X[np.random.random_sample(X.shape)<miss_percent]=np.nan
+X=X0.copy()
+X[np.random.random_sample(X.shape)<miss_percent]=np.nan
 
-  X0=pd.DataFrame(X0).T
-  X0.index.name='j'
-  X0['t']=0
-  X0['mkt']=0
-  X0=X0.reset_index().set_index(['j','t','mkt'])
-  X=pd.DataFrame(X).T
-  X.index=X0.index
+X0=pd.DataFrame(X0).T
+X0.index.name='j'
+X0['t']=0
+X0['mkt']=0
+X0=X0.reset_index().set_index(['j','t','mkt'])
+X=pd.DataFrame(X).T
+X.index=X0.index
 
-  ahat,bhat=get_loglambdas(X,TEST=True)
+ahat,bhat=get_loglambdas(X,TEST=True)
 
-  Xhat=pd.DataFrame(np.outer(pd.DataFrame(ahat),pd.DataFrame(-bhat).T).T,index=X.index)
+Xhat=pd.DataFrame(np.outer(pd.DataFrame(ahat),pd.DataFrame(-bhat).T).T,index=X.index)
 
-  def test_svd_vs_truth_error():
-      error = df_norm(Xhat,X)/df_norm(X)
-      print("%%Norm of error (svd vs. truth): %f" % error)
-      assert error < 1e-2
+def test_svd_vs_truth_error():
+    error = df_norm(Xhat,X)/df_norm(X)
+    print("%%Norm of error (svd vs. truth): %f" % error)
+    assert error < 1e-2
 #+end_src
 
 *** Artificial data
 We begin by generating some artificial data on expenditures.
 #+name: artificial_data
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/artificial_data.py
-  import pandas as pd
-  <<lambdas_dgp>> #lambdas
-  <<prices_dgp>> # prices
-  <<characteristics_dgp>> # characteristics
+import pandas as pd
+<<lambdas_dgp>> #lambdas
+<<prices_dgp>> # prices
+<<characteristics_dgp>> # characteristics
 
-  <<expenditures_dgp>>
+<<expenditures_dgp>>
 
-  def artificial_data(T=2,N=120,M=1,n=4,sigma_e=0.001):
+def artificial_data(T=2,N=120,M=1,n=4,sigma_e=0.001):
 
-      # truth=(beta,lambdas,characteristics,prices)
-      x,truth=expenditures(T,N,M,n,beta=np.linspace(1,3,n),sigma_eps=sigma_e)
+    # truth=(beta,lambdas,characteristics,prices)
+    x,truth=expenditures(T,N,M,n,beta=np.linspace(1,3,n),sigma_phi=0.1,sigma_eps=sigma_e)
 
-      y=np.log(x)
+    y=np.log(x)
 
-      return y,truth
-
+    return y,truth
 #+END_SRC
 
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
 #+begin_src python :noweb no-export :results output :tangle ../cfe/test/estimate_with_missing.py :exports none
-  import numpy as np
-  <<estimate_reduced_form>>
-  <<artificial_data>>
-  <<svd_rank1_approximation_with_missing_data>>
-  <<get_loglambdas>>
-  <<df_utils>>
+import numpy as np
+<<estimate_reduced_form>>
+<<artificial_data>>
+<<svd_rank1_approximation_with_missing_data>>
+<<get_loglambdas>>
+<<df_utils>>
 
-  y,truth=artificial_data(T=2,N=50,M=2,n=5,sigma_e=1e-8)
+y,truth=artificial_data(T=2,N=50,M=2,n=5,sigma_e=1e-8)
 
-  y['mkt']=1
-  y=y.reset_index().set_index(['j','t','mkt'])
+y['mkt']=1
+y=y.reset_index().set_index(['j','t','mkt'])
 
-  #beta,L,dz,p=truth
-  dz=truth['characteristics']
-  dz['mkt']=1
-  dz=dz.reset_index().set_index(['j','t','mkt'])
-  dz=np.log(dz)
+#beta,L,dz,p=truth
+dz=truth['characteristics']
+dz['mkt']=1
+dz=dz.reset_index().set_index(['j','t','mkt'])
+dz=np.log(dz)
 
-  numeraire=None #'x0'
+numeraire=None #'x0'
 
-  # Try with missing data for contrast
-  y.as_matrix()[np.random.random_sample(y.shape)<0.0]=np.nan
+# Try with missing data for contrast
+y.as_matrix()[np.random.random_sample(y.shape)<0.0]=np.nan
 
-  y.replace(-np.inf,np.nan,inplace=True)
+y.replace(-np.inf,np.nan,inplace=True)
 
-  #b,ce,d,V=estimate_bdce_with_missing_values(y,dz,return_v=True)
-  b,ce,d=estimate_reduced_form(y,dz,return_v=False)
+#b,ce,d,V=estimate_bdce_with_missing_values(y,dz,return_v=True)
+b,ce,d=estimate_reduced_form(y,dz,return_v=False)
 
-  bphi,logL=get_loglambdas(ce,TEST=True)
-  cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-  cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+bphi,logL=get_loglambdas(ce,TEST=True)
+cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
 
-  print("Norm of error in approximation of CE: %f" % df_norm(cehat,ce))
+print("Norm of error in approximation of CE: %f" % df_norm(cehat,ce))
 
-  # Some naive standard errors
+# Some naive standard errors
 
-  #yhat=b.T.add(cehat + (dz.dot(d.T)),axis=0,level='t')
-  yhat = broadcast_binary_op(cehat + dz.dot(d.T),lambda x,y: x+y,b.T)
+#yhat=b.T.add(cehat + (dz.dot(d.T)),axis=0,level='t')
+yhat = broadcast_binary_op(cehat + dz.dot(d.T),lambda x,y: x+y,b.T)
 
-  e=y.sub(yhat)
+e=y.sub(yhat)
 
-  print("Correlation of log lambda with estimate (before normalization): %f" % pd.DataFrame({"L0":np.log(truth['lambdas'][0]),"Lhat":logL}).corr().iloc[0,1])
+print("Correlation of log lambda with estimate (before normalization): %f" % pd.DataFrame({"L0":np.log(truth['lambdas'][0]),"Lhat":logL}).corr().iloc[0,1])
 
-  if not numeraire is None:
-      logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
-      b=b-b.loc[numeraire]
-  else:
-      logL=broadcast_binary_op(logL,lambda x,y: x+y,b.mean()) # Add term associated with numeraire good
-      b=b-b.mean()
+if not numeraire is None:
+    logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
+    b=b-b.loc[numeraire]
+else:
+    logL=broadcast_binary_op(logL,lambda x,y: x+y,b.mean()) # Add term associated with numeraire good
+    b=b-b.mean()
 
-  # Evaluate estimate of beta:
-  print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals with fact that b only identified up to a scalar
+# Evaluate estimate of beta:
+print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals with fact that b only identified up to a scalar
 
-  foo=logL.reset_index('mkt')
-  foo['loglambda0']=np.log(truth['lambdas'][0])
-  foo=foo.reset_index().set_index(['j','t','mkt'])
-  print("Correlation of log lambda with estimate (after normalization):")
-  print(foo.groupby(level=['t','mkt']).corr())
-  
-  print("Mean of errors:")
-  print(e.mean(axis=0))
+foo=logL.reset_index('mkt')
+foo['loglambda0']=np.log(truth['lambdas'][0])
+foo=foo.reset_index().set_index(['j','t','mkt'])
+print("Correlation of log lambda with estimate (after normalization):")
+print(foo.groupby(level=['t','mkt']).corr())
 
+print("Mean of errors:")
+print(e.mean(axis=0))
 #+end_src
 
 #+results: test_estimate_with_missing
@@ -1035,68 +1050,67 @@ We begin by generating some artificial data on expenditures.
 
 #+name: direct_price_elasticities
 #+BEGIN_SRC python :tangle ../cfe/estimation.py
+def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False):
+    """Estimate reduced-form Frisch expenditure/demand system.
 
-  def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False):
-      """Estimate reduced-form Frisch expenditure/demand system.
+       Inputs:
+         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
+               where j indexes the household, t the period, and mkt the market.  
+               Columns are different expenditure items.
 
-         Inputs:
-           - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-                 where j indexes the household, t the period, and mkt the market.  
-                 Columns are different expenditure items.
+         - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+               prices for different goods across columns.
 
-           - p : pd.DataFrame of log prices, indexed by (t,mkt), with
-                 prices for different goods across columns.
-
-           - z : pd.DataFrame of household characteristics; index should match that of y.
+         - z : pd.DataFrame of household characteristics; index should match that of y.
 
 
-        Ethan Ligon                                            March 2017
-      """
-      assert(y.index.names==['j','t','mkt'])
-      assert(z.index.names==['j','t','mkt'])
+      Ethan Ligon                                            March 2017
+    """
+    assert(y.index.names==['j','t','mkt'])
+    assert(z.index.names==['j','t','mkt'])
 
-      periods = list(set(y.index.get_level_values('t')))
-      mkts = list(set(y.index.get_level_values('mkt')))
-      sed = pd.DataFrame(columns=y.columns)
-      a = pd.Series(index=y.columns)
-      b = OrderedDict() #pd.DataFrame(index=y.columns)
-      d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
-      ce = pd.DataFrame(index=y.index,columns=y.columns)
-      V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
+    periods = list(set(y.index.get_level_values('t')))
+    mkts = list(set(y.index.get_level_values('mkt')))
+    sed = pd.DataFrame(columns=y.columns)
+    a = pd.Series(index=y.columns)
+    b = OrderedDict() #pd.DataFrame(index=y.columns)
+    d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
+    ce = pd.DataFrame(index=y.index,columns=y.columns)
+    V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
 
-      for i,Item in enumerate(y.columns):
-          if VERBOSE: print(Item)
-          if np.any(np.isnan(p[Item])): continue # Don't estimate with missing prices
+    for i,Item in enumerate(y.columns):
+        if VERBOSE: print(Item)
+        if np.any(np.isnan(p[Item])): continue # Don't estimate with missing prices
 
-          rhs = z.reset_index('j').join(p[Item]).reset_index().set_index(['j','t','mkt'])
-          rhs.rename(columns={Item:'log p'},inplace=True)
+        rhs = z.reset_index('j').join(p[Item]).reset_index().set_index(['j','t','mkt'])
+        rhs.rename(columns={Item:'log p'},inplace=True)
 
-          lhs,rhs=drop_missing([y.iloc[:,[i]],rhs])
+        lhs,rhs=drop_missing([y.iloc[:,[i]],rhs])
 
-          rhs['Constant']=1
+        rhs['Constant']=1
 
-          myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) 
-          ce[Item]=mye
+        myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) 
+        ce[Item]=mye
 
-          if return_v or return_se:
-              V[Item]=arellano_robust_cov(rhs,mye)
-              sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+        if return_v or return_se:
+            V[Item]=arellano_robust_cov(rhs,mye)
+            sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
 
-          d[Item]=myb[z.columns] # reduced form coefficients on characteristics
+        d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
-          a[Item] = myb['Constant']
-          b[Item] = myb['log p'].values[0]
+        a[Item] = myb['Constant']
+        b[Item] = myb['log p'].values[0]
 
-      b = pd.Series(b)
+    b = pd.Series(b)
 
-      d = pd.concat(d.values())
+    d = pd.concat(d.values())
 
-      out = [a,b,ce,d]
-      if return_se:
-          out += [sed]
-      if return_v:
-          out += [V]
-      return out
+    out = [a,b,ce,d]
+    if return_se:
+        out += [sed]
+    if return_v:
+        out += [V]
+    return out
 #+END_SRC
 
 ** Indirect estimation of price elasticities
@@ -1111,49 +1125,48 @@ We begin by generating some artificial data on expenditures.
   goods where prices are missing.
 
 #+BEGIN_SRC python :tangle ../cfe/estimation.py
-  def indirect_price_elasticities(a,p,zbar):
-      """Estimate reduced-form Frisch expenditure/demand system.
+def indirect_price_elasticities(a,p,zbar):
+    """Estimate reduced-form Frisch expenditure/demand system.
 
-         Inputs:
-           - a : pd.DataFrame of good-time-market effects estimated by =estimate_reduced_form=,
-                 indexed by (t,mkt), where t indexes the period, and mkt the market.  
-                 Columns are different expenditure items.
+       Inputs:
+         - a : pd.DataFrame of good-time-market effects estimated by =estimate_reduced_form=,
+               indexed by (t,mkt), where t indexes the period, and mkt the market.  
+               Columns are different expenditure items.
 
-           - p : pd.DataFrame of log prices, indexed by (t,mkt), with
-                 prices for different goods across columns.
+         - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+               prices for different goods across columns.
 
-           - zbar : pd.DataFrame of average household characteristics; index should match that of a.
+         - zbar : pd.DataFrame of average household characteristics; index should match that of a.
 
-        Ethan Ligon                                            March 2017
-      """
-      assert(a.index.names==['t','mkt'])
-      assert(zbar.index.names==['t','mkt'])
+      Ethan Ligon                                            March 2017
+    """
+    assert(a.index.names==['t','mkt'])
+    assert(zbar.index.names==['t','mkt'])
 
-      # Filter p
-      X=zbar.copy()
-      X['Constant'] = 1
-      y = p.dropna(how='any',axis=1)
+    # Filter p
+    X=zbar.copy()
+    X['Constant'] = 1
+    y = p.dropna(how='any',axis=1)
 
-      # pe are filtered log prices
-      bp,pe = ols(X,y,return_se=False,return_e=True)
+    # pe are filtered log prices
+    bp,pe = ols(X,y,return_se=False,return_e=True)
 
-      X = pe.copy()
+    X = pe.copy()
 
-      Xm=np.matrix((X-X.mean()).as_matrix())
+    Xm=np.matrix((X-X.mean()).as_matrix())
 
-      ym=np.matrix((a-a.mean()).as_matrix())
-    
-      B=OrderedDict()
-      SE=OrderedDict()
-      for i,Item in enumerate(y.columns):
-          B[Item] = np.linalg.lstsq(Xm[:,i],ym[:,i])[0][0,0]
-          e = ym[:,i] - Xm[:,i]*B[Item]
-          SE[Item] = np.sqrt(np.var(e)/np.var(Xm[:,i]))
+    ym=np.matrix((a-a.mean()).as_matrix())
+  
+    B=OrderedDict()
+    SE=OrderedDict()
+    for i,Item in enumerate(y.columns):
+        B[Item] = np.linalg.lstsq(Xm[:,i],ym[:,i])[0][0,0]
+        e = ym[:,i] - Xm[:,i]*B[Item]
+        SE[Item] = np.sqrt(np.var(e)/np.var(Xm[:,i]))
 
-      B = pd.Series(B)
-      SE = pd.Series(SE)
-      return B,SE
-
+    B = pd.Series(B)
+    SE = pd.Series(SE)
+    return B,SE
 #+END_SRC
   
 
@@ -1202,149 +1215,149 @@ print(x.head())
 
 #+name: analysis_omnibus
 #+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
-  # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
-  import tempfile
-  import numpy as np
-  import pandas as pd
-  from numpy.linalg import norm
+import tempfile
+import numpy as np
+import pandas as pd
+from numpy.linalg import norm
 
-  def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
-                       VERBOSE=False, BOOTSTRAP=False):
+def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
+                     VERBOSE=False, BOOTSTRAP=False):
 
-      if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
-          BOOTSTRAP = 1e-3
+    if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
+        BOOTSTRAP = 1e-3
 
-      if z is None:
-         z = pd.DataFrame(index=y.index)
+    if z is None:
+       z = pd.DataFrame(index=y.index)
 
-      if prices is not None: # Check price indices (t,mkt) consistent with indices in y
-          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
-                 "Must have prices for every (t,mkt) in expenditures y."
+    if prices is not None: # Check price indices (t,mkt) consistent with indices in y
+        assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
+               "Must have prices for every (t,mkt) in expenditures y."
 
-      results={'y':y,'z':z}
-      if prices is not None: results['prices'] = prices
+    results={'y':y,'z':z}
+    if prices is not None: results['prices'] = prices
 
-      firstround=y.reset_index().iloc[0]['t']  
+    firstround=y.reset_index().iloc[0]['t']  
 
-      # Deflate expenditures and prices by prices of numeraire good.
-      if numeraire is not None and len(numeraire)>0:
-          y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
-          logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+    # Deflate expenditures and prices by prices of numeraire good.
+    if numeraire is not None and len(numeraire)>0:
+        y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+        logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
 
-      use_goods=y.columns.tolist()
+    use_goods=y.columns.tolist()
 
-      # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
-      y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
-      y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-      # Only keep goods with observations in each (t,mkt)
-      y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
+    # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+    using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
+    y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+    y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+    # Only keep goods with observations in each (t,mkt)
+    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
 
-      a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
-      ce.dropna(how='all',inplace=True)
+    a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+    ce.dropna(how='all',inplace=True)
 
-      results['ce']=ce
-      results['d_covariance'] = V
+    results['ce']=ce
+    results['d_covariance'] = V
 
-      bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
+    bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
 
-      assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
-             "Problem with normalization of loglambdas"
+    assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+           "Problem with normalization of loglambdas"
 
-      cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-      cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
-      results['cehat']=cehat
+    cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+    cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+    results['cehat']=cehat
 
-      if VERBOSE:
-          print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
+    if VERBOSE:
+        print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
 
-      # Some naive standard errors & ANOVA
-      miss2nan = ce*0
-      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
-                          'Characteristics':z.dot(d.T).var(ddof=0),
-                          '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
-                          'Residual':(ce-cehat).var(ddof=0)})
-      anova=anova.div(y.var(ddof=0),axis=0)
-      anova['Total var']=y.var(ddof=0)
-      anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+    # Some naive standard errors & ANOVA
+    miss2nan = ce*0
+    anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
+                        'Characteristics':z.dot(d.T).var(ddof=0),
+                        '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
+                        'Residual':(ce-cehat).var(ddof=0)})
+    anova=anova.div(y.var(ddof=0),axis=0)
+    anova['Total var']=y.var(ddof=0)
+    anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
-      results['anova'] = anova
+    results['anova'] = anova
 
-      yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
+    yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
 
-      yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
+    yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
 
-      e = y.sub(yhat)
-      e0 = y.sub(yhat0)
+    e = y.sub(yhat)
+    e0 = y.sub(yhat0)
 
-      goodsdf=d.copy()
+    goodsdf=d.copy()
 
-      pref_params=[r'$\phi\beta_i$']
-      if numeraire is not None and len(numeraire)>0:
-          # FIXME: Issue here with dividing by a random variable.  What
-          # properties do we want estimator of barloglambda_t to have?
-          try:
-              barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
-              logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
-              a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
-          except KeyError:
-              pass
+    pref_params=[r'$\phi\beta_i$']
+    if numeraire is not None and len(numeraire)>0:
+        # FIXME: Issue here with dividing by a random variable.  What
+        # properties do we want estimator of barloglambda_t to have?
+        try:
+            barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
+            logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
+            a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+        except KeyError:
+            pass
 
-          # FIXME: Should really use weighted mean, since different precisions for a across different  markets
-          logalpha = a[firstround].T.mean() 
-          goodsdf[r'$\log\alpha_i$'] = logalpha
-          pref_params += [r'$\log\alpha_i$']
-      else:
-          pidx=a.mean()
-          logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
-          a = a - pidx
+        # FIXME: Should really use weighted mean, since different precisions for a across different  markets
+        logalpha = a[firstround].T.mean() 
+        goodsdf[r'$\log\alpha_i$'] = logalpha
+        pref_params += [r'$\log\alpha_i$']
+    else:
+        pidx=a.mean()
+        logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
+        a = a - pidx
 
-      if VERBOSE:
-          print("Mean of errors:")
-          print(e.mean(axis=0))
+    if VERBOSE:
+        print("Mean of errors:")
+        print(e.mean(axis=0))
 
-      goodsdf[r'$\phi\beta_i$']=bphi
-      goodsdf['$R^2$']=1-e.var()/y.var()
+    goodsdf[r'$\phi\beta_i$']=bphi
+    goodsdf['$R^2$']=1-e.var()/y.var()
 
-      goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
-      goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
+    goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
+    goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
 
-      ehat=e.dropna(how='all')
-      ehat=ehat-ehat.mean()
+    ehat=e.dropna(how='all')
+    ehat=ehat-ehat.mean()
 
-      if BOOTSTRAP:
-          tmpf = tempfile.mkstemp(suffix='.csv')
-          if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
+    if BOOTSTRAP:
+        tmpf = tempfile.mkstemp(suffix='.csv')
+        if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
 
-          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
-          results['Bs'] = Bs
-          se[r'$\phi\beta_i$']=sel
-      else:
-          sel=[]
-          for i in ehat:
-              foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
-              sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).as_matrix()[0,0]))
-          se[r'$\phi\beta_i$']=np.array(sel)
+        sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
+        results['Bs'] = Bs
+        se[r'$\phi\beta_i$']=sel
+    else:
+        sel=[]
+        for i in ehat:
+            foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
+            sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).as_matrix()[0,0]))
+        se[r'$\phi\beta_i$']=np.array(sel)
 
-      if numeraire is not None:
-          se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
+    if numeraire is not None:
+        se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
 
-      se.dropna(how='any',inplace=True)
+    se.dropna(how='any',inplace=True)
 
-      results['se'] = se
-      goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
+    results['se'] = se
+    goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
 
-      goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
-      goodsdf.dropna(how='any',inplace=True)
-      results['goods'] = goodsdf
+    goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
+    goodsdf.dropna(how='any',inplace=True)
+    results['goods'] = goodsdf
 
-      results['a'] = a
-      results['loglambda'] = logL
-      results['logexpenditures'] = y
-      results['logexpenditures_hat'] = yhat
+    results['a'] = a
+    results['loglambda'] = logL
+    results['logexpenditures'] = y
+    results['logexpenditures_hat'] = yhat
 
-      return results
+    return results
 #+end_src
 
 * Distance between two estimates of \beta
@@ -1421,121 +1434,121 @@ print(x.head())
 
 #+name: elasticities_equal
 #+BEGIN_SRC python :exports code :tangle ../cfe/estimation.py
-  import numpy as np
-  from scipy.optimize import minimize_scalar
-  from scipy.stats.distributions import f as F
+import numpy as np
+from scipy.optimize import minimize_scalar
+from scipy.stats.distributions import f as F
 
-  def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
+def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
 
-      assert N2<N, "N2 should be size of sub-sample of pooled sample."
-      n=len(b1)
-  
-      assert n==len(b2), "Length of vectors must be equal"
+    assert N2<N, "N2 should be size of sub-sample of pooled sample."
+    n=len(b1)
 
-      def Fcriterion(psi):
-          try:
-              psi=psi[0,0]
-          except (TypeError, IndexError):
-              pass
+    assert n==len(b2), "Length of vectors must be equal"
 
-          d = np.matrix(psi*b1 - b2)
-          if d.shape[0]<d.shape[1]: d = d.T
+    def Fcriterion(psi):
+        try:
+            psi=psi[0,0]
+        except (TypeError, IndexError):
+            pass
 
-          #W = np.matrix((psi**2)*v1 + v2*(1-2*(psi**2)*N2/N)).I
-          W = np.matrix((psi**2)*v1 + v2).I # Independent case
-          #W = np.matrix(v1 + v2).I # Independent case
+        d = np.matrix(psi*b1 - b2)
+        if d.shape[0]<d.shape[1]: d = d.T
 
-          F = N2*(N-n-1)/((N-1)*(n-1)) * d.T*W*d
+        #W = np.matrix((psi**2)*v1 + v2*(1-2*(psi**2)*N2/N)).I
+        W = np.matrix((psi**2)*v1 + v2).I # Independent case
+        #W = np.matrix(v1 + v2).I # Independent case
 
-          if ~np.isscalar(F):
-              F=F[0,0]
+        F = N2*(N-n-1)/((N-1)*(n-1)) * d.T*W*d
 
-          return F
+        if ~np.isscalar(F):
+            F=F[0,0]
 
-      #result = minimize_scalar(Fcriterion,method='bounded',bounds=[0,10])
-      result = minimize_scalar(Fcriterion)
-      psi=np.abs(result['x'])
-      Fstat=result['fun']
+        return F
 
-      assert result['success'], "Minimization failed?"
+    #result = minimize_scalar(Fcriterion,method='bounded',bounds=[0,10])
+    result = minimize_scalar(Fcriterion)
+    psi=np.abs(result['x'])
+    Fstat=result['fun']
 
-      outputs = [psi,Fstat]
+    assert result['success'], "Minimization failed?"
 
-      if pvalue:
-          p = 1 - F.cdf(Fstat,n-1,N-n-1)
-          outputs.append(p)
+    outputs = [psi,Fstat]
 
-      if criterion:
-          outputs.append(Fcriterion)
-      
-      return tuple(outputs)
+    if pvalue:
+        p = 1 - F.cdf(Fstat,n-1,N-n-1)
+        outputs.append(p)
 
+    if criterion:
+        outputs.append(Fcriterion)
+    
+    return tuple(outputs)
 #+END_SRC
 
 
 #+name: test_broadcast_binary_op
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/elasticities_equal.py
-  <<elasticities_equal>>
+<<elasticities_equal>>
 
-  N = 10000
-  N2 = 5000
-  b0=np.array([1,2,3])
-  v0=np.array([[1,0.5,0.25],[0.5,1,.5],[.25,.5,1]])
-  B=np.random.multivariate_normal(b0,v0,size=N)
+N = 10000
+N2 = 5000
+b0=np.array([1,2,3])
+v0=np.array([[1,0.5,0.25],[0.5,1,.5],[.25,.5,1]])
+B=np.random.multivariate_normal(b0,v0,size=N)
 
-  b1=np.mean(B,axis=0)
-  v1=np.cov(B,rowvar=False)
+b1=np.mean(B,axis=0)
+v1=np.cov(B,rowvar=False)
 
-  b2=2*np.mean(B[:N2,:],axis=0) # So true value of psi=2
-  v2=4*np.cov(B[:N2,:],rowvar=False)
+b2=2*np.mean(B[:N2,:],axis=0) # So true value of psi=2
+v2=4*np.cov(B[:N2,:],rowvar=False)
 
-  def covb1b2(psi=1.,tol=1e-2):
-      last=1
-      next=0
-      b1bar=0
-      b2bar=0
-      i=0
-      while np.linalg.norm(next-last)>tol:
-          i+=1
-          last=next
-          B1=B[np.random.randint(N,size=N),:]
-          newb1=psi*np.mean(B1,axis=0)
-          newb2=2*np.mean(B1[np.random.randint(N,size=N2),:],axis=0)
-          next = next*(1-1./i) + np.outer(newb1,newb2)/i
-          b1bar = b1bar*(1-1./i) + newb1/i
-          b2bar = b2bar*(1-1./i) + newb2/i
-          if i>100: continue
+def covb1b2(psi=1.,tol=1e-2):
+    last=1
+    next=0
+    b1bar=0
+    b2bar=0
+    i=0
+    while np.linalg.norm(next-last)>tol:
+        i+=1
+        last=next
+        B1=B[np.random.randint(N,size=N),:]
+        newb1=psi*np.mean(B1,axis=0)
+        newb2=2*np.mean(B1[np.random.randint(N,size=N2),:],axis=0)
+        next = next*(1-1./i) + np.outer(newb1,newb2)/i
+        b1bar = b1bar*(1-1./i) + newb1/i
+        b2bar = b2bar*(1-1./i) + newb2/i
+        if i>100: continue
 
-      C = next - np.outer(b1bar,b2bar)
-      return (C + C.T)/2.
+    C = next - np.outer(b1bar,b2bar)
+    return (C + C.T)/2.
 
-  def Vmom(psi=1.,tol=1e-2):
-      last=1
-      next=0
-      dbar=0
-      i=0
-      while np.linalg.norm(next-last)>tol:
-          i+=1
-          last=next
-          newb1=psi*np.mean(B[np.random.randint(N,size=N),:],axis=0)
-          newb2=2*np.mean(B[np.random.randint(N,size=N2),:],axis=0)
-          d = newb1 - newb2
-          next = next*(1-1./i) + np.outer(d,d)/i
-          dbar = dbar*(1-1./i) + d/i
-          if i>100: continue
+def Vmom(psi=1.,tol=1e-2):
+    last=1
+    next=0
+    dbar=0
+    i=0
+    while np.linalg.norm(next-last)>tol:
+        i+=1
+        last=next
+        newb1=psi*np.mean(B[np.random.randint(N,size=N),:],axis=0)
+        newb2=2*np.mean(B[np.random.randint(N,size=N2),:],axis=0)
+        d = newb1 - newb2
+        next = next*(1-1./i) + np.outer(d,d)/i
+        dbar = dbar*(1-1./i) + d/i
+        if i>100: continue
 
-      return next - np.outer(dbar,dbar)
+    return next - np.outer(dbar,dbar)
 
-  foo = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
-  C=covb1b2()
+foo = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
+C=covb1b2()
 
-  print(foo)
+print(foo)
 #+END_SRC  
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
  data from this to estimate neediness, checking that we can recover
- the parameters of the data-generating process.
+ the parameters of the data-generating process.  The various routines
+ for generating data are tangled to a module =cfe.dgp=.
 
  We randomly generate several different kinds of data: "neediness"
  \lambda_{it}; prices $p_t$; and from these expenditures $x_{it}$.  
@@ -1561,31 +1574,31 @@ print(x.head())
    and aggregate \lambda processes are martingales.
 
 #+name: lambdas_dgp
-#+BEGIN_SRC python :results silent :exports code
-  from scipy.stats.distributions import lognorm
-  import numpy as np
+#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
+from scipy.stats.distributions import lognorm
+import numpy as np
 
-  def geometric_brownian(sigma=1.):
-      return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
+def geometric_brownian(sigma=1.):
+    return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
 
-  def lambdabar(T,Fbar):
-      return np.cumprod(Fbar.rvs(size=(T,1)),axis=0)
+def lambdabar(T,Fbar):
+    return np.cumprod(Fbar.rvs(size=(T,1)),axis=0)
 
-  def lambdas(T,N,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
+def lambdas(T,N,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-      L0=G0.rvs(size=(1,N))  # Initial lambdas
-      innov=F.rvs(size=(T-1,N))
-      L=np.cumprod(np.r_[L0,innov],axis=0)
-      
-      # Add aggregate shocks L0:
-      return L*lambdabar(T,Fbar=Fbar)
+    L0=G0.rvs(size=(1,N))  # Initial lambdas
+    innov=F.rvs(size=(T-1,N))
+    L=np.cumprod(np.r_[L0,innov],axis=0)
+    
+    # Add aggregate shocks L0:
+    return L*lambdabar(T,Fbar=Fbar)
 #+END_SRC
 
   In addition, time-varying household characteristics can affect
   demands.
 #+name: characteristics_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code
-  characteristics = lambda T,N : lambdas(T,N,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
+#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+characteristics = lambda T,N : lambdas(T,N,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
 #+END_SRC
 
 
@@ -1595,8 +1608,8 @@ print(x.head())
     $\lambda_{it}$, these are also assumed to satisfy a martingale
     process (so we can re-purpose code for generating \(\lambda\)s here):
 #+name: prices_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code
-  prices = lambda T,n : lambdas(T,n,Fbar=geometric_brownian(.05),F=geometric_brownian(0.2))
+#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+prices = lambda T,n : lambdas(T,n,Fbar=geometric_brownian(.05),F=geometric_brownian(0.2))
 #+END_SRC
 
 ** Data-generating process for measurement error
@@ -1610,22 +1623,22 @@ print(x.head())
     are generated below.
 #+name: measurement_error_dgp
 #+BEGIN_SRC python :results value 
-  import pandas as pd
-  from scipy.stats import distributions
-  import numpy as np
+import pandas as pd
+from scipy.stats import distributions
+import numpy as np
 
-  def measurement_error(T,N,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
+def measurement_error(T,N,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
 
-      def additive_error(T=T,N=N,n=n,sigma=sigma_phi):
-          return distributions.norm.rvs(scale=sigma,size=(T,N,n)) + mu_phi
+    def additive_error(T=T,N=N,n=n,sigma=sigma_phi):
+        return distributions.norm.rvs(scale=sigma,size=(T,N,n)) + mu_phi
 
-      def multiplicative_error(T=T,N=N,n=n,sigma=sigma_eps):
-          return np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(T,N,n)) + mu_eps)
+    def multiplicative_error(T=T,N=N,n=n,sigma=sigma_eps):
+        return np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(T,N,n)) + mu_eps)
 
-      phi=additive_error(T,N,n,sigma=sigma_phi)
-      eps=multiplicative_error(T,N,n,sigma=sigma_eps)
+    phi=additive_error(T,N,n,sigma=sigma_phi)
+    eps=multiplicative_error(T,N,n,sigma=sigma_eps)
 
-      return phi,eps
+    return phi,eps
 #+END_SRC
 
 ** Data-generating process for expenditures
@@ -1653,281 +1666,529 @@ print(x.head())
     where $\beta_i=\sum_{k=1}^n(\theta_{ik})$ is the \(i\)th row-sum
     of the matrix $\Theta$.  Instantiated in code:
 #+name: expenditures_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code
-  <<measurement_error_dgp>>
+#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+<<measurement_error_dgp>>
+import xarray
 
-  def expenditures(T,N,n,k,beta,mu_phi=0,sigma_phi=0.1,mu_eps=0,sigma_eps=1.):
+def expenditures(T,N,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.):
+    """Generate artificial expenditures for $N$ households over $T$ periods on $n$ items.  
+    Return dataframe of expenditures and a dictionary of "true" underlying variables.
 
-      if len(beta.shape)<2:
-          Theta=np.matrix(np.diag(beta))
-      else:
-          Theta=np.matrix(beta)
-          beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
+    Households are distinguished by a $k$-vector of characteristics,
+    but common Frisch elasticities expressed as an $n$-vector beta.
 
-      l=lambdas(T,N)
-      dz=characteristics(T,N)
-      for i in range(1,k-1):  # add additional characteristics if called for.
-          dz=np.c_[dz, characteristics(T,N)]
-      L=np.reshape(l,(T,N,1)) 
-      p=prices(T,n)
+    If supplied, optional arguments
+    (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
+    different measurement error processes.  The first is a normally
+    distributed additive measurement error process, with mean =mu_phi=
+    and standard deviation =sigma_phi=.  The second is a
+    multiplicative log-normal error process, with (log) mean =mu_eps=
+    and (log) standard deviation =sigma_eps=.
 
-      # Build x in steps
-      x = np.kron(np.log(L),-beta)
-      x = x + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n))
-      x = x +  np.tile(np.log(dz).reshape((T,N,k)).sum(axis=2).reshape((T,N,1)),(1,1,n))
-      x = np.exp(x)
+    Ethan Ligon                                                     January 2018
+    """
 
-      phi,e=measurement_error(T,N,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
-    
-      x=(x+p.reshape(T,1,n)*phi) # Additive error
-      x=x*e # Multiplicative error
+    if len(beta.shape)<2:
+        Theta=np.matrix(np.diag(beta))
+    else:
+        Theta=np.matrix(beta)
+        beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
 
-      x=x*(x>0) # Truncation
+    l=lambdas(T,N)
+    dz=characteristics(T,N)
+    for i in range(1,k-1):  # add additional characteristics if called for.
+        dz=np.c_[dz, characteristics(T,N)]
+    L=np.reshape(l,(T,N,1)) 
+    p=prices(T,n)
 
-      x=pd.Panel(x.T,items=['x%d' % i for i in range(n)]).to_frame()
-      x.index.set_names(['j','t'],inplace=True)
+    # Build x in steps
+    x = np.kron(np.log(L),-beta)
+    x = x + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n))
+    x = x +  np.tile(np.log(dz).reshape((T,N,k)).sum(axis=2).reshape((T,N,1)),(1,1,n))
+    x = np.exp(x)
 
-      dz = dz.reshape((T*N,k),order='F')
-      dz = {'z%d' % i:dz[:,i] for i in range(k)}
-      dz=pd.DataFrame(dz,index=x.index)
-      l=pd.DataFrame(pd.DataFrame(l).T.stack(),index=x.index)
-      p=pd.DataFrame(p,columns=x.columns,index=x.index.levels[1])
+    phi,e=measurement_error(T,N,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
 
-      return x,{'beta':beta,'lambdas':l,'characteristics':dz,'prices':p}
+    x=(x+p.reshape(T,1,n)*phi) # Additive error
+    x=x*e # Multiplicative error
+
+    x=x*(x>0) # Truncation
+
+    #x=pd.Panel(x.T,items=['x%d' % i for i in range(n)]).to_frame()
+    x=xarray.DataArray(x.T,dims=['i','j','t'],name='x').to_dataframe().unstack('i')
+    x.columns = ['x%d' % i for i in range(n)]
+
+    x.index.set_names(['j','t'],inplace=True)
+
+    dz = dz.reshape((T*N,k),order='F')
+    dz = {'z%d' % i:dz[:,i] for i in range(k)}
+    dz=pd.DataFrame(dz,index=x.index)
+    l=pd.DataFrame(pd.DataFrame(l).T.stack(),index=x.index)
+    p=pd.DataFrame(p,columns=x.columns,index=x.index.levels[1])
+
+    return x,{'beta':beta,'lambdas':l,'characteristics':dz,'prices':p}
 #+END_SRC
+
+* Class =Result=
+
+Here we define a class =Result= which offers an consolidated way to
+package data and results described elsewhere in this document.
+
+#+name: result_class
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
+import numpy as np
+import pandas as pd
+from . import estimation 
+from .df_utils import broadcast_binary_op
+import xarray as xr
+
+class Result:
+
+    def __init__(self, logalpha=None, beta=None, delta=None,
+                 prices=None,characteristics=None,loglambdas=None,
+                 expenditures = None, numeraire=None):
+        self.logalpha = logalpha
+        self.beta = beta
+        self.delta = delta
+        self.prices = prices
+        self.characteristics = characteristics
+        self.loglambdas = loglambdas
+        self.expenditures = expenditures
+        self.numeraire = numeraire
+
+        self.y = None
+        self.yhat = None
+        self.yhat0 = None
+        self.ce = None
+        self.cehat = None
+
+        if characteristics is not None:
+            self.N = characteristics.groupby('j').count().shape[0]
+            self.T = characteristics.groupby('t').count().shape[0]
+            self.M = characteristics.groupby('mkt').count().shape[0]
+            self.L = characteristics.groupby(['t','mkt'])
+        elif loglambdas is not None:
+            self.N = loglambdas.groupby('j').count().shape[0]
+            self.T = loglambdas.groupby('t').count().shape[0]
+            self.M = loglambdas.groupby('mkt').count().shape[0]
+            self.L = loglambdas.groupby(['t','mkt']).count().shape[0]
+
+        if characteristics is None and expenditures is not None:
+            self.characteristics = pd.DataFrame(index=expenditures.index)
+
+        if expenditures is not None:
+            self.y = np.log(self.expenditures)
+
+        self.z = self.characteristics
+
+
+
+        if beta is not None:
+            self.n = len(beta)
+
+        if (beta and logalpha) is not None:
+            assert(len(logalpha)==len(beta))
+
+        if expenditures is not None:
+            self.firstround=expenditures.reset_index().iloc[0]['t']
+
+        if numeraire is not None and len(numeraire)>0:
+            self.y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+            if prices is not None:
+                self.logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+                self.prices = np.exp(self.logp)
+
+    def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
+        y = self.y
+        use_goods=y.columns.tolist()
+
+        # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+        using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
+        y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+        y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+        # Only keep goods with observations in each (t,mkt)
+        y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+
+        return y
+
+    def estimate_reduced_form(self,VERBOSE=False):
+        y = self.drop_useless_expenditures()
+        z = self.z
+
+        a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+        ce.dropna(how='all',inplace=True)
+
+        self.a = a
+        self.delta = d
+        self.ce = ce
+        self.se = se
+        self.d_covariance = V
+
+    def get_loglambdas(self,min_obs=30):
+        if self.loglambdas is None:
+            if self.ce is None:
+                self.estimate_reduced_form()
+
+            bphi,logL = estimation.get_loglambdas(self.ce,TEST=False,min_obs=min_obs)
+
+            assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+                "Problem with normalization of loglambdas"
+
+            cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+            cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+
+            self.cehat = cehat
+            self.loglambdas = logL
+            self.beta = bphi
+
+        return self.loglambdas
+
+    def get_beta(self,min_obs=30):
+        if self.beta is None:
+            self.get_loglambdas(min_obs=min_obs)
+
+        return self.beta
+
+    def get_cehat(self,min_obs=30):
+        if self.beta is None:
+            self.get_loglambdas(min_obs=min_obs)
+
+        return self.cehat
+
+    def anova(self,min_proportion_items=1./8,min_xproducts=30):
+        """Table analyzing variance of expenditures.
+
+        Optional arguments =min_proportion_items= and =min_xproducts=
+        control what expenditures are dropped, without affecting =self.y=.
+        """
+
+        try:
+            if (self.a is None) or (self.delta is None) or (self.ce is None):
+                self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+                                      min_xproducts=min_xproducts)
+        except AttributeError: # self.a isn't defined, or similar
+            self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+                                  min_xproducts=min_xproducts)
+
+        miss2nan = self.ce*0
+
+        cehat = self.get_cehat()
+
+        y = self.drop_useless_expenditures(min_proportion_items=min_proportion_items,
+                                      min_xproducts=min_xproducts)
+
+        df = pd.DataFrame({'Prices':self.a.T.var(ddof=0),
+                          'Characteristics':self.z.dot(self.delta.T).var(ddof=0),
+                          '$\log\lambda$':(self.cehat + miss2nan).var(ddof=0),
+                          'Residual':(self.ce-self.cehat).var(ddof=0)})
+
+        df = df.div(y.var(ddof=0),axis=0)
+        df['Total var'] = y.var(ddof=0)
+
+        df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+
+        return df
+
+    def get_predicted_log_expenditures(self):
+        cehat = self.get_cehat()
+        self.yhat = broadcast_binary_op(cehat + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+
+        self.yhat0 = broadcast_binary_op(self.ce + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+
+        self.e = self.y.sub(self.yhat)
+        self.e0 = self.y.sub(self.yhat0)
+
+        return self.yhat
+
+    def set_numeraire(self,numeraire=None):
+        """Set the numeraire, and adjust units for all relevant prices & expenditures.
+        """
+        # List of units (in logs) that need to be changed with change of numeraire; logp must be last
+        change_logunits=['y','yhat','yhat0','logp']
+
+        # List of units in levels that need to be changed with change of numeraire; prices must be last
+        change_units=['expenditures','price']
+
+        if numeraire is None:
+            if self.numeraire is not None:
+                numeraire = self.numeraire
+            else:
+                raise ValueError('Must supply numeraire')
+        else:
+            try: # Levels
+                pidx = self.prices['numeraire'].copy()
+                self.expenditures = broadcast_binary_op(self.expenditures, lambda foo,bar: foo/bar, pidx)
+                self.prices = broadcast_binary_op(self.prices, lambda foo,bar: foo/bar, pidx)
+            except (AttributeError,TypeError):
+                pass
+
+            try:
+                pidx = self.logp[numeraire].copy()
+                self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, pidx)
+                self.logp=self.logp.sub(pidx,axis=0)
+                self.yhat = broadcast_binary_op(self.yhat, lambda foo,bar: foo-bar, pidx)
+                self.yhat0 = broadcast_binary_op(self.yhat0, lambda foo,bar: foo-bar, pidx)
+            except (AttributeError,TypeError):
+                pass
+
+            # FIXME: Issue here with dividing by a random variable.  What
+            # properties do we want estimator of barloglambda_t to have?
+            try: 
+                self.barloglambda_t = -self.a.loc[numeraire]/self.beta[numeraire]
+                self.a = self.a - pd.DataFrame(np.outer(self.beta,self.barloglambda_t),index=self.beta.index,columns=self.barloglambda_t.index)
+                self.loglambdas = broadcast_binary_op(self.loglambdas, lambda x,y: x+y,self.barloglambda_t) # Add term associated with numeraire good
+            except (AttributeError,TypeError):
+                pass
+#+END_SRC
+
+Further, it's useful to have a way to save a =Result= instance to a
+file.  
+
+#+name: result_to_file
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
+    def to_dataset(self,fn):
+        """Convert Result instance to xarray.Dataset."""
+        V = vars(self)
+        D = xr.Dataset({d:V[d] for d in V if (type(V[d]) in (pd.DataFrame,pd.Series))})
+        # Can't serialize multiindices
+        D.reset_index('dim_0',inplace=True)
+
+        D.to_netcdf(fn)
+#+END_SRC
+
+
 * Utility Functions
 
 #+name: df_utils
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
-  import numpy as np
-  from scipy import sparse
+import numpy as np
+from scipy import sparse
+import pandas as pd
+
+def df_norm(a,b=None,ignore_nan=True,ord=None):
+    """
+    Provides a norm for numeric pd.DataFrames, which may have missing data.
+
+    If a single pd.DataFrame is provided, then any missing values are replaced with zeros, 
+    the norm of the resulting matrix is returned.
+
+    If an optional second dataframe is provided, then missing values are similarly replaced, 
+    and the norm of the difference is replaced.
+
+    Other optional arguments:
+
+     - ignore_nan :: If False, missing values are *not* replaced.
+     - ord :: Order of the matrix norm; see documentation for numpy.linalg.norm.  
+              Default is the Froebenius norm.
+    """
+    a=a.copy()
+    if not b is None:
+      b=b.copy()
+    else:
+      b=pd.DataFrame(np.zeros(a.shape),columns=a.columns,index=a.index)
+
+    if ignore_nan:
+        missing=(a.isnull()+0.).replace([1],[np.NaN]) +  (b.isnull()+0.).replace([1],[np.NaN]) 
+        a=a+missing
+        b=b+missing
+    return np.linalg.norm(a.fillna(0).as_matrix() - b.fillna(0).as_matrix())
+
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
+    """
+    Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
+    Note that headers for code block should include ":results table raw".
+
+    Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied, 
+    confidence intervals will be printed in brackets below the point estimate.
+
+    If conf_ints is /not/ supplied but sedf is, then standard errors will be 
+    in parentheses below the point estimate.
+
+    If tdf is False and sedf is supplied then stars will decorate significant point estimates.
+    If tdf is a df of t-statistics stars will decorate significant point estimates.
+    """
+    if len(df.shape)==1: # We have a series?
+       df=pd.DataFrame(df)
+
+    if (tdf is None) and (sedf is None) and (conf_ints is None):
+        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        for i in df.index:
+            s+='| %s  ' % i
+            for j in df.columns: # Point estimates
+                try:
+                    entry='| \('+float_fmt+'\)  '
+                    if np.isnan(df[j][i]):
+                        s+='| --- '
+                    else:
+                        s+=entry % df[j][i]
+                except TypeError:
+                    s += '| %s ' % str(df[j][i])
+            s+='|\n'
+        return s
+    elif not (tdf is None) and (sedf is None) and (conf_ints is None):
+        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'\t|\n|-\n'
+        for i in df.index:
+            s+='| %s  ' % i
+            for j in df.columns:
+                try:
+                    stars=(np.abs(tdf[j][i])>1.65) + 0.
+                    stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                    stars+=(np.abs(tdf[j][i])>2.577) + 0.
+                    stars = int(stars)
+                    if stars>0:
+                        stars='^{'+'*'*stars + '}'
+                    else: stars=''
+                except KeyError: stars=''
+                entry='| \('+float_fmt+stars+'\) '
+                if np.isnan(df[j][i]):
+                    s+='| --- '
+                else:
+                    s+=entry % df[j][i]
+            s+='|\n'
+
+        return s
+    elif not (sedf is None) and (conf_ints is None): # Print standard errors on alternate rows
+        if tdf is not False:
+            try: # Passed in dataframe?
+                tdf.shape
+            except AttributeError:  
+                tdf=df[sedf.columns]/sedf
+        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        for i in df.index:
+            s+='| %s  ' % i
+            for j in df.columns: # Point estimates
+                if tdf is not False:
+                    try:
+                        stars=(np.abs(tdf[j][i])>1.65) + 0.
+                        stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                        stars+=(np.abs(tdf[j][i])>2.577) + 0.
+                        stars = int(stars)
+                        if stars>0:
+                            stars='^{'+'*'*stars + '}'
+                        else: stars=''
+                    except KeyError: stars=''
+                else: stars=''
+                entry='| \('+float_fmt+stars+'\)  '
+                if np.isnan(df[j][i]):
+                    s+='| --- '
+                else:
+                    s+=entry % df[j][i]
+            s+='|\n|'
+            for j in df.columns: # Now standard errors
+                s+='  '
+                try:
+                    if np.isnan(df[j][i]): # Pt estimate miss
+                        se=''
+                    elif np.isnan(sedf[j][i]):
+                        se='(---)'
+                    else:
+                        se='\((' + float_fmt % sedf[j][i] + ')\)' 
+                except KeyError: se=''
+                entry='| '+se+'  '
+                s+=entry 
+            s+='|\n'
+        return s
+    elif not (conf_ints is None): # Print confidence intervals on alternate rows
+        if tdf is not False and sedf is not None:
+            try: # Passed in dataframe?
+                tdf.shape
+            except AttributeError:  
+                tdf=df[sedf.columns]/sedf
+        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        for i in df.index:
+            s+='| %s  ' % i
+            for j in df.columns: # Point estimates
+                if tdf is not False and tdf is not None:
+                    try:
+                        stars=(np.abs(tdf[j][i])>1.65) + 0.
+                        stars+=(np.abs(tdf[j][i])>1.96) + 0.
+                        stars+=(np.abs(tdf[j][i])>2.577) + 0.
+                        stars = int(stars)
+                        if stars>0:
+                            stars='^{'+'*'*stars + '}'
+                        else: stars=''
+                    except KeyError: stars=''
+                else: stars=''
+                entry='| \('+float_fmt+stars+'\) '
+                if np.isnan(df[j][i]):
+                    s+='| --- '
+                else:
+                    s+=entry % df[j][i]
+            s+='|\n|'
+            for j in df.columns: # Now confidence intervals
+                s+='  '
+                try:
+                    ci='\([' + float_fmt +','+ float_fmt + ']\)'
+                    ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
+                except KeyError: ci=''
+                entry='| '+ci+'  '
+                s+=entry 
+            s+='|\n'
+        return s
+
+def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None):
+  """
+  Returns a pandas dataframe.
+  Requires the use of the header `:colnames no` for preservation of original column names.
+  `table` is an org table which is just a list of lists in python.
+  `col_name_size` is the number of rows that make up the column names.
+  `format_string` is a format string to make the desired column names.
+  `index` is a column label or a list of column labels to be set as the index of the dataframe.
+  """
   import pandas as pd
 
-  def df_norm(a,b=None,ignore_nan=True,ord=None):
-      """
-      Provides a norm for numeric pd.DataFrames, which may have missing data.
+  if col_name_size==0:
+    return pd.DataFrame(table)
 
-      If a single pd.DataFrame is provided, then any missing values are replaced with zeros, 
-      the norm of the resulting matrix is returned.
+  colnames = table[:col_name_size]
 
-      If an optional second dataframe is provided, then missing values are similarly replaced, 
-      and the norm of the difference is replaced.
-
-      Other optional arguments:
-
-       - ignore_nan :: If False, missing values are *not* replaced.
-       - ord :: Order of the matrix norm; see documentation for numpy.linalg.norm.  
-                Default is the Froebenius norm.
-      """
-      a=a.copy()
-      if not b is None:
-        b=b.copy()
-      else:
-        b=pd.DataFrame(np.zeros(a.shape),columns=a.columns,index=a.index)
-
-      if ignore_nan:
-          missing=(a.isnull()+0.).replace([1],[np.NaN]) +  (b.isnull()+0.).replace([1],[np.NaN]) 
-          a=a+missing
-          b=b+missing
-      return np.linalg.norm(a.fillna(0).as_matrix() - b.fillna(0).as_matrix())
-
-  def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
-      """
-      Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
-      Note that headers for code block should include ":results table raw".
-
-      Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied, 
-      confidence intervals will be printed in brackets below the point estimate.
-
-      If conf_ints is /not/ supplied but sedf is, then standard errors will be 
-      in parentheses below the point estimate.
-
-      If tdf is False and sedf is supplied then stars will decorate significant point estimates.
-      If tdf is a df of t-statistics stars will decorate significant point estimates.
-      """
-      if len(df.shape)==1: # We have a series?
-         df=pd.DataFrame(df)
-
-      if (tdf is None) and (sedf is None) and (conf_ints is None):
-          s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
-          for i in df.index:
-              s+='| %s  ' % i
-              for j in df.columns: # Point estimates
-                  try:
-                      entry='| \('+float_fmt+'\)  '
-                      if np.isnan(df[j][i]):
-                          s+='| --- '
-                      else:
-                          s+=entry % df[j][i]
-                  except TypeError:
-                      s += '| %s ' % str(df[j][i])
-              s+='|\n'
-          return s
-      elif not (tdf is None) and (sedf is None) and (conf_ints is None):
-          s = '|  |'+'|   '.join([str(s) for s in df.columns])+'\t|\n|-\n'
-          for i in df.index:
-              s+='| %s  ' % i
-              for j in df.columns:
-                  try:
-                      stars=(np.abs(tdf[j][i])>1.65) + 0.
-                      stars+=(np.abs(tdf[j][i])>1.96) + 0.
-                      stars+=(np.abs(tdf[j][i])>2.577) + 0.
-                      stars = int(stars)
-                      if stars>0:
-                          stars='^{'+'*'*stars + '}'
-                      else: stars=''
-                  except KeyError: stars=''
-                  entry='| \('+float_fmt+stars+'\) '
-                  if np.isnan(df[j][i]):
-                      s+='| --- '
-                  else:
-                      s+=entry % df[j][i]
-              s+='|\n'
-
-          return s
-      elif not (sedf is None) and (conf_ints is None): # Print standard errors on alternate rows
-          if tdf is not False:
-              try: # Passed in dataframe?
-                  tdf.shape
-              except AttributeError:  
-                  tdf=df[sedf.columns]/sedf
-          s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
-          for i in df.index:
-              s+='| %s  ' % i
-              for j in df.columns: # Point estimates
-                  if tdf is not False:
-                      try:
-                          stars=(np.abs(tdf[j][i])>1.65) + 0.
-                          stars+=(np.abs(tdf[j][i])>1.96) + 0.
-                          stars+=(np.abs(tdf[j][i])>2.577) + 0.
-                          stars = int(stars)
-                          if stars>0:
-                              stars='^{'+'*'*stars + '}'
-                          else: stars=''
-                      except KeyError: stars=''
-                  else: stars=''
-                  entry='| \('+float_fmt+stars+'\)  '
-                  if np.isnan(df[j][i]):
-                      s+='| --- '
-                  else:
-                      s+=entry % df[j][i]
-              s+='|\n|'
-              for j in df.columns: # Now standard errors
-                  s+='  '
-                  try:
-                      if np.isnan(df[j][i]): # Pt estimate miss
-                          se=''
-                      elif np.isnan(sedf[j][i]):
-                          se='(---)'
-                      else:
-                          se='\((' + float_fmt % sedf[j][i] + ')\)' 
-                  except KeyError: se=''
-                  entry='| '+se+'  '
-                  s+=entry 
-              s+='|\n'
-          return s
-      elif not (conf_ints is None): # Print confidence intervals on alternate rows
-          if tdf is not False and sedf is not None:
-              try: # Passed in dataframe?
-                  tdf.shape
-              except AttributeError:  
-                  tdf=df[sedf.columns]/sedf
-          s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
-          for i in df.index:
-              s+='| %s  ' % i
-              for j in df.columns: # Point estimates
-                  if tdf is not False and tdf is not None:
-                      try:
-                          stars=(np.abs(tdf[j][i])>1.65) + 0.
-                          stars+=(np.abs(tdf[j][i])>1.96) + 0.
-                          stars+=(np.abs(tdf[j][i])>2.577) + 0.
-                          stars = int(stars)
-                          if stars>0:
-                              stars='^{'+'*'*stars + '}'
-                          else: stars=''
-                      except KeyError: stars=''
-                  else: stars=''
-                  entry='| \('+float_fmt+stars+'\) '
-                  if np.isnan(df[j][i]):
-                      s+='| --- '
-                  else:
-                      s+=entry % df[j][i]
-              s+='|\n|'
-              for j in df.columns: # Now confidence intervals
-                  s+='  '
-                  try:
-                      ci='\([' + float_fmt +','+ float_fmt + ']\)'
-                      ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
-                  except KeyError: ci=''
-                  entry='| '+ci+'  '
-                  s+=entry 
-              s+='|\n'
-          return s
-
-  def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None):
-    """
-    Returns a pandas dataframe.
-    Requires the use of the header `:colnames no` for preservation of original column names.
-    `table` is an org table which is just a list of lists in python.
-    `col_name_size` is the number of rows that make up the column names.
-    `format_string` is a format string to make the desired column names.
-    `index` is a column label or a list of column labels to be set as the index of the dataframe.
-    """
-    import pandas as pd
-
-    if col_name_size==0:
-      return pd.DataFrame(table)
-
-    colnames = table[:col_name_size]
-
-    if col_name_size==1:
-      if format_string:
-        new_colnames = [format_string % x for x in colnames[0]]
-      else:
-        new_colnames = colnames[0]
+  if col_name_size==1:
+    if format_string:
+      new_colnames = [format_string % x for x in colnames[0]]
     else:
-      new_colnames = []
-      for colnum in range(len(colnames[0])):
-        curr_tuple = tuple([x[colnum] for x in colnames])
-        if format_string:
-          new_colnames.append(format_string % curr_tuple)
-        else:
-          new_colnames.append(str(curr_tuple))
+      new_colnames = colnames[0]
+  else:
+    new_colnames = []
+    for colnum in range(len(colnames[0])):
+      curr_tuple = tuple([x[colnum] for x in colnames])
+      if format_string:
+        new_colnames.append(format_string % curr_tuple)
+      else:
+        new_colnames.append(str(curr_tuple))
 
-    df = pd.DataFrame(table[col_name_size:], columns=new_colnames)
+  df = pd.DataFrame(table[col_name_size:], columns=new_colnames)
 
-    if index:
-      df.set_index(index, inplace=True)
+  if index:
+    df.set_index(index, inplace=True)
+
+  return df
+
+def balance_panel(df):
+    """Drop households that aren't observed in all rounds."""
+    pnl=df.to_panel()
+    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
+    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
+    df.index.names=pd.core.base.FrozenList(['Year','HH'])
 
     return df
 
-  def balance_panel(df):
-      """Drop households that aren't observed in all rounds."""
-      pnl=df.to_panel()
-      keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
-      df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
-      df.index.names=pd.core.base.FrozenList(['Year','HH'])
+def drop_missing(X):
+    """
+    Return tuple of pd.DataFrames in X with any 
+    missing observations dropped.  Assumes common index.
+    """
 
-      return df
+    foo=pd.concat(X,axis=1).dropna(how='any')
+    assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
 
-  def drop_missing(X):
-      """
-      Return tuple of pd.DataFrames in X with any 
-      missing observations dropped.  Assumes common index.
-      """
+    Y=[]
+    for x in X:
+        Y.append(foo.loc[:,pd.DataFrame(x).columns]) 
 
-      foo=pd.concat(X,axis=1).dropna(how='any')
-      assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
+    return tuple(Y)
 
-      Y=[]
-      for x in X:
-          Y.append(foo.loc[:,pd.DataFrame(x).columns]) 
-
-      return tuple(Y)
-
-  def use_indices(df,idxnames):
-      return df.reset_index()[idxnames].set_index(df.index)
-
+def use_indices(df,idxnames):
+    return df.reset_index()[idxnames].set_index(df.index)
 #+END_SRC
 
 #+name: test_df_to_orgtbl_tbl
@@ -1962,116 +2223,116 @@ print(s)
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
 
-  def arellano_robust_cov(X,u,clusterby=['t','mkt']):
-      X,u = drop_missing([X,u])
-      clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
-      if  len(clusters)>1:
-          # Take out time averages
-          u = u - u.groupby(level=clusterby).transform(np.mean)
-          X = X - X.groupby(level=clusterby).transform(np.mean)
-          #u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
-          #X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
-          Xu=X.mul(u.squeeze(),axis=0)
-          if len(X.shape)==1:
-              XXinv=np.array([1./(X.T.dot(X))])
-          else:
-              XXinv=np.linalg.inv(X.T.dot(X))
-          Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
-      else:
-          u=(u-u.mean()).squeeze()
-          X=X-X.mean()
+def arellano_robust_cov(X,u,clusterby=['t','mkt']):
+    X,u = drop_missing([X,u])
+    clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
+    if  len(clusters)>1:
+        # Take out time averages
+        u = u - u.groupby(level=clusterby).transform(np.mean)
+        X = X - X.groupby(level=clusterby).transform(np.mean)
+        #u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
+        #X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
+        Xu=X.mul(u.squeeze(),axis=0)
+        if len(X.shape)==1:
+            XXinv=np.array([1./(X.T.dot(X))])
+        else:
+            XXinv=np.linalg.inv(X.T.dot(X))
+        Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+    else:
+        u=(u-u.mean()).squeeze()
+        X=X-X.mean()
 
-          Xu=X.mul(u,axis=0)
-          if len(X.shape)==1:
-              XXinv=np.array([1./(X.T.dot(X))])
-          else:
-              XXinv=np.linalg.inv(X.T.dot(X))
-          Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+        Xu=X.mul(u,axis=0)
+        if len(X.shape)==1:
+            XXinv=np.array([1./(X.T.dot(X))])
+        else:
+            XXinv=np.linalg.inv(X.T.dot(X))
+        Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
 
-      try:
-          return pd.DataFrame(Vhat,index=X.columns,columns=X.columns)
-      except AttributeError:
-          return Vhat
+    try:
+        return pd.DataFrame(Vhat,index=X.columns,columns=X.columns)
+    except AttributeError:
+        return Vhat
 
 
-  def ols(x,y,return_se=True,return_v=False,return_e=False):
+def ols(x,y,return_se=True,return_v=False,return_e=False):
 
-      x=pd.DataFrame(x) # Deal with possibility that x & y are series.
-      y=pd.DataFrame(y)
-      # Drop any observations that have missing data in *either* x or y.
-      x,y = drop_missing([x,y]) 
+    x=pd.DataFrame(x) # Deal with possibility that x & y are series.
+    y=pd.DataFrame(y)
+    # Drop any observations that have missing data in *either* x or y.
+    x,y = drop_missing([x,y]) 
 
-      N,n=y.shape
-      k=x.shape[1]
+    N,n=y.shape
+    k=x.shape[1]
 
-      b=np.linalg.lstsq(x,y)[0]
+    b=np.linalg.lstsq(x,y)[0]
 
-      b=pd.DataFrame(b,index=x.columns,columns=y.columns)
+    b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
-      out=[b.T]
-      if return_se or return_v or return_e:
+    out=[b.T]
+    if return_se or return_v or return_e:
 
-          u=y-x.dot(b)
+        u=y-x.dot(b)
 
-          # Use SUR structure if multiple equations; otherwise OLS.
-          # Only using diagonal of this, for reasons related to memory.  
-          S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
+        # Use SUR structure if multiple equations; otherwise OLS.
+        # Only using diagonal of this, for reasons related to memory.  
+        S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
 
-          if return_se or return_v:
+        if return_se or return_v:
 
-              # This will be a very large matrix!  Use sparse types
-              V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).as_matrix().view(type=np.matrix).I).T
-              V=V.dot(S).dot(V.T)
+            # This will be a very large matrix!  Use sparse types
+            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).as_matrix().view(type=np.matrix).I).T
+            V=V.dot(S).dot(V.T)
 
-          if return_se:
-              se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
-              se=pd.DataFrame(se,index=x.columns,columns=y.columns)
+        if return_se:
+            se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
+            se=pd.DataFrame(se,index=x.columns,columns=y.columns)
 
-              out.append(se)
-          if return_v:
-              # Extract blocks along diagonal; return an Nxkxn array
-              V={y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=x.columns,columns=x.columns) for i in range(n)} 
-              out.append(V)
-          if return_e:
-              out.append(u)
-      return tuple(out)
+            out.append(se)
+        if return_v:
+            # Extract blocks along diagonal; return an Nxkxn array
+            V={y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=x.columns,columns=x.columns) for i in range(n)} 
+            out.append(V)
+        if return_e:
+            out.append(u)
+    return tuple(out)
 #+END_SRC
 
 ** Utility functions for dealing with some awkward multiindex issues
 
 #+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
-  def merge_multi(df1, df2, on):
-      """Merge on subset of multiindex.
-     
-      Idea due to http://stackoverflow.com/questions/23937433/efficiently-joining-two-dataframes-based-on-multiple-levels-of-a-multiindex
-      """
-      return df1.reset_index().join(df2,on=on).set_index(df1.index.names)
+def merge_multi(df1, df2, on):
+    """Merge on subset of multiindex.
+   
+    Idea due to http://stackoverflow.com/questions/23937433/efficiently-joining-two-dataframes-based-on-multiple-levels-of-a-multiindex
+    """
+    return df1.reset_index().join(df2,on=on).set_index(df1.index.names)
 
-  def broadcast_binary_op(x, op, y):
-      """Perform x op y, allowing for broadcasting over a multiindex.
+def broadcast_binary_op(x, op, y):
+    """Perform x op y, allowing for broadcasting over a multiindex.
 
-      Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
-      """
-      x = pd.DataFrame(x.copy())
-      y = pd.DataFrame(y.copy())
-      xix= x.index.copy()
-  
-      if y.shape[1]==1: # If y a series, expand to match x.
-          y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
+    Example usage: broadcast_binary_op(x,lambda x,y: x*y ,y)
+    """
+    x = pd.DataFrame(x.copy())
+    y = pd.DataFrame(y.copy())
+    xix= x.index.copy()
 
-      cols = list(x.columns)
-      xindex = list(x.index.names)
-      yindex = list(y.index.names)
+    if y.shape[1]==1: # If y a series, expand to match x.
+        y=pd.DataFrame([y.iloc[:,0]]*x.shape[1],index=x.columns).T
 
-      dif = list(set(xindex)-set(yindex))
+    cols = list(x.columns)
+    xindex = list(x.index.names)
+    yindex = list(y.index.names)
 
-      z = pd.DataFrame(index=xix)
-      z = merge_multi(z,y,on=yindex)
+    dif = list(set(xindex)-set(yindex))
 
-      newdf = op(x[cols],z[cols])
+    z = pd.DataFrame(index=xix)
+    z = merge_multi(z,y,on=yindex)
 
-      return newdf
+    newdf = op(x[cols],z[cols])
+
+    return newdf
 #+END_SRC
 
 #+name: test_broadcast_binary_op
@@ -2169,24 +2430,23 @@ j       t      mkt
 
 #+name: test_broadcast_binary_op2
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/broadcast_binary_op2.py
-  import pandas as pd
-  from numpy import array, nan
+import pandas as pd
+from numpy import array, nan
 
-  <<broadcast_binary_op>>
+<<broadcast_binary_op>>
 
-  idx=pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(0,1,0),(0,1,1),
-                                 (1,0,0),(1,0,1),(1,1,0),(1,1,1)],names=('a','b','c'))
+idx=pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(0,1,0),(0,1,1),
+                               (1,0,0),(1,0,1),(1,1,0),(1,1,1)],names=('a','b','c'))
 
-  foo = pd.DataFrame({'x':range(8)},index=idx)
+foo = pd.DataFrame({'x':range(8)},index=idx)
 
-  idx=pd.MultiIndex.from_tuples([(0,0),(0,1),(1,0),(1,1)],names=('b','c'))
+idx=pd.MultiIndex.from_tuples([(0,0),(0,1),(1,0),(1,1)],names=('b','c'))
 
-  bar = pd.DataFrame({'y':range(4)},index=idx)
+bar = pd.DataFrame({'y':range(4)},index=idx)
 
-  baz = broadcast_binary_op(foo,lambda x,y:x+y,bar)
+baz = broadcast_binary_op(foo,lambda x,y:x+y,bar)
 
-  assert baz.iloc[3,0]==6
-
+assert baz.iloc[3,0]==6
 #+END_SRC
 
 #+results: test_broadcast_binary_op2
