@@ -1,4 +1,4 @@
-.PHONY: tangle wheel upload localinstall clean test
+.PHONY: tangle wheel upload localinstall devinstall clean test
 
 tangle: Empirics/cfe_estimation.org
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
@@ -19,6 +19,9 @@ cfe/requirements.txt:
 
 localinstall: clean wheel
 	(cd dist; pip install CFEDemands*.whl --upgrade)
+
+devinstall: tangle test
+	pip install -e .
 
 upload: wheel
 	twine upload dist/*
