@@ -1900,6 +1900,19 @@ class Result:
 
         return self.yhat
 
+    def get_logalpha(self):
+        """Return log of alpha parameters.  These are determined by the first
+        round of data on expenditures.
+        """
+        if self.logalpha is not None:
+            return self.logalpha
+        elif numeraire is not None and np.any(self.logp[numeraire] neq 0):
+            self.set_numeraire(numeraire=numeraire)
+
+        self.logalpha = self.a[self.firstround].T.mean()
+
+        return self.logalpha
+
     def set_numeraire(self,numeraire=None):
         """Set the numeraire, and adjust units for all relevant prices & expenditures.
         """
@@ -1939,6 +1952,8 @@ class Result:
                 self.loglambdas = broadcast_binary_op(self.loglambdas, lambda x,y: x+y,self.barloglambda_t) # Add term associated with numeraire good
             except (AttributeError,TypeError):
                 pass
+
+    
 #+END_SRC
 
 ** Persistent =Results=
@@ -1957,12 +1972,16 @@ file, using the =xarray= package.
 
         D.to_netcdf(fn)
 
+        return D
+
 def from_dataset(fn):
     """
     Read persistent netcdf (xarray.Dataset) file to Result.
     """
  
     D = xr.open_dataset(fn)
+
+    return D
 #+END_SRC
 
 
