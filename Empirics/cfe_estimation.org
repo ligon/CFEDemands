@@ -544,7 +544,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   """
   try: # Be a little forgiving if t or mkt index is missing.
       assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      assert y.column.name == 'i', "Name of column index should be i?"
+      assert y.columns.name == 'i', "Name of column index should be i?"
   except AssertionError:
       y = y.reset_index()
       if not 'mkt' in y.columns: y['mkt']=1
@@ -554,7 +554,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   try:
       assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      assert z.column.name == 'l', "Name of column index should be l?"
+      assert z.columns.name == 'l', "Name of column index should be l?"
   except AssertionError:
       z = z.reset_index()
       if not 'mkt' in z.columns: z['mkt']=1
@@ -1736,224 +1736,231 @@ package data and results described elsewhere in this document.
 
 #+name: result_class
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-import numpy as np
-import pandas as pd
-from . import estimation 
-from .df_utils import broadcast_binary_op
-import xarray as xr
+  import numpy as np
+  import pandas as pd
+  from . import estimation 
+  from .df_utils import broadcast_binary_op
+  import xarray as xr
 
-class Result:
+  class Result:
 
-    def __init__(self, logalpha=None, beta=None, delta=None,
-                 prices=None,characteristics=None,loglambdas=None,
-                 expenditures = None, numeraire=None):
-        self.logalpha = logalpha
-        self.beta = beta
-        self.delta = delta
-        self.prices = prices
-        self.characteristics = characteristics
-        self.loglambdas = loglambdas
-        self.expenditures = expenditures
-        self.numeraire = numeraire
+      def __init__(self, logalpha=None, beta=None, delta=None,
+                   prices=None,characteristics=None,loglambdas=None,
+                   expenditures = None, numeraire=None):
+          self.logalpha = logalpha
+          self.beta = beta
+          self.delta = delta
+          self.prices = prices
+          self.characteristics = characteristics
 
-        self.y = None
-        self.yhat = None
-        self.yhat0 = None
-        self.ce = None
-        self.cehat = None
+          self.loglambdas = loglambdas
+          self.expenditures = expenditures
+          self.numeraire = numeraire
 
-        if characteristics is not None:
-            self.N = characteristics.groupby('j').count().shape[0]
-            self.T = characteristics.groupby('t').count().shape[0]
-            self.M = characteristics.groupby('mkt').count().shape[0]
-            self.L = characteristics.groupby(['t','mkt'])
-        elif loglambdas is not None:
-            self.N = loglambdas.groupby('j').count().shape[0]
-            self.T = loglambdas.groupby('t').count().shape[0]
-            self.M = loglambdas.groupby('mkt').count().shape[0]
-            self.L = loglambdas.groupby(['t','mkt']).count().shape[0]
+          self.y = None
+          self.yhat = None
+          self.yhat0 = None
+          self.ce = None
+          self.cehat = None
 
-        if characteristics is None and expenditures is not None:
-            self.characteristics = pd.DataFrame(index=expenditures.index)
+          self.a = None
 
-        if expenditures is not None:
-            self.y = np.log(self.expenditures)
+          if characteristics is not None:
+              self.N = characteristics.groupby('j').count().shape[0]
+              self.T = characteristics.groupby('t').count().shape[0]
+              self.M = characteristics.groupby('mkt').count().shape[0]
+              self.L = characteristics.groupby(['t','mkt']).count().shape[0]
+          elif loglambdas is not None:
+              self.N = loglambdas.groupby('j').count().shape[0]
+              self.T = loglambdas.groupby('t').count().shape[0]
+              self.M = loglambdas.groupby('mkt').count().shape[0]
+              self.L = loglambdas.groupby(['t','mkt']).count().shape[0]
 
-        self.z = self.characteristics
+          if characteristics is None and expenditures is not None:
+              self.characteristics = pd.DataFrame(index=expenditures.index)
+
+          if expenditures is not None:
+              self.y = np.log(self.expenditures)
+
+          self.z = self.characteristics
 
 
 
-        if beta is not None:
-            self.n = len(beta)
+          if beta is not None:
+              self.n = len(beta)
 
-        if (beta and logalpha) is not None:
-            assert(len(logalpha)==len(beta))
+          if (beta and logalpha) is not None:
+              assert(len(logalpha)==len(beta))
 
-        if expenditures is not None:
-            self.firstround=expenditures.reset_index().iloc[0]['t']
+          if expenditures is not None:
+              self.firstround=expenditures.reset_index().iloc[0]['t']
 
-        if numeraire is not None and len(numeraire)>0:
-            self.y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
-            if prices is not None:
-                self.logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
-                self.prices = np.exp(self.logp)
+          if numeraire is not None and len(numeraire)>0:
+              self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+              if prices is not None:
+                  self.logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+                  self.prices = np.exp(self.logp)
 
-    def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
-        y = self.y
-        use_goods=y.columns.tolist()
+      def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
+          y = self.y
+          use_goods=y.columns.tolist()
 
-        # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-        using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
-        y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
-        y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-        # Only keep goods with observations in each (t,mkt)
-        y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+          # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+          using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
+          y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+          y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+          # Only keep goods with observations in each (t,mkt)
+          y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
 
-        return y
+          return y
 
-    def estimate_reduced_form(self,VERBOSE=False):
-        y = self.drop_useless_expenditures()
-        z = self.z
+      def estimate_reduced_form(self,VERBOSE=False):
+          y = self.drop_useless_expenditures()
+          z = self.z
 
-        a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
-        ce.dropna(how='all',inplace=True)
+          a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+          ce.dropna(how='all',inplace=True)
 
-        self.a = a
-        self.delta = d
-        self.ce = ce
-        self.se = se
-        self.d_covariance = V
+          self.a = a
+          self.delta = d
+          self.ce = ce
+          self.se = se
+          self.d_covariance = V
 
-    def get_loglambdas(self,min_obs=30):
-        if self.loglambdas is None:
-            if self.ce is None:
-                self.estimate_reduced_form()
+      def get_loglambdas(self,min_obs=30):
+          if self.loglambdas is None:
+              if self.ce is None:
+                  self.estimate_reduced_form()
 
-            bphi,logL = estimation.get_loglambdas(self.ce,TEST=False,min_obs=min_obs)
+              bphi,logL = estimation.get_loglambdas(self.ce,TEST=False,min_obs=min_obs)
 
-            assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
-                "Problem with normalization of loglambdas"
+              assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+                  "Problem with normalization of loglambdas"
 
-            cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-            cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+              cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+              cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
 
-            self.cehat = cehat
-            self.loglambdas = logL
-            self.beta = bphi
+              self.cehat = cehat
+              self.loglambdas = logL
+              self.beta = bphi
 
-        return self.loglambdas
+          return self.loglambdas
 
-    def get_beta(self,min_obs=30):
-        if self.beta is None:
-            self.get_loglambdas(min_obs=min_obs)
+      def get_beta(self,min_obs=30):
+          if self.beta is None:
+              self.get_loglambdas(min_obs=min_obs)
 
-        return self.beta
+          return self.beta
 
-    def get_cehat(self,min_obs=30):
-        if self.beta is None:
-            self.get_loglambdas(min_obs=min_obs)
+      def get_cehat(self,min_obs=30):
+          if self.beta is None:
+              self.get_loglambdas(min_obs=min_obs)
 
-        return self.cehat
+          return self.cehat
 
-    def anova(self,min_proportion_items=1./8,min_xproducts=30):
-        """Table analyzing variance of expenditures.
+      def anova(self,min_proportion_items=1./8,min_xproducts=30):
+          """Table analyzing variance of expenditures.
 
-        Optional arguments =min_proportion_items= and =min_xproducts=
-        control what expenditures are dropped, without affecting =self.y=.
-        """
+          Optional arguments =min_proportion_items= and =min_xproducts=
+          control what expenditures are dropped, without affecting =self.y=.
+          """
 
-        try:
-            if (self.a is None) or (self.delta is None) or (self.ce is None):
-                self.estimate_reduced_form(min_proportion_items=min_proportion_items,
-                                      min_xproducts=min_xproducts)
-        except AttributeError: # self.a isn't defined, or similar
-            self.estimate_reduced_form(min_proportion_items=min_proportion_items,
-                                  min_xproducts=min_xproducts)
+          try:
+              if (self.a is None) or (self.delta is None) or (self.ce is None):
+                  self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+                                        min_xproducts=min_xproducts)
+          except AttributeError: # self.a isn't defined, or similar
+              self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+                                    min_xproducts=min_xproducts)
 
-        miss2nan = self.ce*0
+          miss2nan = self.ce*0
 
-        cehat = self.get_cehat()
+          cehat = self.get_cehat()
 
-        y = self.drop_useless_expenditures(min_proportion_items=min_proportion_items,
-                                      min_xproducts=min_xproducts)
+          y = self.drop_useless_expenditures(min_proportion_items=min_proportion_items,
+                                        min_xproducts=min_xproducts)
 
-        df = pd.DataFrame({'Prices':self.a.T.var(ddof=0),
-                          'Characteristics':self.z.dot(self.delta.T).var(ddof=0),
-                          '$\log\lambda$':(self.cehat + miss2nan).var(ddof=0),
-                          'Residual':(self.ce-self.cehat).var(ddof=0)})
+          df = pd.DataFrame({'Prices':self.a.T.var(ddof=0),
+                            'Characteristics':self.z.dot(self.delta.T).var(ddof=0),
+                            '$\log\lambda$':(self.cehat + miss2nan).var(ddof=0),
+                            'Residual':(self.ce-self.cehat).var(ddof=0)})
 
-        df = df.div(y.var(ddof=0),axis=0)
-        df['Total var'] = y.var(ddof=0)
+          df = df.div(y.var(ddof=0),axis=0)
+          df['Total var'] = y.var(ddof=0)
 
-        df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+          df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
-        return df
+          return df
 
-    def get_predicted_log_expenditures(self):
-        cehat = self.get_cehat()
-        self.yhat = broadcast_binary_op(cehat + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+      def get_predicted_log_expenditures(self):
+          cehat = self.get_cehat()
+          self.yhat = broadcast_binary_op(cehat + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
 
-        self.yhat0 = broadcast_binary_op(self.ce + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+          self.yhat0 = broadcast_binary_op(self.ce + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
 
-        self.e = self.y.sub(self.yhat)
-        self.e0 = self.y.sub(self.yhat0)
+          self.e = self.y.sub(self.yhat)
+          self.e0 = self.y.sub(self.yhat0)
 
-        return self.yhat
+          return self.yhat
 
-    def get_logalpha(self):
-        """Return log of alpha parameters.  These are determined by the first
-        round of data on expenditures.
-        """
-        if self.logalpha is not None:
-            return self.logalpha
-        elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
-            self.set_numeraire(numeraire=numeraire)
+      def get_logalpha(self):
+          """Return log of alpha parameters.  These are determined by the first
+          round of data on expenditures.
+          """
+          numeraire = self.numeraire
+          if self.logalpha is not None:
+              return self.logalpha
+          elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
+              self.set_numeraire(numeraire=numeraire)
 
-        self.logalpha = self.a[self.firstround].T.mean()
+          if self.a is None:
+              self.estimate_reduced_form()
+            
+          self.logalpha = self.a[self.firstround].T.mean()
 
-        return self.logalpha
+          return self.logalpha
 
-    def set_numeraire(self,numeraire=None):
-        """Set the numeraire, and adjust units for all relevant prices & expenditures.
-        """
-        # List of units (in logs) that need to be changed with change of numeraire; logp must be last
-        change_logunits=['y','yhat','yhat0','logp']
+      def set_numeraire(self,numeraire=None):
+          """Set the numeraire, and adjust units for all relevant prices & expenditures.
+          """
+          # List of units (in logs) that need to be changed with change of numeraire; logp must be last
+          change_logunits=['y','yhat','yhat0','logp']
 
-        # List of units in levels that need to be changed with change of numeraire; prices must be last
-        change_units=['expenditures','price']
+          # List of units in levels that need to be changed with change of numeraire; prices must be last
+          change_units=['expenditures','price']
 
-        if numeraire is None:
-            if self.numeraire is not None:
-                numeraire = self.numeraire
-            else:
-                raise ValueError('Must supply numeraire')
-        else:
-            try: # Levels
-                pidx = self.prices['numeraire'].copy()
-                self.expenditures = broadcast_binary_op(self.expenditures, lambda foo,bar: foo/bar, pidx)
-                self.prices = broadcast_binary_op(self.prices, lambda foo,bar: foo/bar, pidx)
-            except (AttributeError,TypeError):
-                pass
+          if numeraire is None:
+              if self.numeraire is not None:
+                  numeraire = self.numeraire
+              else:
+                  raise ValueError('Must supply numeraire')
+          else:
+              try: # Levels
+                  pidx = self.prices[numeraire].copy()
+                  self.expenditures = broadcast_binary_op(self.expenditures, lambda foo,bar: foo/bar, pidx)
+                  self.prices = broadcast_binary_op(self.prices, lambda foo,bar: foo/bar, pidx)
+              except (AttributeError,TypeError):
+                  pass
 
-            try:
-                pidx = self.logp[numeraire].copy()
-                self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, pidx)
-                self.logp=self.logp.sub(pidx,axis=0)
-                self.yhat = broadcast_binary_op(self.yhat, lambda foo,bar: foo-bar, pidx)
-                self.yhat0 = broadcast_binary_op(self.yhat0, lambda foo,bar: foo-bar, pidx)
-            except (AttributeError,TypeError):
-                pass
+              try:
+                  pidx = self.logp[numeraire].copy()
+                  self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, pidx)
+                  self.logp=self.logp.sub(pidx,axis=0)
+                  self.yhat = broadcast_binary_op(self.yhat, lambda foo,bar: foo-bar, pidx)
+                  self.yhat0 = broadcast_binary_op(self.yhat0, lambda foo,bar: foo-bar, pidx)
+              except (AttributeError,TypeError):
+                  pass
 
-            # FIXME: Issue here with dividing by a random variable.  What
-            # properties do we want estimator of barloglambda_t to have?
-            try: 
-                self.barloglambda_t = -self.a.loc[numeraire]/self.beta[numeraire]
-                self.a = self.a - pd.DataFrame(np.outer(self.beta,self.barloglambda_t),index=self.beta.index,columns=self.barloglambda_t.index)
-                self.loglambdas = broadcast_binary_op(self.loglambdas, lambda x,y: x+y,self.barloglambda_t) # Add term associated with numeraire good
-            except (AttributeError,TypeError):
-                pass
+              # FIXME: Issue here with dividing by a random variable.  What
+              # properties do we want estimator of barloglambda_t to have?
+              try: 
+                  self.barloglambda_t = -self.a.loc[numeraire]/self.beta[numeraire]
+                  self.a = self.a - pd.DataFrame(np.outer(self.beta,self.barloglambda_t),index=self.beta.index,columns=self.barloglambda_t.index)
+                  self.loglambdas = broadcast_binary_op(self.loglambdas, lambda x,y: x+y,self.barloglambda_t) # Add term associated with numeraire good
+              except (AttributeError,TypeError):
+                  pass
 
-    
+
 #+END_SRC
 
 ** Persistent =Results=
@@ -1963,25 +1970,36 @@ file, using the =xarray= package.
 
 #+name: result_to_file
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-    def to_dataset(self,fn):
-        """Convert Result instance to xarray.Dataset."""
-        V = vars(self)
-        D = xr.Dataset({d:V[d] for d in V if (type(V[d]) in (pd.DataFrame,pd.Series))})
-        # Can't serialize multiindices
-        D.reset_index('dim_0',inplace=True)
+      def to_dataset(self,fn=None):
+          """Convert Result instance to xarray.Dataset."""
+          D = xr.Dataset()
+          for k in vars(self):
+              v = self.__dict__[k]
+              if type(v) in np.ScalarType or isinstance(v,dict):
+                  D.attrs[k] = v
+              elif isinstance(v,pd.Series):
+                  D[k] = v.to_xarray()
+              elif isinstance(v,pd.DataFrame):
+                  D[k] = v.stack().to_xarray()
+              elif isinstance(v,pd.Panel):
+                  D[k] = v.to_frame().stack().to_xarray()
+              elif v is None: pass
+              else:
+                  print("Problem type: %s, %s" % (k,type(v)))
+                
+          if fn is not None:
+              D.to_netcdf(fn)
 
-        D.to_netcdf(fn)
+          return D
 
-        return D
-
-def from_dataset(fn):
-    """
-    Read persistent netcdf (xarray.Dataset) file to Result.
-    """
+  def from_dataset(fn):
+      """
+      Read persistent netcdf (xarray.Dataset) file to Result.
+      """
  
-    D = xr.open_dataset(fn)
+      D = xr.open_dataset(fn)
 
-    return D
+      return D
 #+END_SRC
 
 
