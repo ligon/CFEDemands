@@ -938,7 +938,7 @@ def test_svd_vs_truth_error():
 *** Artificial data
 We begin by generating some artificial data on expenditures.
 #+name: artificial_data
-#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/artificial_data.py
+#+BEGIN_SRC python :noweb no-export :results output 
 import pandas as pd
 <<lambdas_dgp>> #lambdas
 <<prices_dgp>> # prices
@@ -946,20 +946,35 @@ import pandas as pd
 
 <<expenditures_dgp>>
 
-def artificial_data(T=2,N=120,M=1,n=4,sigma_e=0.001):
+def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001):
 
-    # truth=(beta,lambdas,characteristics,prices)
-    x,truth=expenditures(T,N,M,n,beta=np.linspace(1,3,n),sigma_phi=0.1,sigma_eps=sigma_e)
+    x,truth=expenditures(T,N,n,k,beta=np.linspace(1,3,n),M,sigma_phi=0.1,sigma_eps=sigma_e)
 
     y=np.log(x)
 
     return y,truth
+
 #+END_SRC
+
+#+results: artificial_data
+
+
+#+name: test_artificial_data
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_artificial_data.py 
+<<artificial_data>>
+
+def test_artificial_data(T=2,N=50,n=5,k=2):
+    y,truth=artificial_data(T=T,N=N,k=k,n=n,sigma_e=1e-8)
+    
+    assert y.shape == (T*N,n)
+    assert truth['characteristics'].shape == (T*N,k)
+#+end_src 
+
 
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/estimate_with_missing.py :exports none
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_estimate_with_missing.py :exports none
 import numpy as np
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -967,7 +982,7 @@ import numpy as np
 <<get_loglambdas>>
 <<df_utils>>
 
-y,truth=artificial_data(T=2,N=50,M=2,n=5,sigma_e=1e-8)
+y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
 
 y['mkt']=1
 y=y.reset_index().set_index(['j','t','mkt'])
@@ -1018,12 +1033,44 @@ foo['loglambda0']=np.log(truth['lambdas'][0])
 foo=foo.reset_index().set_index(['j','t','mkt'])
 print("Correlation of log lambda with estimate (after normalization):")
 print(foo.groupby(level=['t','mkt']).corr())
+print(foo.corr())
 
 print("Mean of errors:")
 print(e.mean(axis=0))
+
+def test_mean():
+    assert np.abs(e.stack().mean())/e.stack().std() < 1e-2    
+
 #+end_src
 
 #+results: test_estimate_with_missing
+#+begin_example
+Norm of error in approximation of CE: 129.991822
+Correlation of log lambda with estimate (before normalization): nan
+Norm of (bphi,beta): 0.013563
+Correlation of log lambda with estimate (after normalization):
+                  loglambda  loglambda0
+t mkt                                  
+0 1   loglambda    1.000000    0.815898
+      loglambda0   0.815898    1.000000
+1 1   loglambda    1.000000    0.822589
+      loglambda0   0.822589    1.000000
+            loglambda  loglambda0
+loglambda    1.000000    0.818635
+loglambda0   0.818635    1.000000
+Mean of errors:
+x0    0.031482
+x1    0.023607
+x2    0.005174
+x3    0.042346
+x4   -0.022142
+x5   -0.008444
+x6    0.046394
+x7   -0.046577
+x8   -0.166377
+x9    0.050700
+dtype: float64
+#+end_example
 
 * Estimation of Price Elasticities
   Here we develop two distinct estimators for obtaining estimates of
@@ -1560,15 +1607,17 @@ print(foo)
 
    The "aggregate" $\lambda$ is denoted by $\bar\lambda$, and is
    constructed so as to be the geometric mean of individuals'
-   \(\lambda\)s in every period. By default these means are
-   distributed log-normal.
+   \(\lambda\)s within a particular market in every period. By default
+   these means are distributed log-normal.
 
-   There are three different distributions we specify to generate an
-   $(N,T)$ dataset of $\lambda_{it}$.  First, the distribution $\bar
-   F$ governs the innovations involved in the aggregate 'shocks'
-   $\bar\lambda$.  Second, a distribution $G_0$ governs the
-   cross-sectional distribution of individual $\lambda$ in the initial
-   period; finally, a distribution $F$ governs individual innovations
+   There are three different distributions we specify to generate a
+   dataset of $\lambda_{itm}$, having dimension $(N,T,M)$, where $N$
+   is the number of individuals observed in each of $T$ periods and
+   each of $M$ markets.  First, the distribution $\bar F$ governs the
+   innovations involved in the aggregate 'shocks' $\bar\lambda$.
+   Second, a distribution $G_0$ governs the cross-sectional
+   distribution of individual $\lambda$ in the initial period;
+   finally, a distribution $F$ governs individual innovations
    /conditional/ on the aggregate shock.  The expected value of an
    geometric innovation is one, by construction, so both individual
    and aggregate \lambda processes are martingales.
@@ -1577,28 +1626,29 @@ print(foo)
 #+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
 from scipy.stats.distributions import lognorm
 import numpy as np
+import xarray as xr
 
 def geometric_brownian(sigma=1.):
     return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
 
-def lambdabar(T,Fbar):
-    return np.cumprod(Fbar.rvs(size=(T,1)),axis=0)
+def lambdabar(T,M,Fbar):
+    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),dims=('t','m'))
 
-def lambdas(T,N,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
+def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-    L0=G0.rvs(size=(1,N))  # Initial lambdas
-    innov=F.rvs(size=(T-1,N))
-    L=np.cumprod(np.r_[L0,innov],axis=0)
+    L0=xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'))  # Initial lambdas
+    innov=xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'))
+    L=xr.concat((L0,innov),dim='t').cumprod('t')
     
     # Add aggregate shocks L0:
-    return L*lambdabar(T,Fbar=Fbar)
+    return L*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
 
   In addition, time-varying household characteristics can affect
   demands.
 #+name: characteristics_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-characteristics = lambda T,N : lambdas(T,N,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
+characteristics = lambda N,T,M=1 : lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
 #+END_SRC
 
 
@@ -1609,7 +1659,7 @@ characteristics = lambda T,N : lambdas(T,N,Fbar=geometric_brownian(.05),F=geomet
     process (so we can re-purpose code for generating \(\lambda\)s here):
 #+name: prices_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-prices = lambda T,n : lambdas(T,n,Fbar=geometric_brownian(.05),F=geometric_brownian(0.2))
+prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.2)).rename({'j':'i'}).transpose('t','m','i')
 #+END_SRC
 
 ** Data-generating process for measurement error
@@ -1627,16 +1677,16 @@ import pandas as pd
 from scipy.stats import distributions
 import numpy as np
 
-def measurement_error(T,N,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
+def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
 
-    def additive_error(T=T,N=N,n=n,sigma=sigma_phi):
-        return distributions.norm.rvs(scale=sigma,size=(T,N,n)) + mu_phi
+    def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
+        return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
 
-    def multiplicative_error(T=T,N=N,n=n,sigma=sigma_eps):
-        return np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(T,N,n)) + mu_eps)
+    def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
+        return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
 
-    phi=additive_error(T,N,n,sigma=sigma_phi)
-    eps=multiplicative_error(T,N,n,sigma=sigma_eps)
+    phi=additive_error(N,T,M,n,sigma=sigma_phi)
+    eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
 
     return phi,eps
 #+END_SRC
@@ -1667,66 +1717,69 @@ def measurement_error(T,N,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
     of the matrix $\Theta$.  Instantiated in code:
 #+name: expenditures_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-<<measurement_error_dgp>>
-import xarray
+  <<measurement_error_dgp>>
 
-def expenditures(T,N,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.):
-    """Generate artificial expenditures for $N$ households over $T$ periods on $n$ items.  
-    Return dataframe of expenditures and a dictionary of "true" underlying variables.
+  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.):
+      """Generate artificial expenditures for $N$ households in $M$ markets
+      over $T$ periods on $n$ items.  Return dataframe of expenditures
+      and a dictionary of "true" underlying variables.
 
-    Households are distinguished by a $k$-vector of characteristics,
-    but common Frisch elasticities expressed as an $n$-vector beta.
+      Households are distinguished by a $k$-vector of characteristics,
+      but common Frisch elasticities expressed as an $n$-vector beta.
 
-    If supplied, optional arguments
-    (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
-    different measurement error processes.  The first is a normally
-    distributed additive measurement error process, with mean =mu_phi=
-    and standard deviation =sigma_phi=.  The second is a
-    multiplicative log-normal error process, with (log) mean =mu_eps=
-    and (log) standard deviation =sigma_eps=.
+      If supplied, optional arguments
+      (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
+      different measurement error processes.  The first is a normally
+      distributed additive measurement error process, with mean =mu_phi=
+      and standard deviation =sigma_phi=.  The second is a
+      multiplicative log-normal error process, with (log) mean =mu_eps=
+      and (log) standard deviation =sigma_eps=.
 
-    Ethan Ligon                                                     January 2018
-    """
+      Ethan Ligon                                                     January 2018
+      """
 
-    if len(beta.shape)<2:
-        Theta=np.matrix(np.diag(beta))
-    else:
-        Theta=np.matrix(beta)
-        beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
+      if len(beta.shape)<2:
+          Theta=xr.DataArray(np.diag(beta),dims=('i','ip'))
+      else:
+          Theta=np.matrix(beta)
+          beta=Theta.sum(axis=0).A # Row sum of elasticity matrix
 
-    l=lambdas(T,N)
-    dz=characteristics(T,N)
-    for i in range(1,k-1):  # add additional characteristics if called for.
-        dz=np.c_[dz, characteristics(T,N)]
-    L=np.reshape(l,(T,N,1)) 
-    p=prices(T,n)
+      beta = xr.DataArray(beta,dims='i')
+      l = lambdas(T,N,M)
+      dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim='k')
+      L = np.reshape(l,(N,T,M)) 
+      p = prices(T,M,n)
 
-    # Build x in steps
-    x = np.kron(np.log(L),-beta)
-    x = x + (np.log(p)*(np.eye(n)-Theta)).A.reshape((T,1,n))
-    x = x +  np.tile(np.log(dz).reshape((T,N,k)).sum(axis=2).reshape((T,N,1)),(1,1,n))
-    x = np.exp(x)
+      # Build x in steps
+      #x = np.kron(np.log(L),-beta)
+      x = np.log(L)*(-beta)
+      x = x + np.log(p) - (Theta*np.log(p)).sum('ip') 
+      x = x + np.log(dz).sum('k')
+      #x = x +  np.tile(np.log(dz).reshape((T,N,k)).sum(axis=2).reshape((T,N,1)),(1,1,n))
+      x = np.exp(x)
 
-    phi,e=measurement_error(T,N,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
+      phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
 
-    x=(x+p.reshape(T,1,n)*phi) # Additive error
-    x=x*e # Multiplicative error
+      x = (x + p*phi) # Additive error
+      x = x*e # Multiplicative error
 
-    x=x*(x>0) # Truncation
+      x = x*(x>0) # Truncation
 
-    #x=pd.Panel(x.T,items=['x%d' % i for i in range(n)]).to_frame()
-    x=xarray.DataArray(x.T,dims=['i','j','t'],name='x').to_dataframe().unstack('i')
-    x.columns = ['x%d' % i for i in range(n)]
+      x = x.to_dataframe('x').unstack('i')
+      x.columns = ['x%d' % i for i in range(n)]
 
-    x.index.set_names(['j','t'],inplace=True)
+      x.index.set_names(['j','t','m'],inplace=True)
 
-    dz = dz.reshape((T*N,k),order='F')
-    dz = {'z%d' % i:dz[:,i] for i in range(k)}
-    dz=pd.DataFrame(dz,index=x.index)
-    l=pd.DataFrame(pd.DataFrame(l).T.stack(),index=x.index)
-    p=pd.DataFrame(p,columns=x.columns,index=x.index.levels[1])
+      dz = dz.to_dataframe(name='dz').unstack('k')
+      dz = pd.DataFrame(dz,index=x.index)
+      dz.columns = ['z%d' % i for i in range(k)]
 
-    return x,{'beta':beta,'lambdas':l,'characteristics':dz,'prices':p}
+      l = l.to_dataframe('lambdas')
+
+      p=pd.DataFrame(p.to_dataframe('p')).unstack('i')
+      p.columns = x.columns
+
+      return x,{'beta':beta,'lambdas':l,'characteristics':dz,'prices':p}
 #+END_SRC
 
 * Class =Result=
@@ -1746,7 +1799,7 @@ package data and results described elsewhere in this document.
 
       def __init__(self, logalpha=None, beta=None, delta=None,
                    prices=None,characteristics=None,loglambdas=None,
-                   expenditures = None, numeraire=None):
+                   expenditures = None, numeraire=None, **kwargs):
           self.logalpha = logalpha
           self.beta = beta
           self.delta = delta
@@ -1764,6 +1817,11 @@ package data and results described elsewhere in this document.
           self.cehat = None
 
           self.a = None
+
+          self.attrs={}
+
+          with k,v in kwargs.items():
+              self.attrs[k]=v
 
           if characteristics is not None:
               self.N = characteristics.groupby('j').count().shape[0]
@@ -1915,7 +1973,7 @@ package data and results described elsewhere in this document.
 
           if self.a is None:
               self.estimate_reduced_form()
-            
+
           self.logalpha = self.a[self.firstround].T.mean()
 
           return self.logalpha
@@ -1963,6 +2021,30 @@ package data and results described elsewhere in this document.
 
 #+END_SRC
 
+#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
+from cfe import estimation
+<<result_class>>
+<<estimate_reduced_form>>
+<<artificial_data>>
+<<df_utils>>
+
+
+y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
+#y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
+beta,L,dz,p=truth
+
+numeraire='x0'
+
+b0,ce0,d0=estimate_bdce_with_missing_values(y,np.log(dz),return_v=False)
+myce0=ce0.copy()
+cehat=svd_rank1_approximation_with_missing_data(myce0)
+
+rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
+
+print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
+#+end_src
+
+
 ** Persistent =Results=
 It's useful to be able to make a =Result= instance be persistent.
 Here we experiment with a way to save a =Result= instance to a
@@ -1986,7 +2068,7 @@ file, using the =xarray= package.
               elif v is None: pass
               else:
                   print("Problem type: %s, %s" % (k,type(v)))
-                
+
           if fn is not None:
               D.to_netcdf(fn)
 
@@ -1996,10 +2078,16 @@ file, using the =xarray= package.
       """
       Read persistent netcdf (xarray.Dataset) file to Result.
       """
- 
+
       D = xr.open_dataset(fn)
 
       return D
+
+  def from_shelf(fn):
+      import shelve
+
+      with shelve.open(fn):
+          pass
 #+END_SRC
 
 
