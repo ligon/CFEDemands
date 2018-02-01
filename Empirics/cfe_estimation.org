@@ -554,14 +554,14 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   try:
       assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      assert z.columns.name == 'l', "Name of column index should be l?"
+      assert z.columns.name == 'k', "Name of column index should be l?"
   except AssertionError:
       z = z.reset_index()
       if not 'mkt' in z.columns: z['mkt']=1
       if not 't' in z.columns: z['t']=1
       z = z.set_index(['j','t','mkt'])
 
-      z.columns.set_names('l',inplace=True)
+      z.columns.set_names('k',inplace=True)
 
   periods = list(set(y.index.get_level_values('t')))
   mkts = list(set(y.index.get_level_values('mkt')))
@@ -754,7 +754,7 @@ try:
     PARALLEL=True
 except ImportError:
     PARALLEL=False
-    warnings.warn("Install joblib for parallel bootstrap.")
+    #warnings.warn("Install joblib for parallel bootstrap.")
 
 PARALLEL = False # Not yet working.
 
@@ -1784,6 +1784,12 @@ package data and results described elsewhere in this document.
   from .df_utils import broadcast_binary_op
   import xarray as xr
 
+  def is_none(x):
+      """
+      Tests for None in an array x.
+      """
+      return np.any(np.equal(x,None))
+
   class Result:
 
       def __init__(self, logalpha=None, beta=None, delta=None,
@@ -1863,7 +1869,7 @@ package data and results described elsewhere in this document.
 
       def estimate_reduced_form(self,VERBOSE=False):
           y = self.drop_useless_expenditures()
-          z = self.z
+          z = self.z.to_dataframe('z').unstack('k')
 
           a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
           ce.dropna(how='all',inplace=True)
@@ -1900,7 +1906,7 @@ package data and results described elsewhere in this document.
           return self.beta
 
       def get_cehat(self,min_obs=30):
-          if self.beta is None:
+          if self.beta is None or not len(self.beta.shape):
               self.get_loglambdas(min_obs=min_obs)
 
           return self.cehat
@@ -1963,7 +1969,7 @@ package data and results described elsewhere in this document.
           if self.a is None:
               self.estimate_reduced_form()
 
-          self.logalpha = self.a[self.firstround].T.mean()
+          self.logalpha = self.a.sel(t=self.firstround).mean('m')
 
           return self.logalpha
 
@@ -2094,6 +2100,32 @@ subclasses the =xarray.Dataset= class.
   from .df_utils import broadcast_binary_op
   import xarray as xr
 
+  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
+      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
+      """
+      df = arr.to_dataframe('foo').squeeze()
+    
+      if column_index is not None:
+          df = df.unstack(column_index)
+
+      if dropna_all:
+          df.dropna(how='all',inplace=True)
+
+      df.name = name
+      return df
+
+  def from_dataframe(df,index_name=None):
+      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
+      """
+      if index_name is not None:
+          df.index = df.index.set_names(index_name)
+
+      df = pd.DataFrame(df) # Series to dataframe
+      arr = df.stack(df.columns.names).squeeze().to_xarray()
+
+      return arr
+        
+
   class DSResult(xr.Dataset):
 
       def __init__(self, logalpha=None, beta=None, delta=None,
@@ -2104,12 +2136,12 @@ subclasses the =xarray.Dataset= class.
                                          'delta':delta,
                                          'prices':prices,
                                          'characteristics':characteristics,
-                                         'loglambdas':loglambas,
+                                         'loglambdas':loglambdas,
                                          'expenditures':expenditures})
 
           self.attrs['numeraire'] = numeraire
-                                       
-          with k,v in kwargs.items():
+
+          for k,v in kwargs.items():
               self.attrs[k]=v
 
           self['y'] = None
@@ -2120,10 +2152,10 @@ subclasses the =xarray.Dataset= class.
 
           self['a'] = None
 
-          if characteristics is None and expenditures is not None:
+          if is_none(characteristics) and not is_none(expenditures):
               self['characteristics'] = pd.DataFrame(index=self.expenditures.isel(i=0).index).to_xarray()
 
-          if expenditures is not None:
+          if not is_none(expenditures):
               self['y'] = np.log(self.expenditures)
 
           self['z'] = self.characteristics
@@ -2131,47 +2163,51 @@ subclasses the =xarray.Dataset= class.
           if (beta and logalpha) is not None:
               assert(len(logalpha)==len(beta))
 
-          if expenditures is not None:
-              self.attrs['firstround'] = self.expenditures.coords['t'][0]
+          if not is_none(expenditures):
+              self.attrs['firstround'] = self.expenditures.coords['t'][0].values
 
-          if numeraire is not None and len(numeraire)>0:
-              self['y'] = self.y - np.log(prices.sel(i=numeraire)))
-              if prices is not None:
-                  self['logp']=np.log(prices).sub(np.log(prices.sel(i=numeraire)))
+          if not is_none(numeraire) and len(numeraire)>0:
+              self['y'] = self.y - np.log(prices.sel(i=numeraire))
+              if not is_none(prices):
+                  self['logp']=np.log(prices) - np.log(prices.sel(i=numeraire))
                   self['prices'] = np.exp(self.logp)
 
       def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
           y = self.y
-          use_goods=y.columns.tolist()
+          use_goods=y.coords['i'].data
 
           # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-          using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
-          y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+          using_goods=(y.loc[use_goods].count(('i','t','m')) >= np.floor(len(use_goods) * min_proportion_items))
+
+          # Convert to pd.DataFrame
+          y = to_dataframe(y.sel(j=using_goods,i=use_goods).rename({'m':'mkt'}),'i')
           y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
           # Only keep goods with observations in each (t,mkt)
           y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
 
-          return y
+          return y 
 
-      def estimate_reduced_form(self,VERBOSE=False):
-          y = self.drop_useless_expenditures()
-          z = self.z
+      def get_reduced_form(self,VERBOSE=False):
+          y = self.drop_useless_expenditures() # Returns a dataframe
+          z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
 
           a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
           ce.dropna(how='all',inplace=True)
 
-          self.a = a
-          self.delta = d
-          self.ce = ce
-          self.se = se
-          self.d_covariance = V
+          self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
+          self['delta'] = from_dataframe(d).rename({'level_1':'k'})
+          self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
+          self['se'] = from_dataframe(se)
+          self['d_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
 
       def get_loglambdas(self,min_obs=30):
-          if self.loglambdas is None:
-              if self.ce is None:
-                  self.estimate_reduced_form()
+          if is_none(self.loglambdas):
+              if is_none(self.ce):
+                  self.get_reduced_form()
+              
+              ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
 
-              bphi,logL = estimation.get_loglambdas(self.ce,TEST=False,min_obs=min_obs)
+              bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
 
               assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
                   "Problem with normalization of loglambdas"
@@ -2179,20 +2215,20 @@ subclasses the =xarray.Dataset= class.
               cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
               cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
 
-              self.cehat = cehat
-              self.loglambdas = logL
-              self.beta = bphi
+              self['cehat'] = from_dataframe(cehat).rename({'mkt':'m'})
+              self['loglambdas'] = logL.to_xarray().rename({'mkt':'m'})
+              self['beta'] = bphi.to_xarray()
 
           return self.loglambdas
 
       def get_beta(self,min_obs=30):
-          if self.beta is None:
+          if is_none(self.beta):
               self.get_loglambdas(min_obs=min_obs)
 
           return self.beta
 
       def get_cehat(self,min_obs=30):
-          if self.beta is None:
+          if is_none(self.beta):
               self.get_loglambdas(min_obs=min_obs)
 
           return self.cehat
@@ -2205,11 +2241,11 @@ subclasses the =xarray.Dataset= class.
           """
 
           try:
-              if (self.a is None) or (self.delta is None) or (self.ce is None):
-                  self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+              if is_none(self.a) or is_none(self.delta) or is_none(self.ce):
+                  self.get_reduced_form(min_proportion_items=min_proportion_items,
                                         min_xproducts=min_xproducts)
           except AttributeError: # self.a isn't defined, or similar
-              self.estimate_reduced_form(min_proportion_items=min_proportion_items,
+              self.get_reduced_form(min_proportion_items=min_proportion_items,
                                     min_xproducts=min_xproducts)
 
           miss2nan = self.ce*0
@@ -2233,12 +2269,12 @@ subclasses the =xarray.Dataset= class.
 
       def get_predicted_log_expenditures(self):
           cehat = self.get_cehat()
-          self.yhat = broadcast_binary_op(cehat + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+          self['yhat'] = cehat + self.z.dot(self.delta) + self.a
 
-          self.yhat0 = broadcast_binary_op(self.ce + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
+          self['yhat0'] = self.ce + self.z.dot(self.delta) + self.a
 
-          self.e = self.y.sub(self.yhat)
-          self.e0 = self.y.sub(self.yhat0)
+          self['e'] = self.y - self.yhat
+          self['e0'] = self.y - self.yhat0
 
           return self.yhat
 
@@ -2247,15 +2283,15 @@ subclasses the =xarray.Dataset= class.
           round of data on expenditures.
           """
           numeraire = self.numeraire
-          if self.logalpha is not None:
+          if not is_none(self.logalpha):
               return self.logalpha
-          elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
+          elif not is_none(numeraire) and np.any(self.logp[numeraire] != 0.):
               self.set_numeraire(numeraire=numeraire)
 
-          if self.a is None:
-              self.estimate_reduced_form()
+          if is_none(self.a):
+              self.get_reduced_form()
 
-          self.logalpha = self.a[self.firstround].T.mean()
+          self['logalpha'] = self.a[self.firstround].T.mean()
 
           return self.logalpha
 
@@ -2268,34 +2304,34 @@ subclasses the =xarray.Dataset= class.
           # List of units in levels that need to be changed with change of numeraire; prices must be last
           change_units=['expenditures','price']
 
-          if numeraire is None:
-              if self.numeraire is not None:
+          if is_none(numeraire):
+              if not is_none(self.numeraire):
                   numeraire = self.numeraire
               else:
                   raise ValueError('Must supply numeraire')
           else:
               try: # Levels
-                  pidx = self.prices[numeraire].copy()
-                  self.expenditures = broadcast_binary_op(self.expenditures, lambda foo,bar: foo/bar, pidx)
-                  self.prices = broadcast_binary_op(self.prices, lambda foo,bar: foo/bar, pidx)
+                  pidx = self['prices'][numeraire].copy()
+                  self['expenditures'] = self.expenditures/pidx
+                  self['prices'] = self['prices']/pidx
               except (AttributeError,TypeError):
                   pass
 
               try:
-                  pidx = self.logp[numeraire].copy()
-                  self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, pidx)
-                  self.logp=self.logp.sub(pidx,axis=0)
-                  self.yhat = broadcast_binary_op(self.yhat, lambda foo,bar: foo-bar, pidx)
-                  self.yhat0 = broadcast_binary_op(self.yhat0, lambda foo,bar: foo-bar, pidx)
+                  pidx = self['logp'][numeraire].copy()
+                  self['y'] = self['y'] - pidx
+                  self['logp'] = self['logp'] - pidx
+                  self['yhat'] = self.yhat - pidx
+                  self['yhat0'] = self.yhat0 - pidx
               except (AttributeError,TypeError):
                   pass
 
               # FIXME: Issue here with dividing by a random variable.  What
               # properties do we want estimator of barloglambda_t to have?
               try: 
-                  self.barloglambda_t = -self.a.loc[numeraire]/self.beta[numeraire]
-                  self.a = self.a - pd.DataFrame(np.outer(self.beta,self.barloglambda_t),index=self.beta.index,columns=self.barloglambda_t.index)
-                  self.loglambdas = broadcast_binary_op(self.loglambdas, lambda x,y: x+y,self.barloglambda_t) # Add term associated with numeraire good
+                  self['barloglambda_t'] = -self.a.loc[numeraire]/self.beta[numeraire]
+                  self['a'] = self.a - self.barloglambda_t
+                  self['loglambdas'] = self.loglambdas + self.barloglambda_t # Add term associated with numeraire good
               except (AttributeError,TypeError):
                   pass
 
