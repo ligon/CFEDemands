@@ -948,7 +948,7 @@ import pandas as pd
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001):
 
-    x,truth=expenditures(T,N,n,k,beta=np.linspace(1,3,n),M,sigma_phi=0.1,sigma_eps=sigma_e)
+    x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=0.1,sigma_eps=sigma_e)
 
     y=np.log(x)
 
@@ -1262,149 +1262,149 @@ print(x.head())
 
 #+name: analysis_omnibus
 #+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
-# -*- coding: utf-8 -*-
+  # -*- coding: utf-8 -*-
 
-import tempfile
-import numpy as np
-import pandas as pd
-from numpy.linalg import norm
+  import tempfile
+  import numpy as np
+  import pandas as pd
+  from numpy.linalg import norm
 
-def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
-                     VERBOSE=False, BOOTSTRAP=False):
+  def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
+                       VERBOSE=False, BOOTSTRAP=False):
 
-    if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
-        BOOTSTRAP = 1e-3
+      if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
+          BOOTSTRAP = 1e-3
 
-    if z is None:
-       z = pd.DataFrame(index=y.index)
+      if z is None:
+         z = pd.DataFrame(index=y.index)
 
-    if prices is not None: # Check price indices (t,mkt) consistent with indices in y
-        assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
-               "Must have prices for every (t,mkt) in expenditures y."
+      if prices is not None: # Check price indices (t,mkt) consistent with indices in y
+          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
+                 "Must have prices for every (t,mkt) in expenditures y."
 
-    results={'y':y,'z':z}
-    if prices is not None: results['prices'] = prices
+      results={'y':y,'z':z}
+      if prices is not None: results['prices'] = prices
 
-    firstround=y.reset_index().iloc[0]['t']  
+      firstround=y.reset_index().iloc[0]['t']  
 
-    # Deflate expenditures and prices by prices of numeraire good.
-    if numeraire is not None and len(numeraire)>0:
-        y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
-        logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+      # Deflate expenditures and prices by prices of numeraire good.
+      if numeraire is not None and len(numeraire)>0:
+          y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+          logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
 
-    use_goods=y.columns.tolist()
+      use_goods=y.columns.tolist()
 
-    # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-    using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
-    y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
-    y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-    # Only keep goods with observations in each (t,mkt)
-    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
+      # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
+      y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+      y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+      # Only keep goods with observations in each (t,mkt)
+      y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
 
-    a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
-    ce.dropna(how='all',inplace=True)
+      a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+      ce.dropna(how='all',inplace=True)
 
-    results['ce']=ce
-    results['d_covariance'] = V
+      results['ce']=ce
+      results['d_covariance'] = V
 
-    bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
+      bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
 
-    assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
-           "Problem with normalization of loglambdas"
+      assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+             "Problem with normalization of loglambdas"
 
-    cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-    cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
-    results['cehat']=cehat
+      cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+      cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+      results['cehat']=cehat
 
-    if VERBOSE:
-        print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
+      if VERBOSE:
+          print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
 
-    # Some naive standard errors & ANOVA
-    miss2nan = ce*0
-    anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
-                        'Characteristics':z.dot(d.T).var(ddof=0),
-                        '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
-                        'Residual':(ce-cehat).var(ddof=0)})
-    anova=anova.div(y.var(ddof=0),axis=0)
-    anova['Total var']=y.var(ddof=0)
-    anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+      # Some naive standard errors & ANOVA
+      miss2nan = ce*0
+      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
+                          'Characteristics':z.dot(d.T).var(ddof=0),
+                          '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
+                          'Residual':(ce-cehat).var(ddof=0)})
+      anova=anova.div(y.var(ddof=0),axis=0)
+      anova['Total var']=y.var(ddof=0)
+      anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
-    results['anova'] = anova
+      results['anova'] = anova
 
-    yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
+      yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
 
-    yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
+      yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
 
-    e = y.sub(yhat)
-    e0 = y.sub(yhat0)
+      e = y.sub(yhat)
+      e0 = y.sub(yhat0)
 
-    goodsdf=d.copy()
+      goodsdf=d.copy()
 
-    pref_params=[r'$\phi\beta_i$']
-    if numeraire is not None and len(numeraire)>0:
-        # FIXME: Issue here with dividing by a random variable.  What
-        # properties do we want estimator of barloglambda_t to have?
-        try:
-            barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
-            logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
-            a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
-        except KeyError:
-            pass
+      pref_params=[r'$\phi\beta_i$']
+      if numeraire is not None and len(numeraire)>0:
+          # FIXME: Issue here with dividing by a random variable.  What
+          # properties do we want estimator of barloglambda_t to have?
+          try:
+              barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
+              logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
+              a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+          except KeyError:
+              pass
 
-        # FIXME: Should really use weighted mean, since different precisions for a across different  markets
-        logalpha = a[firstround].T.mean() 
-        goodsdf[r'$\log\alpha_i$'] = logalpha
-        pref_params += [r'$\log\alpha_i$']
-    else:
-        pidx=a.mean()
-        logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
-        a = a - pidx
+          # FIXME: Should really use weighted mean, since different precisions for a across different  markets
+          logalpha = a[firstround].T.mean() 
+          goodsdf[r'$\log\alpha_i$'] = logalpha
+          pref_params += [r'$\log\alpha_i$']
+      else:
+          pidx=a.mean()
+          logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
+          a = a - pidx
 
-    if VERBOSE:
-        print("Mean of errors:")
-        print(e.mean(axis=0))
+      if VERBOSE:
+          print("Mean of errors:")
+          print(e.mean(axis=0))
 
-    goodsdf[r'$\phi\beta_i$']=bphi
-    goodsdf['$R^2$']=1-e.var()/y.var()
+      goodsdf[r'$\phi\beta_i$']=bphi
+      goodsdf['$R^2$']=1-e.var()/y.var()
 
-    goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
-    goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
+      goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
+      goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
 
-    ehat=e.dropna(how='all')
-    ehat=ehat-ehat.mean()
+      ehat=e.dropna(how='all')
+      ehat=ehat-ehat.mean()
 
-    if BOOTSTRAP:
-        tmpf = tempfile.mkstemp(suffix='.csv')
-        if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
+      if BOOTSTRAP:
+          tmpf = tempfile.mkstemp(suffix='.csv')
+          if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
 
-        sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
-        results['Bs'] = Bs
-        se[r'$\phi\beta_i$']=sel
-    else:
-        sel=[]
-        for i in ehat:
-            foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
-            sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).as_matrix()[0,0]))
-        se[r'$\phi\beta_i$']=np.array(sel)
+          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
+          results['Bs'] = Bs
+          se[r'$\phi\beta_i$']=sel
+      else:
+          sel=[]
+          for i in ehat:
+              foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
+              sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).as_matrix()[0,0]))
+          se[r'$\phi\beta_i$']=np.array(sel)
 
-    if numeraire is not None:
-        se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
+      if numeraire is not None:
+          se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
 
-    se.dropna(how='any',inplace=True)
+      se.dropna(how='any',inplace=True)
 
-    results['se'] = se
-    goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
+      results['se'] = se
+      goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
 
-    goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
-    goodsdf.dropna(how='any',inplace=True)
-    results['goods'] = goodsdf
+      goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
+      goodsdf.dropna(how='any',inplace=True)
+      results['goods'] = goodsdf
 
-    results['a'] = a
-    results['loglambda'] = logL
-    results['logexpenditures'] = y
-    results['logexpenditures_hat'] = yhat
+      results['a'] = a
+      results['loglambda'] = logL
+      results['logexpenditures'] = y
+      results['logexpenditures_hat'] = yhat
 
-    return results
+      return results
 #+end_src
 
 * Distance between two estimates of \beta
