@@ -483,6 +483,7 @@ print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(ceh
 #+results:
 
 * Estimation of reduced form
+
     This code takes as input time-varying household-level data on log
     expenditures and characteristics, and takes data defining markets
     and perhaps some prices.
@@ -1333,10 +1334,7 @@ print(x.head())
 
       yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
 
-      yhat0 = broadcast_binary_op(ce + z.dot(d.T),lambda x,y: x+y,a.T)
-
       e = y.sub(yhat)
-      e0 = y.sub(yhat0)
 
       goodsdf=d.copy()
 
@@ -1673,22 +1671,30 @@ prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_b
     are generated below.
 #+name: measurement_error_dgp
 #+BEGIN_SRC python :results value 
-import pandas as pd
-from scipy.stats import distributions
-import numpy as np
+  import pandas as pd
+  from scipy.stats import distributions
+  import numpy as np
 
-def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.1,mu_eps=0.,sigma_eps=1.):
+  def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
+      """Return samples from two measurement error processes; one additive, the other  multiplicative.
+    
+      - The additive error (phi) is a normal distribution with mean
+        =mu_phi= and standard deviation =sigma_phi=.
+      
+      - The multiplicative error (eps) is a log-normal distribution with mean
+        =mu_eps= and standard deviation =sigma_eps=.
+      """
 
-    def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
-        return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
+      def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
+          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
 
-    def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
-        return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
+      def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
+          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
 
-    phi=additive_error(N,T,M,n,sigma=sigma_phi)
-    eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
+      phi=additive_error(N,T,M,n,sigma=sigma_phi)
+      eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
 
-    return phi,eps
+      return phi,eps
 #+END_SRC
 
 ** Data-generating process for expenditures
@@ -1807,7 +1813,6 @@ package data and results described elsewhere in this document.
 
           self.y = None
           self.yhat = None
-          self.yhat0 = None
           self.ce = None
           self.cehat = None
 
@@ -1949,10 +1954,7 @@ package data and results described elsewhere in this document.
           cehat = self.get_cehat()
           self.yhat = broadcast_binary_op(cehat + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
 
-          self.yhat0 = broadcast_binary_op(self.ce + self.z.dot(self.delta.T),lambda x,y: x+y,self.a.T)
-
           self.e = self.y.sub(self.yhat)
-          self.e0 = self.y.sub(self.yhat0)
 
           return self.yhat
 
@@ -1977,7 +1979,7 @@ package data and results described elsewhere in this document.
           """Set the numeraire, and adjust units for all relevant prices & expenditures.
           """
           # List of units (in logs) that need to be changed with change of numeraire; logp must be last
-          change_logunits=['y','yhat','yhat0','logp']
+          change_logunits=['y','yhat','logp']
 
           # List of units in levels that need to be changed with change of numeraire; prices must be last
           change_units=['expenditures','price']
@@ -2000,7 +2002,6 @@ package data and results described elsewhere in this document.
                   self.y = broadcast_binary_op(self.y, lambda foo,bar: foo-bar, pidx)
                   self.logp=self.logp.sub(pidx,axis=0)
                   self.yhat = broadcast_binary_op(self.yhat, lambda foo,bar: foo-bar, pidx)
-                  self.yhat0 = broadcast_binary_op(self.yhat0, lambda foo,bar: foo-bar, pidx)
               except (AttributeError,TypeError):
                   pass
 
@@ -2104,7 +2105,7 @@ subclasses the =xarray.Dataset= class.
       """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
       """
       df = arr.to_dataframe('foo').squeeze()
-    
+
       if column_index is not None:
           df = df.unstack(column_index)
 
@@ -2124,43 +2125,51 @@ subclasses the =xarray.Dataset= class.
       arr = df.stack(df.columns.names).squeeze().to_xarray()
 
       return arr
-        
+
 
   class DSResult(xr.Dataset):
 
-      def __init__(self, logalpha=None, beta=None, delta=None,
-                   prices=None,characteristics=None,loglambdas=None,
-                   expenditures = None, numeraire=None, **kwargs):
-          super(DSResult,self).__init__({'logalpha':logalpha,
-                                         'beta':beta,
-                                         'delta':delta,
-                                         'prices':prices,
-                                         'characteristics':characteristics,
-                                         'loglambdas':loglambdas,
-                                         'expenditures':expenditures})
+      def __init__(self,**kwargs):
+          try:
+              self = kwargs.pop('data')
+          except KeyError:
+              arrs = dict(logalpha=None, beta=None, delta=None,
+                          prices=None,characteristics=None,loglambdas=None,
+                          expenditures = None, a=None, yhat=None, ce=None,
+                          cehat=None, e=None, d_covariance=None, se=None,
+                          y=None,logp=None,z=None)
+            
+              for k in arrs:
+                  try:
+                      arrs[k] = kwargs.pop(k)
+                  except KeyError:
+                      pass
 
-          self.attrs['numeraire'] = numeraire
+              super(DSResult,self).__init__(arrs)
 
-          for k,v in kwargs.items():
-              self.attrs[k]=v
+          self.attrs = dict(numeraire=None,firstround=None,
+                            min_proportion_items=1./8,min_xproducts=30)
+          self.attrs.update(kwargs)
 
-          self['y'] = None
-          self['yhat'] = None
-          self['yhat0'] = None
-          self['ce'] = None
-          self['cehat'] = None
-
-          self['a'] = None
-
-          if is_none(characteristics) and not is_none(expenditures):
+          if is_none(self.z) and  not is_none(self.characteristics):
+              self['z'] = self.characteristics
+          elif not is_none(self.z) and  is_none(self.characteristics):
+              self['characteristics'] = self.z
+          elif is_none(self.characteristics) and not is_none(self.expenditures):
               self['characteristics'] = pd.DataFrame(index=self.expenditures.isel(i=0).index).to_xarray()
+              self['z'] = self['characteristics']
 
-          if not is_none(expenditures):
+          if is_none(self.y) and not is_none(self.expenditures):
               self['y'] = np.log(self.expenditures)
+          elif not is_none(self.y) and is_none(self.expenditures):
+              self['expenditures'] = np.exp(self.y).fillna(0.)
 
-          self['z'] = self.characteristics
-
-          if (beta and logalpha) is not None:
+          if is_none(self.logp) and not is_none(self.prices):
+              self['logp'] = np.log(self.prices)
+          elif not is_none(self.logp) and is_none(self.prices):
+              self['prices'] = np.exp(self.logp).fillna(0.)
+            
+          if not is_none(beta) and not is_none(logalpha):
               assert(len(logalpha)==len(beta))
 
           if not is_none(expenditures):
@@ -2204,7 +2213,7 @@ subclasses the =xarray.Dataset= class.
           if is_none(self.loglambdas):
               if is_none(self.ce):
                   self.get_reduced_form()
-              
+
               ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
 
               bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
@@ -2271,10 +2280,7 @@ subclasses the =xarray.Dataset= class.
           cehat = self.get_cehat()
           self['yhat'] = cehat + self.z.dot(self.delta) + self.a
 
-          self['yhat0'] = self.ce + self.z.dot(self.delta) + self.a
-
           self['e'] = self.y - self.yhat
-          self['e0'] = self.y - self.yhat0
 
           return self.yhat
 
@@ -2299,7 +2305,7 @@ subclasses the =xarray.Dataset= class.
           """Set the numeraire, and adjust units for all relevant prices & expenditures.
           """
           # List of units (in logs) that need to be changed with change of numeraire; logp must be last
-          change_logunits=['y','yhat','yhat0','logp']
+          change_logunits=['y','yhat','logp']
 
           # List of units in levels that need to be changed with change of numeraire; prices must be last
           change_units=['expenditures','price']
@@ -2322,7 +2328,6 @@ subclasses the =xarray.Dataset= class.
                   self['y'] = self['y'] - pidx
                   self['logp'] = self['logp'] - pidx
                   self['yhat'] = self.yhat - pidx
-                  self['yhat0'] = self.yhat0 - pidx
               except (AttributeError,TypeError):
                   pass
 
@@ -2335,7 +2340,36 @@ subclasses the =xarray.Dataset= class.
               except (AttributeError,TypeError):
                   pass
 
+  def resample_lambdas():
+      """Resample self.loglambdas, producing a new object with preference
+      parameters drawn from self and a measurement error process for
+      expenditures which is log-normal.
+      """
+      d = self.dims
+      S = np.random.randint(0,d['j'],size=d['j'])
 
+      R = DSResult(beta=self.beta,characteristics=self.characteristics,delta=self.delta,a=self.a)
+      R['loglambdas'] = np.log(self.loglambdas.isel(j=S)) + self.loglambdas*0.
+      R['z'] = self.z.isel(j=S)
+      R['characteristics'] = R.z
+
+      R['cehat'] = R.loglambdas * R.beta
+
+      # Retrieve mean & std of errors
+      foo = (self.ce - self.cehat).to_dataframe('e').dropna()
+      mu = foo.mean()
+      sigma = foo.sigma()
+
+      # Generate new errors lognormally distributed
+      R['e'] = xr.DataArray(np.log(np.random.normal(loc=mu,scale=sigma,size=(d['j'],d['t'],d['m'],d['i']))),coords=R.ce.coords)
+
+      R['ce'] = R.cehat + R.e
+
+      R['yhat'] = R.cehat + R.z.dot(R.delta) + R.a
+
+      R['y'] = R.ce + R.z.dot(R.delta) + R.a
+
+      return R
 #+END_SRC
 
 #+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
