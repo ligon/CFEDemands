@@ -1794,7 +1794,11 @@ package data and results described elsewhere in this document.
       """
       Tests for None in an array x.
       """
-      return np.any(np.equal(x,None))
+      if np.any(np.equal(x,None)):
+          return True
+      elif len(x.shape)==0:
+          return True
+      else: return False
 
   class Result:
 
@@ -2131,25 +2135,27 @@ subclasses the =xarray.Dataset= class.
 
       def __init__(self,**kwargs):
           try:
-              self = kwargs.pop('data')
+              ds = kwargs.pop('data')
+              super(DSResult,self).__init__(ds.variables,attrs=ds.attrs)
           except KeyError:
               arrs = dict(logalpha=None, beta=None, delta=None,
                           prices=None,characteristics=None,loglambdas=None,
                           expenditures = None, a=None, yhat=None, ce=None,
                           cehat=None, e=None, d_covariance=None, se=None,
                           y=None,logp=None,z=None)
-            
+
               for k in arrs:
                   try:
                       arrs[k] = kwargs.pop(k)
                   except KeyError:
                       pass
 
+              self.attrs = dict(numeraire=None,firstround=None,
+                            min_proportion_items=1./8,min_xproducts=30)
+              self.attrs.update(kwargs)
+
               super(DSResult,self).__init__(arrs)
 
-          self.attrs = dict(numeraire=None,firstround=None,
-                            min_proportion_items=1./8,min_xproducts=30)
-          self.attrs.update(kwargs)
 
           if is_none(self.z) and  not is_none(self.characteristics):
               self['z'] = self.characteristics
@@ -2168,17 +2174,17 @@ subclasses the =xarray.Dataset= class.
               self['logp'] = np.log(self.prices)
           elif not is_none(self.logp) and is_none(self.prices):
               self['prices'] = np.exp(self.logp).fillna(0.)
-            
-          if not is_none(beta) and not is_none(logalpha):
-              assert(len(logalpha)==len(beta))
 
-          if not is_none(expenditures):
+          if not is_none(self.beta) and not is_none(self.logalpha):
+              assert(self.logalpha.shape == self.beta.shape)
+
+          if not is_none(self.expenditures):
               self.attrs['firstround'] = self.expenditures.coords['t'][0].values
 
-          if not is_none(numeraire) and len(numeraire)>0:
-              self['y'] = self.y - np.log(prices.sel(i=numeraire))
-              if not is_none(prices):
-                  self['logp']=np.log(prices) - np.log(prices.sel(i=numeraire))
+          if not is_none(self.numeraire) and len(self.numeraire)>0:
+              self['y'] = self.y - np.log(self.prices.sel(i=numeraire))
+              if not is_none(self.prices):
+                  self['logp']=np.log(self.prices) - np.log(self.prices.sel(i=numeraire))
                   self['prices'] = np.exp(self.logp)
 
       def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
@@ -2340,36 +2346,43 @@ subclasses the =xarray.Dataset= class.
               except (AttributeError,TypeError):
                   pass
 
-  def resample_lambdas():
-      """Resample self.loglambdas, producing a new object with preference
-      parameters drawn from self and a measurement error process for
-      expenditures which is log-normal.
-      """
-      d = self.dims
-      S = np.random.randint(0,d['j'],size=d['j'])
+      def resample_lambdas(self):
+          """Resample self.loglambdas, producing a new object with preference
+          parameters drawn from self and a measurement error process for
+          expenditures which is log-normal.
+          """
+          d = self.dims
+          S = np.random.randint(0,d['j'],size=d['j'])
 
-      R = DSResult(beta=self.beta,characteristics=self.characteristics,delta=self.delta,a=self.a)
-      R['loglambdas'] = np.log(self.loglambdas.isel(j=S)) + self.loglambdas*0.
-      R['z'] = self.z.isel(j=S)
-      R['characteristics'] = R.z
+          R = DSResult(data=self)
+          
+          foo = np.log(self.loglambdas.isel(j=S))
+          foo.coords['j'] = self.loglambdas.coords['j']
+          R['loglambdas'] =  foo + self.loglambdas*0.
 
-      R['cehat'] = R.loglambdas * R.beta
+          foo = self.z.isel(j=S)
+          foo.coords['j'] = self.z.coords['j']
 
-      # Retrieve mean & std of errors
-      foo = (self.ce - self.cehat).to_dataframe('e').dropna()
-      mu = foo.mean()
-      sigma = foo.sigma()
+          R['z'] = foo
+          R['characteristics'] = R.z
 
-      # Generate new errors lognormally distributed
-      R['e'] = xr.DataArray(np.log(np.random.normal(loc=mu,scale=sigma,size=(d['j'],d['t'],d['m'],d['i']))),coords=R.ce.coords)
+          R['cehat'] = R.loglambdas * R.beta
 
-      R['ce'] = R.cehat + R.e
+          # Retrieve mean & std of errors
+          foo = (self.ce - self.cehat).to_dataframe('e').dropna()
+          mu = foo.mean()
+          sigma = foo.std()
 
-      R['yhat'] = R.cehat + R.z.dot(R.delta) + R.a
+          # Generate new errors lognormally distributed
+          R['e'] = xr.DataArray(np.random.normal(loc=mu,scale=sigma,size=(d['j'],d['t'],d['m'],d['i'])),coords=R.ce.coords)
 
-      R['y'] = R.ce + R.z.dot(R.delta) + R.a
+          R['ce'] = R.cehat + R.e
 
-      return R
+          R['yhat'] = R.cehat + R.z.dot(R.delta) + R.a
+
+          R['y'] = R.ce + R.z.dot(R.delta) + R.a
+
+          return R
 #+END_SRC
 
 #+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
