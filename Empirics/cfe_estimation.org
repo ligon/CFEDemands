@@ -1780,102 +1780,6 @@ prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_b
 * Class =Result=
 
 Here we define a class =Result= which offers an consolidated way to
-package data and results described elsewhere in this document.
-
-#+name: result_class
-#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-  import numpy as np
-  import pandas as pd
-  from . import estimation 
-  from .df_utils import broadcast_binary_op
-  import xarray as xr
-
-  def is_none(x):
-      """
-      Tests for None in an array x.
-      """
-      if np.any(np.equal(x,None)):
-          return True
-      elif len(x.shape)==0:
-          return True
-      else: return False
-
-
-#+END_SRC
-
-#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
-from cfe import estimation
-<<result_class>>
-<<estimate_reduced_form>>
-<<artificial_data>>
-<<df_utils>>
-
-
-y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
-#y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
-beta,L,dz,p=truth
-
-numeraire='x0'
-
-b0,ce0,d0=estimate_bdce_with_missing_values(y,np.log(dz),return_v=False)
-myce0=ce0.copy()
-cehat=svd_rank1_approximation_with_missing_data(myce0)
-
-rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
-
-print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
-#+end_src
-
-
-** Persistent =Results=
-It's useful to be able to make a =Result= instance be persistent.
-Here we experiment with a way to save a =Result= instance to a
-file, using the =xarray= package.
-
-#+name: result_to_file
-#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-      def to_dataset(self,fn=None):
-          """Convert Result instance to xarray.Dataset."""
-          D = xr.Dataset()
-          for k in vars(self):
-              v = self.__dict__[k]
-              if type(v) in np.ScalarType or isinstance(v,dict):
-                  D.attrs[k] = v
-              elif isinstance(v,pd.Series):
-                  D[k] = v.to_xarray()
-              elif isinstance(v,pd.DataFrame):
-                  D[k] = v.stack().to_xarray()
-              elif isinstance(v,pd.Panel):
-                  D[k] = v.to_frame().stack().to_xarray()
-              elif v is None: pass
-              else:
-                  print("Problem type: %s, %s" % (k,type(v)))
-
-          if fn is not None:
-              D.to_netcdf(fn)
-
-          return D
-
-  def from_dataset(fn):
-      """
-      Read persistent netcdf (xarray.Dataset) file to Result.
-      """
-
-      D = xr.open_dataset(fn)
-
-      return D
-
-  def from_shelf(fn):
-      import shelve
-
-      with shelve.open(fn):
-          pass
-#+END_SRC
-
-
-* Class =DSResult=
-
-Here we define a class =Result= which offers an consolidated way to
 package data and results described elsewhere in this document; this
 subclasses the =xarray.Dataset= class.
 
@@ -1885,6 +1789,7 @@ subclasses the =xarray.Dataset= class.
   import pandas as pd
   from . import estimation 
   import xarray as xr
+  import warnings
 
   def is_none(x):
       """
@@ -1892,9 +1797,17 @@ subclasses the =xarray.Dataset= class.
       """
       if np.any(np.equal(x,None)):
           return True
-      elif len(x.shape)==0:
-          return True
-      else: return False
+      else:
+          try:
+              if len(x.shape)==0:
+                  return True
+          except AttributeError:
+              if isinstance(x,str):
+                  if len(x)==0: return True
+                  else: return False
+              elif np.isscalar(x): return True
+              else:
+                  raise(TypeError,"Problematic type.")
 
   def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
       """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
@@ -1926,11 +1839,11 @@ subclasses the =xarray.Dataset= class.
       def __init__(self,**kwargs):
           try:
               ds = kwargs.pop('data')
-              super(DSResult,self).__init__(ds.variables,attrs=ds.attrs)
+              super(Result,self).__init__(ds.variables,attrs=ds.attrs)
           except KeyError:
               arrs = dict(logalpha=None, beta=None, delta=None,
                           prices=None,characteristics=None,loglambdas=None,
-                          expenditures = None, a=None, yhat=None, ce=None,
+                          a=None, yhat=None, ce=None,
                           cehat=None, e=None, d_covariance=None, se=None,
                           y=None,logp=None,z=None)
 
@@ -1940,52 +1853,51 @@ subclasses the =xarray.Dataset= class.
                   except KeyError:
                       pass
 
-              self.attrs = dict(numeraire=None,firstround=None,
+              attrs = dict(numeraire=None,firstround=None,
                             min_proportion_items=1./8,min_xproducts=30)
-              self.attrs.update(kwargs)
+              attrs.update(kwargs)
 
-              super(DSResult,self).__init__(arrs)
+              super(Result,self).__init__(data_vars=arrs, attrs=attrs)
 
 
           if is_none(self.z) and  not is_none(self.characteristics):
               self['z'] = self.characteristics
           elif not is_none(self.z) and  is_none(self.characteristics):
               self['characteristics'] = self.z
-          elif is_none(self.characteristics) and not is_none(self.expenditures):
-              self['characteristics'] = pd.DataFrame(index=self.expenditures.isel(i=0).index).to_xarray()
+          elif is_none(self.characteristics) and not is_none(self.y):
+              self['characteristics'] = pd.DataFrame(index=self.y.isel(i=0).index).to_xarray()
               self['z'] = self['characteristics']
-
-          if is_none(self.y) and not is_none(self.expenditures):
-              self['y'] = np.log(self.expenditures)
-          elif not is_none(self.y) and is_none(self.expenditures):
-              self['expenditures'] = np.exp(self.y).fillna(0.)
 
           if is_none(self.logp) and not is_none(self.prices):
               self['logp'] = np.log(self.prices)
           elif not is_none(self.logp) and is_none(self.prices):
-              self['prices'] = np.exp(self.logp).fillna(0.)
+              self['prices'] = np.exp(self.logp)
 
           if not is_none(self.beta) and not is_none(self.logalpha):
               assert(self.logalpha.shape == self.beta.shape)
 
-          if not is_none(self.expenditures):
-              self.attrs['firstround'] = self.expenditures.coords['t'][0].values
+          if is_none(self.attrs['firstround']) and not is_none(self.y):
+              self.attrs['firstround'] = self.y.coords['t'][0].item()
 
-          if not is_none(self.numeraire) and len(self.numeraire)>0:
-              self['y'] = self.y - np.log(self.prices.sel(i=numeraire))
-              if not is_none(self.prices):
-                  self['logp']=np.log(self.prices) - np.log(self.prices.sel(i=numeraire))
-                  self['prices'] = np.exp(self.logp)
+          if not is_none(self.numeraire):
+              numeraire = self.numeraire
+              try:
+                  self.set_numeraire(numeraire)
+              except KeyError:
+                  warnings.warn('No prices for numeraire %s.' % numeraire)
+                  self.attrs['numeraire']=None
 
       def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
           y = self.y
           use_goods=y.coords['i'].data
 
-          # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-          using_goods=(y.loc[use_goods].count(('i','t','m')) >= np.floor(len(use_goods) * min_proportion_items))
-
           # Convert to pd.DataFrame
-          y = to_dataframe(y.sel(j=using_goods,i=use_goods).rename({'m':'mkt'}),'i')
+          y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+
+          # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+          using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+          y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+
           y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
           # Only keep goods with observations in each (t,mkt)
           y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
@@ -2087,7 +1999,7 @@ subclasses the =xarray.Dataset= class.
           numeraire = self.numeraire
           if not is_none(self.logalpha):
               return self.logalpha
-          elif not is_none(numeraire) and np.any(self.logp[numeraire] != 0.):
+          elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
               self.set_numeraire(numeraire=numeraire)
 
           if is_none(self.a):
@@ -2097,7 +2009,7 @@ subclasses the =xarray.Dataset= class.
 
           return self.logalpha
 
-      def set_numeraire(self,numeraire=None):
+      def set_numeraire(self,new_numeraire=None):
           """Set the numeraire, and adjust units for all relevant prices & expenditures.
           """
           # List of units (in logs) that need to be changed with change of numeraire; logp must be last
@@ -2106,35 +2018,42 @@ subclasses the =xarray.Dataset= class.
           # List of units in levels that need to be changed with change of numeraire; prices must be last
           change_units=['expenditures','price']
 
-          if is_none(numeraire):
-              if not is_none(self.numeraire):
-                  numeraire = self.numeraire
-              else:
-                  raise ValueError('Must supply numeraire')
+          if new_numeraire is not None:
+              self.attrs['numeraire'] = new_numeraire
+
+          if self.attrs['numeraire'] is None:
+              raise ValueError('Must supply numeraire')
           else:
-              try: # Levels
-                  pidx = self['prices'][numeraire].copy()
-                  self['expenditures'] = self.expenditures/pidx
-                  self['prices'] = self['prices']/pidx
-              except (AttributeError,TypeError):
-                  pass
+              numeraire = self.attrs['numeraire']
 
-              try:
-                  pidx = self['logp'][numeraire].copy()
-                  self['y'] = self['y'] - pidx
-                  self['logp'] = self['logp'] - pidx
-                  self['yhat'] = self.yhat - pidx
-              except (AttributeError,TypeError):
-                  pass
+          try: # Levels
+              pidx = self['prices'].sel(i=numeraire).copy()
+              self['prices'] = self['prices']/pidx
+          except (AttributeError,TypeError):
+              pass
 
-              # FIXME: Issue here with dividing by a random variable.  What
-              # properties do we want estimator of barloglambda_t to have?
-              try: 
-                  self['barloglambda_t'] = -self.a.loc[numeraire]/self.beta[numeraire]
+          try:
+              pidx = self['logp'].sel(i=numeraire).copy()
+              self['logp'] = self['logp'] - pidx
+              self['y'] = self['y'] - pidx
+              self['yhat'] = self.yhat - pidx
+          except (AttributeError,TypeError):
+              pass
+
+
+      def set_barloglambda_t():
+          # FIXME: Issue here with dividing by a random variable.  What
+          # properties do we want estimator of barloglambda_t to have?
+          try: 
+              if not is_none(self.a) and not is_none(self.beta):
+                  self['barloglambda_t'] = -self.a.sel(i=numeraire)/self.beta.sel(i=numeraire)
                   self['a'] = self.a - self.barloglambda_t
                   self['loglambdas'] = self.loglambdas + self.barloglambda_t # Add term associated with numeraire good
-              except (AttributeError,TypeError):
-                  pass
+              elif not is_none(self.prices):
+                  self['barloglambda_t'] = self.prices.mean('i').fillna(0)*0.
+
+          except (AttributeError,TypeError):
+              pass
 
       def resample_lambdas(self):
           """Resample self.loglambdas, producing a new object with preference
@@ -2144,9 +2063,9 @@ subclasses the =xarray.Dataset= class.
           d = self.dims
           S = np.random.randint(0,d['j'],size=d['j'])
 
-          R = DSResult(data=self)
+          R = Result(data=self)
 
-          foo = np.log(self.loglambdas.isel(j=S))
+          foo = self.loglambdas.isel(j=S)
           foo.coords['j'] = self.loglambdas.coords['j']
           R['loglambdas'] =  foo + self.loglambdas*0.
 
@@ -2166,38 +2085,19 @@ subclasses the =xarray.Dataset= class.
           # Generate new errors lognormally distributed
           R['e'] = xr.DataArray(np.random.normal(loc=mu,scale=sigma,size=(d['j'],d['t'],d['m'],d['i'])),coords=R.ce.coords)
 
+          # Add missings back in where appropriate
+          foo = self.y.isel(j=S)
+          foo.coords['j'] = self.z.coords['j']
+          R['e'] = R['e'] + 0*foo
+
           R['ce'] = R.cehat + R.e
 
           R['yhat'] = R.cehat + R.z.dot(R.delta) + R.a
 
-          R['y'] = R.ce + R.z.dot(R.delta) + R.a
+          R['y'] = R.yhat + R.e
 
           return R
 #+END_SRC
-
-#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
-from cfe import estimation
-<<result_class>>
-<<estimate_reduced_form>>
-<<artificial_data>>
-<<df_utils>>
-
-
-y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
-#y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
-beta,L,dz,p=truth
-
-numeraire='x0'
-
-b0,ce0,d0=estimate_bdce_with_missing_values(y,np.log(dz),return_v=False)
-myce0=ce0.copy()
-cehat=svd_rank1_approximation_with_missing_data(myce0)
-
-rho=pd.concat([ce0.stack(dropna=False),cehat.stack()],axis=1).corr().iloc[0,1]
-
-print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(cehat,ce0)/df_norm(ce0),rho))
-#+end_src
-
 
 ** Persistent =Results=
 It's useful to be able to make a =Result= instance be persistent.
@@ -2235,7 +2135,9 @@ file, using the =xarray= package.
 
       D = xr.open_dataset(fn)
 
-      return D
+      R = Result(data=D)
+
+      return R
 
   def from_shelf(fn):
       import shelve
