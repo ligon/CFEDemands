@@ -847,16 +847,16 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,retu
     if outfn: outf=open(outfn,'a')
 
     delta=1.
-    old=np.array(1)
-    new=np.array(0)
+    old = pd.Series([1]*e.shape[1])
+    new = pd.Series([0]*e.shape[1])
     i=0
     chunksize=2
 
     assert chunksize>=2, "chunksize must be 2 or more."
     while delta>tol or i < minits:
-        delta=np.nanmax(np.abs(old.reshape(-1)-new.reshape(-1)))
+        delta=np.nanmax(np.abs(old.values.reshape(-1)-new.values.reshape(-1)))
         if VERBOSE and i>chunksize: 
-            stat = np.nanmax(np.abs((std0.reshape(-1)-std1.reshape(-1))/std0.reshape(-1)))
+            stat = np.nanmax(np.abs((std0.values.reshape(-1)-std1.values.reshape(-1))/std0.values.reshape(-1)))
             print("Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat))
         old=new
 
@@ -1312,7 +1312,7 @@ print(x.head())
       ce.dropna(how='all',inplace=True)
 
       results['ce']=ce
-      results['d_covariance'] = V
+      results['delta_covariance'] = V
 
       bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
 
@@ -1656,7 +1656,9 @@ def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brown
   demands.
 #+name: characteristics_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-characteristics = lambda N,T,M=1 : lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
+def characteristics(N,T,M=1): 
+    z = lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
+    return z
 #+END_SRC
 
 
@@ -1763,7 +1765,11 @@ prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_b
       beta=Theta.sum('ip') # Row sum of elasticity matrix
 
       l = lambdas(N,T,M)
-      dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim='k')
+      
+      foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
+
+      dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
+
       L = np.reshape(l,(N,T,M)) 
       p = prices(T,M,n)
 
@@ -1854,7 +1860,8 @@ subclasses the =xarray.Dataset= class.
               arrs = dict(logalpha=None, beta=None, delta=None,
                           prices=None,characteristics=None,loglambdas=None,
                           a=None, yhat=None, ce=None,
-                          cehat=None, e=None, d_covariance=None, se=None,
+                          cehat=None, e=None, delta_covariance=None, 
+                          se_delta=None, se_beta=None,
                           y=None,logp=None,z=None)
 
               for k in arrs:
@@ -1928,7 +1935,7 @@ subclasses the =xarray.Dataset= class.
 
               self.__dict__.update(new.__dict__)
 
-          return y 
+          return to_dataframe(self.y.rename({'m':'mkt'}),'i')
 
       def get_reduced_form(self,VERBOSE=False):
           y = self.drop_useless_expenditures() # Returns a dataframe
@@ -1940,8 +1947,8 @@ subclasses the =xarray.Dataset= class.
           self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
           self['delta'] = from_dataframe(d).rename({'level_1':'k'})
           self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
-          self['se'] = from_dataframe(se)
-          self['d_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
+          self['se_delta'] = from_dataframe(se)
+          self['delta_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
 
       def get_loglambdas(self):
           if is_none(self.loglambdas):
@@ -1983,16 +1990,15 @@ subclasses the =xarray.Dataset= class.
               if is_none(self.ce):
                   self.get_reduced_form()
 
-              min_obs = self.attrs['min_xproducts']
               tol = self.attrs['stderr_tol']
               VB = self.attrs['verbose']
 
               ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
 
-              se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,min_obs=min_obs,VERBOSE=VB)[0]
+              se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,VERBOSE=VB)
               self['se_beta'] = from_dataframe(se)
 
-          return se
+          return self['se_beta']
 
       def anova(self):
           """Table analyzing variance of expenditures.
@@ -2213,6 +2219,40 @@ R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=50)
 R.drop_useless_expenditures()
 
 assert len(R.coords['i']<n), "Failed to drop missing items?"
+
+#+END_SRC
+*** Test get_stderrs()
+#+name: test_get_stderrs
+#+begin_src python :results output :var T=1 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
+import cfe
+import numpy as np
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=12
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,1,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+z = parts['characteristics']
+
+R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
+
+R.drop_useless_expenditures()
+
+R.get_beta()
+
+R.get_stderrs()
 
 #+END_SRC
 * Utility Functions
