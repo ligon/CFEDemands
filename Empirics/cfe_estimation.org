@@ -226,7 +226,7 @@ def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
     """Drop columns from pd.DataFrame that lead to missing elements of covariance matrix."""
 
     m,n=X.shape
-    assert(m>n)
+    assert m>n, "Fewer rows than columns."
 
     HasMiss=True
     while HasMiss:
@@ -643,7 +643,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
-#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/estimate_reduced_form.py
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_estimate_reduced_form.py
 from scipy.stats.distributions import chi2
 
 # Tangling may not include :vars from header
@@ -660,16 +660,22 @@ except NameError: # :var inputs not set?
 <<expenditures_dgp>>
 <<estimate_reduced_form>>
 
-x,parts = expenditures(T,N,n,1,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0001,sigma_eps=0.0001)
-x = x.replace({0.:np.nan}) # Zeros to missing
+x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
 
-b,ce,d,V = estimate_reduced_form(np.log(x),np.log(parts['characteristics']),return_v=True)
+x = x.rename({'m':'mkt'}).to_dataframe('x').unstack('i')
+x.columns = x.columns.droplevel(0)
 
-A=np.matrix(np.diag(V.squeeze())).I
-g=np.matrix(d-1)
+z = parts['characteristics'].rename({'m':'mkt'}).to_dataframe('z').unstack('k')
+z.columns = z.columns.droplevel(0)
+z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
 
-J=g.T*A*g
-p=(1 - chi2.cdf(J,len(g)))
+b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)
+
+z2 = ((d-1)/se)**2
+
+J=z2.sum().sum()
+p=(1 - chi2.cdf(J,len(z2)))
 assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
 print(p)
@@ -1293,7 +1299,7 @@ print(x.head())
           y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
           logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
 
-      use_goods=y.columns.tolist()
+      use_goods = y.columns.tolist()
 
       # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
       using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
@@ -1630,12 +1636,16 @@ def geometric_brownian(sigma=1.):
     return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
 
 def lambdabar(T,M,Fbar):
-    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),dims=('t','m'))
+    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
+                        dims=('t','m'),
+                        coords={'t':range(T),'m':range(M)})
 
 def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-    L0=xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'))  # Initial lambdas
-    innov=xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'))
+    L0=xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
+                    coords={'j':range(N),'t':range(T),'m':range(M)})  # Initial lambdas
+    innov=xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
+                    coords={'j':range(N),'t':range(1,T),'m':range(M)})
     L=xr.concat((L0,innov),dim='t').cumprod('t')
     
     # Add aggregate shocks L0:
@@ -1854,7 +1864,11 @@ subclasses the =xarray.Dataset= class.
                       pass
 
               attrs = dict(numeraire=None,firstround=None,
-                            min_proportion_items=1./8,min_xproducts=30)
+                           min_proportion_items=1./8,min_xproducts=30,
+                           useless_expenditures=True,
+                           stderr_tol=0.01,
+                           verbose=False)
+            
               attrs.update(kwargs)
 
               super(Result,self).__init__(data_vars=arrs, attrs=attrs)
@@ -1887,20 +1901,32 @@ subclasses the =xarray.Dataset= class.
                   warnings.warn('No prices for numeraire %s.' % numeraire)
                   self.attrs['numeraire']=None
 
-      def drop_useless_expenditures(self,min_proportion_items=1./8,min_xproducts=30):
-          y = self.y
-          use_goods=y.coords['i'].data
+      def drop_useless_expenditures(self):
+          if self.attrs['useless_expenditures']:
+              y = self.y
+              min_proportion_items = self.attrs['min_proportion_items']
+              min_xproducts = self.attrs['min_xproducts']
 
-          # Convert to pd.DataFrame
-          y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+              use_goods=y.coords['i'].data
 
-          # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-          using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
-          y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+              # Convert to pd.DataFrame
+              y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
 
-          y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-          # Only keep goods with observations in each (t,mkt)
-          y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+              # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+              using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+              y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+
+              y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+              # Only keep goods with observations in each (t,mkt)
+              y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+
+              y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
+
+              new = self.sel(i=y.coords['i'],j=y.coords['j'])
+
+              new.attrs['useless_expenditures'] = False
+
+              self.__dict__.update(new.__dict__)
 
           return y 
 
@@ -1917,10 +1943,12 @@ subclasses the =xarray.Dataset= class.
           self['se'] = from_dataframe(se)
           self['d_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
 
-      def get_loglambdas(self,min_obs=30):
+      def get_loglambdas(self):
           if is_none(self.loglambdas):
               if is_none(self.ce):
                   self.get_reduced_form()
+
+              min_obs = self.attrs['min_xproducts']
 
               ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
 
@@ -1938,44 +1966,49 @@ subclasses the =xarray.Dataset= class.
 
           return self.loglambdas
 
-      def get_beta(self,min_obs=30):
+      def get_beta(self):
           if is_none(self.beta):
-              self.get_loglambdas(min_obs=min_obs)
+              self.get_loglambdas()
 
           return self.beta
 
-      def get_cehat(self,min_obs=30):
+      def get_cehat(self):
           if is_none(self.beta):
-              self.get_loglambdas(min_obs=min_obs)
+              self.get_loglambdas()
 
           return self.cehat
 
-      def anova(self,min_proportion_items=1./8,min_xproducts=30):
+      def get_stderrs(self):
+          if is_none(self.se_beta):
+              if is_none(self.ce):
+                  self.get_reduced_form()
+
+              min_obs = self.attrs['min_xproducts']
+              tol = self.attrs['stderr_tol']
+              VB = self.attrs['verbose']
+
+              ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
+
+              se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,min_obs=min_obs,VERBOSE=VB)[0]
+              self['se_beta'] = from_dataframe(se)
+
+          return se
+
+      def anova(self):
           """Table analyzing variance of expenditures.
-
-          Optional arguments =min_proportion_items= and =min_xproducts=
-          control what expenditures are dropped, without affecting =self.y=.
           """
-
-          try:
-              if is_none(self.a) or is_none(self.delta) or is_none(self.ce):
-                  self.get_reduced_form(min_proportion_items=min_proportion_items,
-                                        min_xproducts=min_xproducts)
-          except AttributeError: # self.a isn't defined, or similar
-              self.get_reduced_form(min_proportion_items=min_proportion_items,
-                                    min_xproducts=min_xproducts)
+          self.get_reduced_form()
 
           miss2nan = self.ce*0
 
           cehat = self.get_cehat()
 
-          y = self.drop_useless_expenditures(min_proportion_items=min_proportion_items,
-                                        min_xproducts=min_xproducts)
+          y = self.drop_useless_expenditures()
 
           df = pd.DataFrame({'Prices':self.a.T.var(ddof=0),
                             'Characteristics':self.z.dot(self.delta.T).var(ddof=0),
                             '$\log\lambda$':(self.cehat + miss2nan).var(ddof=0),
-                            'Residual':(self.ce-self.cehat).var(ddof=0)})
+                            'Residual':(self.ce-self.cehat).var(['j','t','m'],ddof=0)})
 
           df = df.div(y.var(ddof=0),axis=0)
           df['Total var'] = y.var(ddof=0)
@@ -1983,7 +2016,6 @@ subclasses the =xarray.Dataset= class.
           df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
           return df
-
       def get_predicted_log_expenditures(self):
           cehat = self.get_cehat()
           self['yhat'] = cehat + self.z.dot(self.delta) + self.a
@@ -2146,6 +2178,43 @@ file, using the =xarray= package.
           pass
 #+END_SRC
 
+** Tests
+*** Test drop_useless_expenditures()
+#+name: test_drop_useless_expenditures
+#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
+from scipy.stats.distributions import chi2
+import cfe
+import numpy as np
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=6
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+x = x.where(np.random.rand(*x.shape)>0.9,np.nan) # drop most observations
+
+
+z = parts['characteristics']
+
+R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=50)
+
+R.drop_useless_expenditures()
+
+assert len(R.coords['i']<n), "Failed to drop missing items?"
+
+#+END_SRC
 * Utility Functions
 
 #+name: df_utils
