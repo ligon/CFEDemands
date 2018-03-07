@@ -1821,7 +1821,8 @@ subclasses the =xarray.Dataset= class.
               if isinstance(x,str):
                   if len(x)==0: return True
                   else: return False
-              elif np.isscalar(x): return True
+              elif np.isscalar(x): return x is None
+              elif isinstance(x,list): return None in x
               else:
                   raise(TypeError,"Problematic type.")
 
@@ -1846,7 +1847,10 @@ subclasses the =xarray.Dataset= class.
           df.index = df.index.set_names(index_name)
 
       df = pd.DataFrame(df) # Series to dataframe
-      arr = df.stack(df.columns.names).squeeze().to_xarray()
+      if not is_none(df.columns.names):
+          df = df.stack(df.columns.names)
+
+      arr = df.squeeze().to_xarray()
 
       return arr
 
@@ -1945,7 +1949,7 @@ subclasses the =xarray.Dataset= class.
           ce.dropna(how='all',inplace=True)
 
           self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
-          self['delta'] = from_dataframe(d).rename({'level_1':'k'})
+          self['delta'] = from_dataframe(d).to_array('k')
           self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
           self['se_delta'] = from_dataframe(se)
           self['delta_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
@@ -2241,7 +2245,7 @@ except NameError: # :var inputs not set?
 <<expenditures_dgp>>
 <<estimate_reduced_form>>
 
-x,parts = expenditures(N,T,1,n,1,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
+x,parts = expenditures(N,T,1,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
 x = x.where(x>0,np.nan)  # Zeros to missing
 
 z = parts['characteristics']
