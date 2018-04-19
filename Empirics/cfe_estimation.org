@@ -680,7 +680,7 @@ z2 = ((d-1)/se)**2
 
 J=z2.sum().sum()
 p=(1 - chi2.cdf(J,len(z2)))
-assert p > 0.05, "Shouldn't often reject coefficients on characteristics all equal to 1."
+assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1."
 
 print(p)
 #+END_SRC
@@ -1030,7 +1030,7 @@ yhat = broadcast_binary_op(cehat + dz.dot(d.T),lambda x,y: x+y,b.T)
 e=y.sub(yhat)
 
 C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL}).corr()
-print("Correlation of log lambda with estimate (before normalization): %f" % C.iloc[0,1])
+print("Correlation of log lambda with estimate (before normalization): %f" % C.iloc[0])
 
 if not numeraire is None:
     logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
