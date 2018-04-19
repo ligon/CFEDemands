@@ -1030,7 +1030,7 @@ yhat = broadcast_binary_op(cehat + dz.dot(d.T),lambda x,y: x+y,b.T)
 e=y.sub(yhat)
 
 C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL}).corr()
-print("Correlation of log lambda with estimate (before normalization): %f" % C.iloc[0])
+print("Correlation of log lambda with estimate (before normalization): %f" % C.values[0][-1])
 
 if not numeraire is None:
     logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
@@ -1043,7 +1043,7 @@ else:
 print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals with fact that b only identified up to a scalar
 
 C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL}).corr()
-print("Correlation of log lambda with estimate (after normalization): %f" % C.iloc[0,1])
+print("Correlation of log lambda with estimate (after normalization): %f" % C.values[0][-1])
 
 print("Mean of errors:")
 print(e.mean(axis=0))
