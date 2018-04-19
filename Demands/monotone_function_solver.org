@@ -35,6 +35,7 @@ the next point to be evaluated within the interval should be chosen.
 #+name: root_interval
 #+begin_src python :exports code
 from numpy import sign, Inf
+from warnings import warn
 
 def root_interval(f,x,middle,fp=None):
     """
@@ -447,8 +448,13 @@ def root_with_precision(f,axb,tol,open_interval=False,middle=middle):
     else:
         seq=root_interval(f,axb,middle)
     x = next(seq)
+    i=0
     while abs(x[0]-x[-1])>tol:
         x = next(seq)
+        i+=1
+        if i>1000: 
+            warn("Tolerance is set to %.2E.  Change in value is %.2E.  Iterations are %d.  Perhaps tolerance is too high?" % (tol,x[0]-x[-1],i))
+            return x[1]
 
     return x[1]
 #+end_src

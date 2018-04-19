@@ -6,7 +6,7 @@ import sys
 
 setup(
     name='CFEDemands',
-    version='0.1.5.0dev',
+    version='0.1.5.1dev',
     author='Ethan Ligon',
     author_email='ligon@berkeley.edu',
     packages=['cfe',],

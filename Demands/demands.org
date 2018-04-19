@@ -110,7 +110,7 @@ from numpy import array
 
       return f
 
-  def lambdavalue(y,p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
+  def lambdavalue(y,p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision',tol=1e-12):
       """
       Given income y, prices p and preference parameters
       (alpha,beta,phi), find the marginal utility of income lbda.
@@ -131,14 +131,14 @@ from numpy import array
 
       if method=='bisect':
           try:
-              return optimize.bisect(f,1e-20,ub)
+              return optimize.bisect(f,tol,ub)
           except ValueError:
               return lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands,ub=ub*2.0)
       elif method=='newton':
           df = excess_expenditures_derivative(p,alpha,beta,phi)
           return optimize.newton(f,ub/2.,fprime=df)
       elif method=='root_with_precision':
-          return root_with_precision(f,[0,ub,Inf],1e-13,open_interval=True)
+          return root_with_precision(f,[0,ub,Inf],tol,open_interval=True)
       else:
           raise ValueError("Method not defined.")
 

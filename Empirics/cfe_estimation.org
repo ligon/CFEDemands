@@ -573,6 +573,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   DateLocD.index = y.index
 
   sed = pd.DataFrame(columns=y.columns)
+  sea = pd.DataFrame(columns=y.columns)
   a = pd.Series(index=y.columns)
   b = OrderedDict() #pd.DataFrame(index=y.columns)
   d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
@@ -614,6 +615,8 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
           if z.shape[1]:
               V[Item]=arellano_robust_cov(z,ce[Item])
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+              if len(useDateLocs) > 0:
+                  sea[Item] = np.sqrt(mye.groupby(['t','mkt']).var()/np.sqrt(mye.groupby(['t','mkt']).count())).squeeze()
 
       d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
@@ -623,6 +626,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
   b = b.T
   sed = sed.T
+  sea = sea.T
 
   if b.shape[1]==1: # Only a single time-market
     assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
@@ -632,7 +636,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   out = [b.add(a,axis=0),ce,d]
   if return_se:
-      out += [sed]
+      out += [sed,sea]
   if return_v:
       out += [V]
   return out
@@ -670,7 +674,7 @@ z = parts['characteristics'].rename({'m':'mkt'}).to_dataframe('z').unstack('k')
 z.columns = z.columns.droplevel(0)
 z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
 
-b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)
+b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)[:-1]
 
 z2 = ((d-1)/se)**2
 
@@ -983,6 +987,8 @@ def test_artificial_data(T=2,N=50,n=5,k=2):
 #+name: test_estimate_with_missing
 #+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_estimate_with_missing.py :exports none
 import numpy as np
+from cfe.result import to_dataframe
+
 <<estimate_reduced_form>>
 <<artificial_data>>
 <<svd_rank1_approximation_with_missing_data>>
@@ -991,13 +997,13 @@ import numpy as np
 
 y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
 
-y['mkt']=1
-y=y.reset_index().set_index(['j','t','mkt'])
+y = to_dataframe(y.rename({'m':'mkt'}),['j','t','mkt'],'i').T
+#y = y.reset_index().set_index(['j','t','mkt'])
 
 #beta,L,dz,p=truth
-dz=truth['characteristics']
-dz['mkt']=1
-dz=dz.reset_index().set_index(['j','t','mkt'])
+dz = to_dataframe(truth['characteristics'].rename({'m':'mkt'}),['j','t','mkt'],'k').T
+
+#dz=dz.reset_index().set_index(['j','t','mkt'])
 dz=np.log(dz)
 
 numeraire=None #'x0'
@@ -1023,7 +1029,8 @@ yhat = broadcast_binary_op(cehat + dz.dot(d.T),lambda x,y: x+y,b.T)
 
 e=y.sub(yhat)
 
-print("Correlation of log lambda with estimate (before normalization): %f" % pd.DataFrame({"L0":np.log(truth['lambdas'][0]),"Lhat":logL}).corr().iloc[0,1])
+C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL}).corr()
+print("Correlation of log lambda with estimate (before normalization): %f" % C.iloc[0,1])
 
 if not numeraire is None:
     logL=broadcast_binary_op(logL,lambda x,y: x+y,b.loc[numeraire]) # Add term associated with numeraire good
@@ -1035,12 +1042,8 @@ else:
 # Evaluate estimate of beta:
 print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals with fact that b only identified up to a scalar
 
-foo=logL.reset_index('mkt')
-foo['loglambda0']=np.log(truth['lambdas'][0])
-foo=foo.reset_index().set_index(['j','t','mkt'])
-print("Correlation of log lambda with estimate (after normalization):")
-print(foo.groupby(level=['t','mkt']).corr())
-print(foo.corr())
+C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL}).corr()
+print("Correlation of log lambda with estimate (after normalization): %f" % C.iloc[0,1])
 
 print("Mean of errors:")
 print(e.mean(axis=0))
@@ -1048,6 +1051,7 @@ print(e.mean(axis=0))
 def test_mean():
     assert np.abs(e.stack().mean())/e.stack().std() < 1e-2    
 
+test_mean()
 #+end_src
 
 #+results: test_estimate_with_missing
@@ -1126,6 +1130,7 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
     periods = list(set(y.index.get_level_values('t')))
     mkts = list(set(y.index.get_level_values('mkt')))
     sed = pd.DataFrame(columns=y.columns)
+    sea = pd.DataFrame(columns=y.columns)
     a = pd.Series(index=y.columns)
     b = OrderedDict() #pd.DataFrame(index=y.columns)
     d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
@@ -1308,7 +1313,7 @@ print(x.head())
       # Only keep goods with observations in each (t,mkt)
       y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
 
-      a,ce,d,se,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+      a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
       ce.dropna(how='all',inplace=True)
 
       results['ce']=ce
@@ -1396,7 +1401,7 @@ print(x.head())
 
       se.dropna(how='any',inplace=True)
 
-      results['se'] = se
+      results['se'] = sed
       goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
 
       goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
@@ -1643,7 +1648,7 @@ def lambdabar(T,M,Fbar):
 def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
     L0=xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
-                    coords={'j':range(N),'t':range(T),'m':range(M)})  # Initial lambdas
+                    coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
     innov=xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
                     coords={'j':range(N),'t':range(1,T),'m':range(M)})
     L=xr.concat((L0,innov),dim='t').cumprod('t')
@@ -1861,11 +1866,11 @@ subclasses the =xarray.Dataset= class.
               ds = kwargs.pop('data')
               super(Result,self).__init__(ds.variables,attrs=ds.attrs)
           except KeyError:
-              arrs = dict(logalpha=None, beta=None, delta=None,
+              arrs = dict(alpha=None, beta=None, delta=None,
                           prices=None,characteristics=None,loglambdas=None,
                           a=None, yhat=None, ce=None,
                           cehat=None, e=None, delta_covariance=None, 
-                          se_delta=None, se_beta=None,
+                          se_delta=None, se_beta=None, se_a = None,
                           y=None,logp=None,z=None)
 
               for k in arrs:
@@ -1898,8 +1903,8 @@ subclasses the =xarray.Dataset= class.
           elif not is_none(self.logp) and is_none(self.prices):
               self['prices'] = np.exp(self.logp)
 
-          if not is_none(self.beta) and not is_none(self.logalpha):
-              assert(self.logalpha.shape == self.beta.shape)
+          if not is_none(self.beta) and not is_none(self.alpha):
+              assert(self.alpha.shape == self.beta.shape)
 
           if is_none(self.attrs['firstround']) and not is_none(self.y):
               self.attrs['firstround'] = self.y.coords['t'][0].item()
@@ -1945,13 +1950,14 @@ subclasses the =xarray.Dataset= class.
           y = self.drop_useless_expenditures() # Returns a dataframe
           z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
 
-          a,ce,d,se,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+          a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
           ce.dropna(how='all',inplace=True)
 
           self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
           self['delta'] = from_dataframe(d).to_array('k')
           self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
-          self['se_delta'] = from_dataframe(se)
+          self['se_delta'] = from_dataframe(sed)
+          self['se_a'] = from_dataframe(sea).rename({'mkt':'m'})
           self['delta_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
 
       def get_loglambdas(self):
@@ -2013,12 +2019,12 @@ subclasses the =xarray.Dataset= class.
 
           cehat = self.get_cehat()
 
-          y = self.drop_useless_expenditures()
+          y = self.drop_useless_expenditures() # A dataframe
 
-          df = pd.DataFrame({'Prices':self.a.T.var(ddof=0),
-                            'Characteristics':self.z.dot(self.delta.T).var(ddof=0),
-                            '$\log\lambda$':(self.cehat + miss2nan).var(ddof=0),
-                            'Residual':(self.ce-self.cehat).var(['j','t','m'],ddof=0)})
+          df = pd.DataFrame({'Prices':to_dataframe(self.a.var(['t','m'],ddof=0)),
+                            'Characteristics':to_dataframe(self.z.dot(self.delta.T).var(['j','t','m'],ddof=0)),
+                            '$\log\lambda$':to_dataframe((self.cehat + miss2nan).var(['j','t','m'],ddof=0)),
+                            'Residual':to_dataframe((self.ce-self.cehat).var(['j','t','m'],ddof=0))})
 
           df = df.div(y.var(ddof=0),axis=0)
           df['Total var'] = y.var(ddof=0)
@@ -2026,6 +2032,7 @@ subclasses the =xarray.Dataset= class.
           df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
           return df
+
       def get_predicted_log_expenditures(self):
           cehat = self.get_cehat()
           self['yhat'] = cehat + self.z.dot(self.delta) + self.a
@@ -2034,22 +2041,23 @@ subclasses the =xarray.Dataset= class.
 
           return self.yhat
 
-      def get_logalpha(self):
+      def get_alpha(self):
           """Return log of alpha parameters.  These are determined by the first
-          round of data on expenditures.
+          round of data on expenditures, and assumed equal across markets.
           """
           numeraire = self.numeraire
-          if not is_none(self.logalpha):
-              return self.logalpha
+          if not is_none(self.alpha):
+              return self.alpha
           elif numeraire is not None and np.any(self.logp[numeraire] != 0.):
               self.set_numeraire(numeraire=numeraire)
 
           if is_none(self.a):
               self.get_reduced_form()
 
-          self['logalpha'] = self.a[self.firstround].T.mean()
+          self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
+          self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
 
-          return self.logalpha
+          return self.alpha
 
       def set_numeraire(self,new_numeraire=None):
           """Set the numeraire, and adjust units for all relevant prices & expenditures.
@@ -2227,7 +2235,7 @@ assert len(R.coords['i']<n), "Failed to drop missing items?"
 #+END_SRC
 *** Test get_stderrs()
 #+name: test_get_stderrs
-#+begin_src python :results output :var T=1 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
 import cfe
 import numpy as np
 
@@ -2236,7 +2244,7 @@ try:
     N
 except NameError: # :var inputs not set?
     N=5000
-    T=1
+    T=2
     n=12
 
 <<lambdas_dgp>>
@@ -2256,7 +2264,11 @@ R.drop_useless_expenditures()
 
 R.get_beta()
 
+R.get_alpha()
+
 R.get_stderrs()
+
+assert len(R.se_alpha) == len(R.coords['i'])
 
 #+END_SRC
 * Utility Functions
