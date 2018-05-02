@@ -85,7 +85,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
     mratio.sort_values(by=mratio.columns[0],inplace=True)
 
     if VERTICAL:
-        if np.isscalar(VERTICAL):
+        if VERTICAL is not True: # Numeric value supplied
             vertical_scale=VERTICAL
         else:
             vertical_scale=6.
@@ -977,9 +977,11 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001):
 def test_artificial_data(T=2,N=50,n=5,k=2):
     y,truth=artificial_data(T=T,N=N,k=k,n=n,sigma_e=1e-8)
     
-    assert y.shape == (T*N,n)
+    assert y.shape == (N,T,1,n)
     assert truth['characteristics'].shape == (T*N,k)
 #+end_src 
+
+#+results: test_artificial_data
 
 
 *** Tests of estimation with missing data
@@ -1315,6 +1317,7 @@ print(x.head())
 
       a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
       ce.dropna(how='all',inplace=True)
+      se = sed
 
       results['ce']=ce
       results['delta_covariance'] = V
