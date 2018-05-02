@@ -537,7 +537,9 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
       - d : Estimated coefficients associated with characteristics z.
 
-      - se : (Optional, if return_se) Estimated standard errors for coefficients d.
+      - sed : (Optional, if return_se) Estimated standard errors for coefficients d.
+
+      - sea : (Optional, if return_se) Estimated standard errors for coefficients a.
 
       - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
 
