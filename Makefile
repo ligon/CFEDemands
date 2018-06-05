@@ -3,6 +3,7 @@
 tangle: Empirics/cfe_estimation.org
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
 	(cd Demands; ../tangle.sh demands.org)
+	(cd Demands; ../tangle.sh engel_curves.org)
 	(cd Demands; ../tangle.sh monotone_function_solver.org)
 
 test:
