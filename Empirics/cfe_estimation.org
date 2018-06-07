@@ -1811,6 +1811,7 @@ subclasses the =xarray.Dataset= class.
   from . import estimation 
   import xarray as xr
   import warnings
+  from collections import namedtuple
 
   def is_none(x):
       """
@@ -1859,6 +1860,8 @@ subclasses the =xarray.Dataset= class.
 
       return arr
 
+  Indices = namedtuple('Indices',['j','t','m','i','k'])
+
   class Result(xr.Dataset):
 
       def __init__(self,**kwargs):
@@ -1883,6 +1886,7 @@ subclasses the =xarray.Dataset= class.
                            min_proportion_items=1./8,min_xproducts=30,
                            useless_expenditures=True,
                            stderr_tol=0.01,
+                           indices = Indices('j','t','m','i','k'),
                            verbose=False)
             
               attrs.update(kwargs)
@@ -2169,6 +2173,8 @@ file, using the =xarray= package.
                   D[k] = v.stack().to_xarray()
               elif isinstance(v,pd.Panel):
                   D[k] = v.to_frame().stack().to_xarray()
+              elif isinstance(v,set):
+                  D[k] = tuple(v)
               elif v is None: pass
               else:
                   print("Problem type: %s, %s" % (k,type(v)))
@@ -2177,6 +2183,16 @@ file, using the =xarray= package.
               D.to_netcdf(fn)
 
           return D
+
+      def to_pickle(self,fn):
+          """Pickle Result instance in file fn."""
+          import pickle
+        
+          d = self.to_dict()
+          with open(fn,'wb') as f:
+              pickle.dump(d,f)
+
+          return d
 
   def from_dataset(fn):
       """
@@ -2194,6 +2210,19 @@ file, using the =xarray= package.
 
       with shelve.open(fn):
           pass
+
+  def from_pickle(fn):
+      import xarray as xr
+      import pickle
+
+      with open(fn,'rb') as f:
+          X = pickle.load(f)
+
+      D = xr.Dataset.from_dict(X)
+
+      R = Result(data=D)
+
+      return R
 #+END_SRC
 
 ** Tests
