@@ -29,3 +29,5 @@ upload: wheel
 
 clean: 
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
+	-rm -f cfe/requirements.txt
+	-rm -f CHANGES.txt
