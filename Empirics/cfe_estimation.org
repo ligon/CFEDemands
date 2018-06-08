@@ -649,7 +649,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
-#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_estimate_reduced_form.py
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/NOtest_estimate_reduced_form.py
 from scipy.stats.distributions import chi2
 
 # Tangling may not include :vars from header
@@ -980,7 +980,7 @@ def test_artificial_data(T=2,N=50,n=5,k=2):
     y,truth=artificial_data(T=T,N=N,k=k,n=n,sigma_e=1e-8)
     
     assert y.shape == (N,T,1,n)
-    assert truth['characteristics'].shape == (T*N,k)
+    assert truth['characteristics'].shape == (k,N,T,1)
 #+end_src 
 
 #+results: test_artificial_data
