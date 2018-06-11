@@ -1893,6 +1893,7 @@ subclasses the =xarray.Dataset= class.
                       pass
 
               attrs.update(ds.attrs)
+              coords = ds.coords
 
           except KeyError: # Or maybe it's just a tuple of arrays and attributes.
               for k in arrs:
@@ -1902,9 +1903,9 @@ subclasses the =xarray.Dataset= class.
                       pass
 
               attrs.update(kwargs)
+              coords = None
             
-          super(Result,self).__init__(data_vars=arrs, attrs=attrs)
-
+          super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
           if is_none(self.z) and  not is_none(self.characteristics):
               self['z'] = self.characteristics

@@ -96,7 +96,7 @@ pandas == 0.20.3
 scipy == 0.19.1
 
 # dgp.py: 5
-# result.py: 6,416
+# result.py: 6,417
 # test/NOtest_estimate_reduced_form.py: 15
 # test/artificial_data.py: 40
 # test/estimate_reduced_form.py: 18
