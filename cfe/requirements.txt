@@ -11,7 +11,7 @@
 # test/test_estimate_reduced_form.py: 122
 # test/test_estimate_with_missing.py: 10
 # test/test_get_stderrs.py: 123
-cfe == 0.0.15
+CFEDemands == 0.1.5.2.dev0
 
 # engel_curves.py: 12,13
 # estimation.py: 3
@@ -96,7 +96,7 @@ pandas == 0.20.3
 scipy == 0.19.1
 
 # dgp.py: 5
-# result.py: 6,404
+# result.py: 6,416
 # test/NOtest_estimate_reduced_form.py: 15
 # test/artificial_data.py: 40
 # test/estimate_reduced_form.py: 18

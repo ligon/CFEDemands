@@ -682,7 +682,7 @@ z2 = ((d-1)/se)**2
 
 J=z2.sum().sum()
 p=(1 - chi2.cdf(J,len(z2)))
-assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1."
+assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1: (d,se)=(%s,%s)" % (d,se)
 
 print(p)
 #+END_SRC
@@ -1870,33 +1870,40 @@ subclasses the =xarray.Dataset= class.
   class Result(xr.Dataset):
 
       def __init__(self,**kwargs):
-          try:
-              ds = kwargs.pop('data')
-              super(Result,self).__init__(ds.variables,attrs=ds.attrs)
-          except KeyError:
-              arrs = dict(alpha=None, beta=None, delta=None,
-                          prices=None,characteristics=None,loglambdas=None,
-                          a=None, yhat=None, ce=None,
-                          cehat=None, e=None, delta_covariance=None, 
-                          se_delta=None, se_beta=None, se_a = None,
-                          y=None,logp=None,z=None)
+          arrs = dict(alpha=None, beta=None, delta=None,
+                      prices=None,characteristics=None,loglambdas=None,
+                      a=None, yhat=None, ce=None,
+                      cehat=None, e=None, delta_covariance=None, 
+                      se_delta=None, se_beta=None, se_a = None,
+                      y=None,logp=None,z=None,logalpha=None)
 
+          attrs = dict(numeraire=None,firstround=None,
+                       min_proportion_items=1./8,min_xproducts=30,
+                       useless_expenditures=True,
+                       stderr_tol=0.01,
+                       indices = Indices('j','t','m','i','k'),
+                       verbose=False)
+
+          try: # Maybe input is already an xarray.Dataset?
+              ds = kwargs.pop('data')
+              for k in arrs:
+                  try:
+                      arrs[k] = ds.variables[k]
+                  except KeyError:
+                      pass
+
+              attrs.update(ds.attrs)
+
+          except KeyError: # Or maybe it's just a tuple of arrays and attributes.
               for k in arrs:
                   try:
                       arrs[k] = kwargs.pop(k)
                   except KeyError:
                       pass
 
-              attrs = dict(numeraire=None,firstround=None,
-                           min_proportion_items=1./8,min_xproducts=30,
-                           useless_expenditures=True,
-                           stderr_tol=0.01,
-                           indices = Indices('j','t','m','i','k'),
-                           verbose=False)
-            
               attrs.update(kwargs)
-
-              super(Result,self).__init__(data_vars=arrs, attrs=attrs)
+            
+          super(Result,self).__init__(data_vars=arrs, attrs=attrs)
 
 
           if is_none(self.z) and  not is_none(self.characteristics):
@@ -1911,6 +1918,11 @@ subclasses the =xarray.Dataset= class.
               self['logp'] = np.log(self.prices)
           elif not is_none(self.logp) and is_none(self.prices):
               self['prices'] = np.exp(self.logp)
+
+          if is_none(self.logalpha) and not is_none(self.alpha):
+              self['logalpha'] = np.log(self.alpha)
+          elif not is_none(self.logalpha) and is_none(self.alpha):
+              self['alpha'] = np.exp(self.logalpha)
 
           if not is_none(self.beta) and not is_none(self.alpha):
               assert(self.alpha.shape == self.beta.shape)
