@@ -1545,9 +1545,10 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
     return tuple(outputs)
 #+END_SRC
 
+** Test
 
-#+name: test_broadcast_binary_op
-#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/elasticities_equal.py
+#+name: test_elasticities_equal
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/test_elasticities_equal.py
 <<elasticities_equal>>
 
 N = 10000
@@ -1599,10 +1600,11 @@ def Vmom(psi=1.,tol=1e-2):
 
     return next - np.outer(dbar,dbar)
 
-foo = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
-C=covb1b2()
+psi,F,p,crit = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
+#C=covb1b2()
 
-print(foo)
+assert np.abs(psi-2)<0.05, "Value of psi should be about 2"
+assert p>0.01, "Should seldrom reject equality of elasticities."
 #+END_SRC  
 
 * Monte Carlo Data Generating Process
@@ -1809,6 +1811,7 @@ Here we define a class =Result= which offers an consolidated way to
 package data and results described elsewhere in this document; this
 subclasses the =xarray.Dataset= class.
 
+** Main description of =Result=
 #+name: result_class
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
   import numpy as np
@@ -2171,7 +2174,7 @@ subclasses the =xarray.Dataset= class.
           return R
 #+END_SRC
 
-** Persistent =Results=
+** Persistent =Result=
 It's useful to be able to make a =Result= instance be persistent.
 Here we experiment with a way to save a =Result= instance to a
 file, using the =xarray= package.
