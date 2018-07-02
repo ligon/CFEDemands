@@ -1607,6 +1607,157 @@ assert np.abs(psi-2)<0.05, "Value of psi should be about 2"
 assert p>0.01, "Should seldrom reject equality of elasticities."
 #+END_SRC  
 
+* Predicted expenditures
+  To construct unbiased estimates of /levels/ of expenditures---rather
+  than the logarithms that emerge naturally from our estimation---we
+  need to take into account the distribution of error terms.  
+
+  One simple approach is to assume that these error terms are
+  normally distributed, with means and variances allowed to vary by market or
+  period.  This seems to work well in practice, but examining the
+  distribution of estimated residuals to check for gross violations of
+  this distributional assumption is important.
+
+#+name: predicted_expenditures
+#+begin_src python :exports code :tangle ../cfe/estimation.py
+import numpy as np
+
+def predicted_expenditures(yhat,e):
+    """
+    Return levels of predicted expenditures.
+   
+    =yhat= is a dataframe or xarray of predicted log item expenditures, 
+           with columns corresponding to different items.
+       =e= is a dataframe or xarray of the residuals from the estimation which
+           yielded =yhat=.
+    """
+    ebar = e.mean('j')
+    evar = e.var('j')
+
+    x = np.exp(yhat + ebar + evar/2)
+
+    return x
+#+end_src
+
+* Ideal Price Indices
+  Consider the expenditure function for a consumer expressed as a
+  function of \lambda, characteristics $z$ and prices $p$; we write
+  this as $x(\lambda,p,z)$, and interpret this as the expenditures
+  required for a household or consumer with characteristics $z$ facing
+  prices $p$ to achieve a marginal utility of expenditures of \lambda.
+  A function which can be used to compute this is defined in
+  =cfe.demands.expenditures=.
+
+  Now, suppose that prices aren't $p$, but are instead $p'$.  The
+  level of expenditures is now required for the same household or
+  consumer to maintain their same level of \lambda will the
+  $x(\lambda,p',z)$, so the proportional /change/ in expenditures is
+  given by the ideal price index
+  \[ 
+     \frac{x(\lambda,p',z)}{x(\lambda,p,z)} \approx  R(\lambda,z,p',p)
+  = \log x(\lambda,p',z) - \log x(\lambda,p,z).
+  \]
+  This last logarithmic form is particularly convenient for us, as we
+  know the relationship between the log of total expenditures and the
+  log of individual expenditures is given by
+  \[
+     \log x(\lambda,p,z) = \sum_{i=1}^n w_i\log x_i(\lambda,p,z),
+  \]
+  where the $w_i$ are expenditure shares.  
+
+  Recalling that we have 
+  \[
+     \log x_i(\lambda,p,z) = a_i(p) + \delta_i'z - \beta_i\log\lambda + \epsilon_i,
+  \]
+  it follows that 
+  \[
+     log x_i(\lambda,p',z) - \log x_i(\lambda,p,z) = a_i(p') - a_i(p).
+  \]
+  Taking expenditure shares $w_i$ from the data, one can then
+  construct a (log) Laspeyres index from
+  \[
+     R_L = \sum_{i=1}^n w_i(a_i(p') - a_i(p)),
+  \]
+  where the $w_i$ are computed using expenditures chosen when the
+  consumer faces prices $p$.  This will suffer from the usual problems
+  of Laspeyres indices; in particular that by taking $w_i$ to be fixed
+  eliminates consideration of the substitutions consumers would
+  actually make if faced with prices $p'$ rather than $p$.
+
+  But we can easily improve on the Laspeyres index by using the
+  information we have from our estimation of the demand system, which
+  allows us to compute the expenditure shares we'd expect the consumer
+  to have for /any/ factual or counter-factual vector of prices.  The
+  following code defines a function =ideal_index= designed to take as
+  inputs a dataframe or xarray of estimated =a=; in the dataframe case
+  with rows corresponding to goods and columns corresponding to
+  $(t,mkt)$ pairs.  Note that these can be interpreted as log shadow
+  prices.  
+
+#+name: ideal_index
+#+begin_src python :exports code :tangle ../cfe/estimation.py
+  import xarray as xr
+
+  def ideal_index(a,yhat,e):
+      """Return individual ideal price indices for all settings =(t,mkt)=.
+
+      Given log shadow prices =a=, predicted log expenditures =yhat=,
+      and residuals from prediction =e= calculate ideal price indices
+      for each household =j= in each setting.
+      """
+
+      # Subtract relevant actual prices for household;
+      # yhat missing for all but actual setting, missings propagate.
+      yhat = yhat - a
+
+      # Begin by obtaining predicted expenditure shares in null setting.
+
+      xhat = xr.concat([xr.concat([predicted_expenditures(yhat.sel(m=m,t=t),e.sel(m=m,t=t)).dropna('j') for m in yhat.coords['m']],'j') for t in yhat.coords['t']],'t')
+
+      # Now calculate shares; broadcast across settings.
+      w = xhat*np.exp(a)  # Predicted x_i in different settings
+      w = w/w.sum('i')    # Shares in different settings.
+
+      idx = (w*a).sum('i')
+
+      return idx.transpose('j','t','m')
+
+#+end_src
+
+
+** Test
+#+name: test_ideal_index
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_ideal_index.py
+import cfe
+import numpy as np
+
+<<predicted_expenditures>>
+<<ideal_index>>
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=2
+    n=12
+    M=2
+
+x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+z = parts['characteristics']
+
+R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
+
+R.drop_useless_expenditures()
+
+yhat = R.get_predicted_log_expenditures()
+
+pidx = ideal_index(R.a,yhat,R.e)
+
+#+END_SRC
+
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
  data from this to estimate neediness, checking that we can recover
@@ -1640,28 +1791,33 @@ assert p>0.01, "Should seldrom reject equality of elasticities."
 
 #+name: lambdas_dgp
 #+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
-from scipy.stats.distributions import lognorm
-import numpy as np
-import xarray as xr
+  from scipy.stats.distributions import lognorm
+  import numpy as np
+  import xarray as xr
 
-def geometric_brownian(sigma=1.):
-    return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
+  def geometric_brownian(sigma=1.):
+      return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
 
-def lambdabar(T,M,Fbar):
-    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
-                        dims=('t','m'),
-                        coords={'t':range(T),'m':range(M)})
+  def lambdabar(T,M,Fbar):
+      return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
+                          dims=('t','m'),
+                          coords={'t':range(T),'m':range(M)})
 
-def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
+  def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-    L0=xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
-                    coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
-    innov=xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
-                    coords={'j':range(N),'t':range(1,T),'m':range(M)})
-    L=xr.concat((L0,innov),dim='t').cumprod('t')
+      L = []
+      for m in range(M):
+          J = m*N + np.arange(N)
+          L0 = xr.DataArray(G0.rvs(size=(N,1)),dims=('j','t'),
+                            coords={'j':J,'t':range(1)})  # Initial lambdas
+          innov = xr.DataArray(F.rvs(size=(N,T-1)),dims=('j','t'),
+                               coords={'j':J,'t':range(1,T)})
+          L.append(xr.concat((L0,innov),dim='t').cumprod('t'))
+
+      L = xr.concat(L,dim='m').transpose('j','t','m')
     
-    # Add aggregate shocks L0:
-    return L*lambdabar(T,M,Fbar=Fbar)
+      # Add aggregate shocks L0:
+      return L*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
 
   In addition, time-varying household characteristics can affect
@@ -1681,7 +1837,17 @@ def characteristics(N,T,M=1):
     process (so we can re-purpose code for generating \(\lambda\)s here):
 #+name: prices_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.2)).rename({'j':'i'}).transpose('t','m','i')
+def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownian(.2)):
+
+    P0 = xr.DataArray(G0.rvs(size=(n,1,M)),dims=('i','t','m'),
+                      coords={'i':range(n),'t':range(1),'m':range(M)})  # Initial lambdas
+    innov = xr.DataArray(F.rvs(size=(n,T-1,M)),dims=('i','t','m'),
+                               coords={'i':range(n),'t':range(1,T),'m':range(M)})
+
+    P = xr.concat((P0,innov),dim='t').transpose('t','m','i')
+    
+    # Add aggregate shocks L0:
+    return P*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
 
 ** Data-generating process for measurement error
@@ -1710,10 +1876,10 @@ prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_b
       """
 
       def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
-          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
+          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N*M,T,M,n)) + mu_phi,dims=('j','t','m','i'))
 
       def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
-          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
+          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N*M,T,M,n)) + mu_eps),dims=('j','t','m','i'))
 
       phi=additive_error(N,T,M,n,sigma=sigma_phi)
       eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
@@ -1782,7 +1948,7 @@ prices = lambda T,M,n : lambdas(n,T,M,Fbar=geometric_brownian(.05),F=geometric_b
 
       dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
 
-      L = np.reshape(l,(N,T,M)) 
+      L = np.reshape(l,(N*M,T,M)) 
       p = prices(T,M,n)
 
       # Build x in steps
