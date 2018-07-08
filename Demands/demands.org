@@ -53,8 +53,24 @@ from . import frischian
 from . import hicksian
 from . import marshallian
 from ._core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
-from ._utils import derivative
+from ._utils import derivative, check_args
 from numpy import array
+
+def utility(x,alpha,beta,phi):
+    """
+    Direct utility from consumption of x.
+    """
+    n,alpha,beta,phi = check_args(x,alpha,beta,phi)
+
+    U=0
+    for i in range(n):
+        if beta[i]==1:
+            U += alpha[i]*log(x[i]+phi[i])
+        else:
+            U += alpha[i]*((x[i]+phi[i])**(1-1./beta[i])-1)*beta[i]/(beta[i]-1)
+
+    return U
+
 #+END_SRC
    
 * Core routines
