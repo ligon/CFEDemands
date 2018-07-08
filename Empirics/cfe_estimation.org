@@ -1649,61 +1649,32 @@ def predicted_expenditures(yhat,e):
 
   Now, suppose that prices aren't $p$, but are instead $p'$.  The
   level of expenditures is now required for the same household or
-  consumer to maintain their same level of \lambda will the
+  consumer to maintain their same level of \lambda will be
   $x(\lambda,p',z)$, so the proportional /change/ in expenditures is
-  given by the exact price index
+  given by the price index
   \[ 
-     \frac{x(\lambda,p',z)}{x(\lambda,p,z)} \approx  R(\lambda,z,p',p)
-  = \log x(\lambda,p',z) - \log x(\lambda,p,z).
+     R(\lambda,z,p',p) = \frac{x(\lambda,p',z)}{x(\lambda,p,z)}.
   \]
-  This last logarithmic form is particularly convenient for us, as we
-  know the relationship between the log of total expenditures and the
-  log of individual expenditures is given by
-  \[
-     \log x(\lambda,p,z) = \sum_{i=1}^n w_i(p,\lambda)\log x_i(\lambda,p,z),
-  \]
-  where the $w_i(\lambda,p)$ are expenditure shares for a consumer
-  with marginal utility of expenditures \lambda facing prices $p$.
+  Since the expenditure functions correspond to the CFE utility
+  functions, we say that the index $R$ is /exact/ for CFE utility.
+  Note that since CFE generalized Constant Elasticity of Substitution
+  (CES) utility, $R$ also generalizes the index which is exact for CES
+  described by cite:feenstra94. 
 
-  Recalling that we have 
-  \[
-     \log x_i(\lambda,p,z) = a_i(p) + \delta_i'z - \beta_i\log\lambda + \epsilon_i,
-  \]
-  it follows that 
-  \[
-     log x_i(\lambda,p',z) - \log x_i(\lambda,p,z) = a_i(p') - a_i(p).
-  \]
-  Taking expenditure shares $w_i$ from the data, one can then
-  construct a (log) Laspeyres index from
-  \[
-     R_L = \sum_{i=1}^n \left[w_i(\lambda,p)a_i(p') - w_i(\lambda,p)a_i(p)\right],
-  \]
-  where the $w_i$ are computed using expenditures chosen when the
-  consumer faces prices $p$.  This will suffer from the usual problems
-  of Laspeyres indices; in particular that by taking $w_i$ to be fixed
-  eliminates consideration of the substitutions consumers would
-  actually make if faced with prices $p'$ rather than $p$.
-
-  But we can easily improve on the Laspeyres index by using the
-  information we have from our estimation of the demand system, which
-  allows us to compute the expenditure shares we'd expect the consumer
-  to have for /any/ factual or counter-factual vector of prices.  This
-  /exact/ index takes the form
-  \[
-     R^* = \sum_{i=1}^n \left[w_i(\lambda,p')a_i(p') - w_i(\lambda,p)a_i(p)\right].
-  \]
-  The following code defines a function =exact_index= designed to take as
-  inputs a dataframe or xarray of estimated =a=; in the dataframe case
-  with rows corresponding to goods and columns corresponding to
-  $(t,mkt)$ pairs.  Note that these can be interpreted as log shadow
-  prices.  
+  The following code defines a function =exact_index= designed to take
+  three inputs, each either supplied as a =pd.dataframe= or an
+  =xr.DataArray=.  In the dataframe case with rows corresponding to
+  goods and columns corresponding to $(t,mkt)$ pairs: First, estimated
+  =a=, noting that these can be interpreted as log shadow prices.
+  Second, predicted log item expenditures =yhat=; and third the
+  residuals =e= associated with the prediction.
 
 #+name: exact_index
 #+begin_src python :exports code :tangle ../cfe/estimation.py
   import xarray as xr
   import pandas as pd
 
-  def exact_index(a,yhat,e,j=None,s=None):
+  def exact_index(a,yhat,e):
       """Return individual exact price indices for each household in all settings.
 
       Given log shadow prices =a=, predicted log expenditures =yhat=,
@@ -2089,7 +2060,7 @@ subclasses the =xarray.Dataset= class.
 
               attrs.update(kwargs)
               coords = None
-            
+
           super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
           if is_none(self.z) and  not is_none(self.characteristics):
@@ -2297,6 +2268,16 @@ subclasses the =xarray.Dataset= class.
           except (AttributeError,TypeError):
               pass
 
+      def exact_index():
+          """Household-specific exact price index.
+
+          For a household j observed at (t,m)=(t0,m0) computes
+          proportional change in total expenditures required to keep
+          \lambda constant across all observed settings (t,m).
+          """
+          R = estimation.exact_index(self.a,self.yhat,self.e)
+
+          return R
 
       def set_barloglambda_t():
           # FIXME: Issue here with dividing by a random variable.  What
