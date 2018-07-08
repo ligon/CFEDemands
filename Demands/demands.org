@@ -23,11 +23,19 @@ Dependencies:
      - hicksian
      - marshallian
      - _core.lambdavalue
+     - _core.relative_risk_aversion
+     - _core.excess_expenditures
+     - _core.excess_expenditures_derivative
+     - _core.excess_utility
+     - _core.lambdaforU
+     - _core.expenditures
      - _utils.derivative
      - numpy.log
+     - numpy.array
  - _core :: 
      - frischian 
      - hicksian.expenditures 
+     - marshallian.demand
      - _utils.check_args
  - _utils ::
      - root_with_precision
@@ -55,7 +63,7 @@ from numpy import array
   from . import frischian
   from ._utils import check_args, derivative
   import warnings
-  from numpy import nan, Inf
+  from numpy import nan, Inf, array
   from .root_with_precision import root_with_precision
 
   def excess_expenditures(y,p,alpha,beta,phi,NegativeDemands=True):
@@ -171,11 +179,13 @@ from numpy import array
 
       return expenditurefunction(U,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
 
-  def relative_risk_aversion(p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
+  def relative_risk_aversion0(p,alpha,beta,phi,NegativeDemands=True,ub=10,method='root_with_precision'):
       """
       Generates function describing (minus) elasticity of lambda w.r.t. expenditures x.
 
       NB: This is also relative risk aversion.
+
+      DEPRECATED: This replaced by more analytical solution, _core.relative_risk_aversion.
       """
       n,alpha,beta,phi = check_args(p,alpha,beta,phi)
 
@@ -186,7 +196,29 @@ from numpy import array
           return -dl(x)/lmbda(x)*x
 
       return rra
+
+  def relative_risk_aversion(p,alpha,beta,phi,NegativeDemands=True):
+      """
+      Generates function describing (minus) elasticity of lambda w.r.t. expenditures x.
+
+      NB: This is also relative risk aversion.
+      """
+      from .marshallian import demands as mdemands
+      
+      n,alpha,beta,phi = check_args(p,alpha,beta,phi)
+
+      def rra(x):
+          return x/(array(mdemands(x,p,alpha,beta,phi,NegativeDemands=NegativeDemands))*p).dot(beta)
+
+      return rra
+
+
 #+END_SRC
+
+** Test of RRA
+#+begin_src python
+  
+#+end_src
 
 * Utility and optimization routines
 #+name: demand_utils
