@@ -10,8 +10,7 @@
 #+LATEX_HEADER: \newcommand{\Cov}{\ensuremath{\mbox{Cov}}}
 #+LATEX_HEADER: \newcommand{\Eq}[1]{(\ref{eq:#1})}
 #+LATEX_HEADER: \newcommand{\Fig}[1]{Figure \ref{fig:#1}} \newcommand{\Tab}[1]{Table \ref{tab:#1}}
-#+LATEX_HEADER: \addbibresource{main.bib}\renewcommand{\refname}{}
-#+LATEX_HEADER: \addbibresource{ligon.bib}
+#+LATEX_HEADER: \renewcommand{\refname}{}
 #+LATEX_HEADER: \usepackage{stringstrings}\renewcommand{\cite}[1]{\caselower[q]{#1}\citet{\thestring}}
 :END:
 * Introduction
@@ -1639,7 +1638,7 @@ def predicted_expenditures(yhat,e):
     return x
 #+end_src
 
-* Ideal Price Indices
+* Exact Price Indices
   Consider the expenditure function for a consumer expressed as a
   function of \lambda, characteristics $z$ and prices $p$; we write
   this as $x(\lambda,p,z)$, and interpret this as the expenditures
@@ -1652,7 +1651,7 @@ def predicted_expenditures(yhat,e):
   level of expenditures is now required for the same household or
   consumer to maintain their same level of \lambda will the
   $x(\lambda,p',z)$, so the proportional /change/ in expenditures is
-  given by the ideal price index
+  given by the exact price index
   \[ 
      \frac{x(\lambda,p',z)}{x(\lambda,p,z)} \approx  R(\lambda,z,p',p)
   = \log x(\lambda,p',z) - \log x(\lambda,p,z).
@@ -1661,9 +1660,10 @@ def predicted_expenditures(yhat,e):
   know the relationship between the log of total expenditures and the
   log of individual expenditures is given by
   \[
-     \log x(\lambda,p,z) = \sum_{i=1}^n w_i\log x_i(\lambda,p,z),
+     \log x(\lambda,p,z) = \sum_{i=1}^n w_i(p,\lambda)\log x_i(\lambda,p,z),
   \]
-  where the $w_i$ are expenditure shares.  
+  where the $w_i(\lambda,p)$ are expenditure shares for a consumer
+  with marginal utility of expenditures \lambda facing prices $p$.
 
   Recalling that we have 
   \[
@@ -1676,7 +1676,7 @@ def predicted_expenditures(yhat,e):
   Taking expenditure shares $w_i$ from the data, one can then
   construct a (log) Laspeyres index from
   \[
-     R_L = \sum_{i=1}^n w_i(a_i(p') - a_i(p)),
+     R_L = \sum_{i=1}^n \left[w_i(\lambda,p)a_i(p') - w_i(\lambda,p)a_i(p)\right],
   \]
   where the $w_i$ are computed using expenditures chosen when the
   consumer faces prices $p$.  This will suffer from the usual problems
@@ -1687,52 +1687,64 @@ def predicted_expenditures(yhat,e):
   But we can easily improve on the Laspeyres index by using the
   information we have from our estimation of the demand system, which
   allows us to compute the expenditure shares we'd expect the consumer
-  to have for /any/ factual or counter-factual vector of prices.  The
-  following code defines a function =ideal_index= designed to take as
+  to have for /any/ factual or counter-factual vector of prices.  This
+  /exact/ index takes the form
+  \[
+     R^* = \sum_{i=1}^n \left[w_i(\lambda,p')a_i(p') - w_i(\lambda,p)a_i(p)\right].
+  \]
+  The following code defines a function =exact_index= designed to take as
   inputs a dataframe or xarray of estimated =a=; in the dataframe case
   with rows corresponding to goods and columns corresponding to
   $(t,mkt)$ pairs.  Note that these can be interpreted as log shadow
   prices.  
 
-#+name: ideal_index
+#+name: exact_index
 #+begin_src python :exports code :tangle ../cfe/estimation.py
   import xarray as xr
+  import pandas as pd
 
-  def ideal_index(a,yhat,e):
-      """Return individual ideal price indices for all settings =(t,mkt)=.
+  def exact_index(a,yhat,e,j=None,s=None):
+      """Return individual exact price indices for each household in all settings.
 
       Given log shadow prices =a=, predicted log expenditures =yhat=,
-      and residuals from prediction =e= calculate ideal price indices
+      and residuals from prediction =e= calculate exact price indices
       for each household =j= in each setting.
+
+      A "setting" is a pair (t,m).  To get the price index for a
+      household j=0 observed at (t0,m0)=(1,2) for the counterfactual
+      setting (t,m)=(1,0) one can use something like
+      R.sel(j=0,t0=1,m0=2,t=1,m=0).
+
+      Ethan Ligon                                                 July 2018
       """
 
+      # Begin by obtaining predicted expenditure shares in null setting.
       # Subtract relevant actual prices for household;
       # yhat missing for all but actual setting, missings propagate.
-      yhat = yhat - a
+      x0 = predicted_expenditures(yhat - a,e)
 
-      # Begin by obtaining predicted expenditure shares in null setting.
+      # (t0,m0) is 'home' setting
+      x0 = x0.rename({'t':'t0','m':'m0'}) 
 
-      xhat = xr.concat([xr.concat([predicted_expenditures(yhat.sel(m=m,t=t),e.sel(m=m,t=t)).dropna('j') for m in yhat.coords['m']],'j') for t in yhat.coords['t']],'t')
+      xsum = x0*np.exp(a)    # Predicted x_i in different settings (t,m)
+                             # for households in every setting (t0,m0).
 
-      # Now calculate shares; broadcast across settings.
-      w = xhat*np.exp(a)  # Predicted x_i in different settings
-      w = w/w.sum('i')    # Shares in different settings.
+      pidx = xsum.sum('i')   # Total expenditures in different settings.
 
-      idx = (w*a).sum('i')
+      R=pidx/pidx.sel(t0=pidx.coords['t'],t=pidx.coords['t'],m0=pidx.coords['m'],m=pidx.coords['m'])
 
-      return idx.transpose('j','t','m')
-
+      return R.transpose('j','t0','m0','t','m')
 #+end_src
 
 
 ** Test
-#+name: test_ideal_index
-#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_ideal_index.py
+#+name: test_exact_index
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_exact_index.py
 import cfe
 import numpy as np
 
 <<predicted_expenditures>>
-<<ideal_index>>
+<<exact_index>>
 
 # Tangling may not include :vars from header
 try: 
@@ -1743,7 +1755,11 @@ except NameError: # :var inputs not set?
     n=12
     M=2
 
-x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
+p = cfe.dgp.prices(T,M,n)
+for s in range(1,T):  # Just scale prices over time by constant
+    p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
+ 
+x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
 x = x.where(x>0,np.nan)  # Zeros to missing
 
 z = parts['characteristics']
@@ -1754,7 +1770,7 @@ R.drop_useless_expenditures()
 
 yhat = R.get_predicted_log_expenditures()
 
-pidx = ideal_index(R.a,yhat,R.e)
+pidx = exact_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
 
 #+END_SRC
 
@@ -1805,18 +1821,14 @@ pidx = ideal_index(R.a,yhat,R.e)
 
   def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-      L = []
-      for m in range(M):
-          J = m*N + np.arange(N)
-          L0 = xr.DataArray(G0.rvs(size=(N,1)),dims=('j','t'),
-                            coords={'j':J,'t':range(1)})  # Initial lambdas
-          innov = xr.DataArray(F.rvs(size=(N,T-1)),dims=('j','t'),
-                               coords={'j':J,'t':range(1,T)})
-          L.append(xr.concat((L0,innov),dim='t').cumprod('t'))
+      L0 = xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
+                      coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
+      innov = xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
+                               coords={'j':range(N),'t':range(1,T),'m':range(M)})
 
-      L = xr.concat(L,dim='m').transpose('j','t','m')
+      L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
     
-      # Add aggregate shocks L0:
+      # Add aggregate shocks Lbar:
       return L*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
 
@@ -1876,10 +1888,10 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
       """
 
       def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
-          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N*M,T,M,n)) + mu_phi,dims=('j','t','m','i'))
+          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
 
       def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
-          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N*M,T,M,n)) + mu_eps),dims=('j','t','m','i'))
+          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
 
       phi=additive_error(N,T,M,n,sigma=sigma_phi)
       eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
@@ -1915,7 +1927,7 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
   <<measurement_error_dgp>>
 
-  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.):
+  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=None):
       """Generate artificial expenditures for $N$ households in $M$ markets
       over $T$ periods on $n$ items.  Return dataframe of expenditures
       and a dictionary of "true" underlying variables, the latter as
@@ -1932,6 +1944,8 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
       multiplicative log-normal error process, with (log) mean =mu_eps=
       and (log) standard deviation =sigma_eps=.
 
+      An optional xarray of prices =p= can also be provided.
+
       Ethan Ligon                                                     January 2018
       """
 
@@ -1942,14 +1956,16 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
 
       beta=Theta.sum('ip') # Row sum of elasticity matrix
 
-      l = lambdas(N,T,M)
+      l = lambdas(N,T,M,Fbar=geometric_brownian(.001))
       
       foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
 
       dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
 
-      L = np.reshape(l,(N*M,T,M)) 
-      p = prices(T,M,n)
+      L = np.reshape(l,(N,T,M)) 
+      
+      if p is None:
+          p = prices(T,M,n)
 
       # Build x in steps
       #x = np.kron(np.log(L),-beta)
