@@ -54,7 +54,7 @@ from . import hicksian
 from . import marshallian
 from ._core import lambdavalue, relative_risk_aversion, excess_expenditures, excess_expenditures_derivative, excess_utility, lambdaforU, expenditures
 from ._utils import derivative, check_args
-from numpy import array
+from numpy import array, log
 
 def utility(x,alpha,beta,phi):
     """
@@ -71,6 +71,18 @@ def utility(x,alpha,beta,phi):
 
     return U
 
+def marginal_utilities(x,alpha,beta,phi):
+    """
+    Marginal utilities from consumption of x.
+    """
+    n,alpha,beta,phi = check_args(x,alpha,beta,phi)
+
+    MU=[]
+    for i in range(n):
+        MU += [alpha[i]*((x[i]+phi[i])**(-1./beta[i]))]
+
+    return MU
+    
 #+END_SRC
    
 * Core routines
