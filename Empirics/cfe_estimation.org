@@ -1978,8 +1978,11 @@ subclasses the =xarray.Dataset= class.
       """
       Tests for None in an array x.
       """
-      if np.any(np.equal(x,None)):
-          return True
+      try:
+          if np.any(np.equal(x,None)):
+              return True
+      except TypeError:
+          return is_none(x.data)
       else:
           try:
               if len(x.shape)==0:
