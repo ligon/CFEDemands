@@ -274,7 +274,7 @@ def svd_missing(A,max_rank=None,min_obs=None):
 
     v=np.zeros((len(s),A.shape[1]))
     for j in range(A.shape[1]):
-        a=A.iloc[:,j].as_matrix().reshape((-1,1))
+        a=A.iloc[:,j].values.reshape((-1,1))
         x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
         if len(x)>=r:
             v[:,j]=(np.linalg.pinv(us[x,:])*a[x]).reshape(-1)
@@ -530,7 +530,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
             Columns are different characteristics, indexed by l.
 
   Outputs:
-      - a : Estimated good-time-market fixed effects; will sum to  zero.
+      - a : Estimated good-time-market fixed effects.
 
       - ce : Residuals (can be provided as an input to get_log_lambdas()).
 
@@ -576,10 +576,10 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   sed = pd.DataFrame(columns=y.columns)
   sea = pd.DataFrame(columns=y.columns)
   a = pd.Series(index=y.columns)
-  b = OrderedDict() #pd.DataFrame(index=y.columns)
-  d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
+  b = OrderedDict() 
+  d = OrderedDict() 
   ce = pd.DataFrame(index=y.index,columns=y.columns)
-  V = pd.Panel(items=y.columns,major_axis=z.columns,minor_axis=z.columns)
+  V = OrderedDict()
 
   for i,Item in enumerate(y.columns):
       if VERBOSE: print(Item)
@@ -639,6 +639,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   if return_se:
       out += [sed,sea]
   if return_v:
+      V = xr.Dataset(V).to_array(dim='i')
       out += [V]
   return out
 #+END_SRC
@@ -753,6 +754,196 @@ assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 #+END_SRC
 
 
+
+* Simple reduced form
+
+    This code takes as input time-varying household-level data on log
+    expenditures and characteristics, and takes data defining
+    markets.  Estimation proceeds by regressing log expenditures on
+    characteristics and a good-specific constant.
+
+#+name: simple_reduced_form
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
+  import xarray as xr
+  import warnings
+  import sys
+  from collections import OrderedDict
+  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices, df_norm, to_dataframe, is_none, from_dataframe
+
+  def simple_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
+    """Estimate reduced-form CFE expenditure system.
+
+    Inputs:
+        - y : xarray of log expenditures with coordinates (i,j,t,m), 
+              where j indexes the household, t the period, and m the market.  
+              Different expenditure items are indexed by i.
+
+        - z : xarray of household characteristics; coordinates are (k,j,t,m),
+              with different characteristics indexed by k.
+
+    Outputs: 
+        - d : Estimated coefficients associated with characteristics z
+              (and good-specific constants).
+
+        - ce : Residuals (can be provided as an input to get_log_lambdas()).
+
+        - V : (Optional, if return_V) Estimated covariance matrix of coefficients.
+
+        - se : (Optional, if return_se) Estimated standard error of coefficients.
+
+    Ethan Ligon                                            July 2018
+    """
+
+    b = OrderedDict()
+    ce = OrderedDict()
+    V = OrderedDict()
+    se = OrderedDict()
+
+    constant = 1+0*z[0]
+    constant.coords['k'] = 'Constant'
+
+    myz = xr.concat([constant,z],'k')
+    rhs = to_dataframe(myz,column_index='k')
+
+    for i,Item in enumerate(y.coords['i'].values):
+        if VERBOSE: print(Item)
+
+        lhs = to_dataframe(y.sel(i=Item,drop=True)).loc[rhs.index].dropna()
+        X = rhs.loc[lhs.index,:]
+
+        # Estimate d & b
+        myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True) 
+
+        b[Item] = myb.T.squeeze().to_xarray()
+
+        ce[Item]=mye.squeeze().to_xarray()
+
+        if return_v or return_se:
+            V[Item]=arellano_robust_cov(X,mye,clusterby=['t','m'])
+            se[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
+
+    b = xr.Dataset(b).to_array(dim='i')
+    ce = xr.concat(ce.values(),dim='i')
+    ce.coords['i'] = b.coords['i']
+
+    out = [b,ce]
+    if return_se:
+        se = xr.Dataset(se).to_array(dim='i')
+        out += [se]
+    if return_v:
+        V = xr.Dataset(V).to_array(dim='i')
+        out += [V]
+    return out
+#+END_SRC
+
+** Test
+   If we use a set of fixed parameters to generate artificial data, we
+   should be able to recover some of these parameters from =estimate_reduced_form=.
+   Below we construct a simple test of this.
+#+name: test_estimate_reduced_form
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/NOtest_estimate_reduced_form.py
+from scipy.stats.distributions import chi2
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=6
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+x = x.rename({'m':'mkt'}).to_dataframe('x').unstack('i')
+x.columns = x.columns.droplevel(0)
+
+z = parts['characteristics'].rename({'m':'mkt'}).to_dataframe('z').unstack('k')
+z.columns = z.columns.droplevel(0)
+z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
+
+b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)[:-1]
+
+z2 = ((d-1)/se)**2
+
+J=z2.sum().sum()
+p=(1 - chi2.cdf(J,len(z2)))
+assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1: (d,se)=(%s,%s)" % (d,se)
+
+print(p)
+#+END_SRC
+
+#+results: test_estimate_reduced_form
+: [[ 0.82896109]]
+
+The preceding creates a random sample with  known parameters =d=;
+estimates of =d= should all be equal to 1 in expectation.  We
+construct a statistic =J= which should be asymptotically distributed
+$\chi^2$.  The code below resamples to  determine whether in fact we
+match the correct distribution.  We construct  a =pp_plot= which
+should deliver a line close to 45 degrees if all is well.
+
+#+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
+import pylab as pl
+
+# Tangling may not include :vars from header
+try: 
+    DRAWS
+except NameError: # :var inputs not set?
+    DRAWS = 200
+
+T=1
+N=1000
+n=6
+
+def empirical_cdf(x):
+    """
+    Return the empirical cdf of a univariate vector or series x.
+    """
+    x=np.array(x)
+
+    return lambda p: (x<p).mean()
+
+def pp_plot(F,G,interval=(0,1),npts=100):
+    """
+    Construct p-p plot of cdf F vs CDF G.
+    """
+    Q=np.linspace(interval[0],interval[1],npts)
+    xy=[]
+    for q in Q:
+        xy.append([F(q),G(q)])
+
+    xy=np.array(xy)
+    ax=pl.plot(xy[:,0],xy[:,1])
+
+    return xy
+
+Jay=[]
+Dee=[]
+Vee=[]
+for i in range(DRAWS):
+    <<test_estimate_reduced_form>>
+    Dee.append(d.as_matrix().squeeze().tolist())
+    Jay.append(J[0,0])
+    Vee.append(V.squeeze().as_matrix().tolist())
+
+Dee=np.array(Dee)
+Jay=np.array(Jay)
+Vee=np.array(Vee)
+
+F=empirical_cdf(Jay)
+G=lambda x: chi2.cdf(x,len(g))
+
+xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
+
+assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
+#+END_SRC
 
 
 * Extraction of Frisch Elasticities and Neediness
@@ -1017,7 +1208,7 @@ y.as_matrix()[np.random.random_sample(y.shape)<0.0]=np.nan
 y.replace(-np.inf,np.nan,inplace=True)
 
 #b,ce,d,V=estimate_bdce_with_missing_values(y,dz,return_v=True)
-b,ce,d=estimate_reduced_form(y,dz,return_v=False)
+b,ce,d = estimate_reduced_form(y,dz,return_v=False)
 
 bphi,logL=get_loglambdas(ce,TEST=True)
 cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
@@ -1638,7 +1829,7 @@ def predicted_expenditures(yhat,e):
     return x
 #+end_src
 
-* Exact Price Indices
+* Price Indices
   Consider the expenditure function for a consumer expressed as a
   function of \lambda, characteristics $z$ and prices $p$; we write
   this as $x(\lambda,p,z)$, and interpret this as the expenditures
@@ -1647,6 +1838,7 @@ def predicted_expenditures(yhat,e):
   A function which can be used to compute this is defined in
   =cfe.demands.expenditures=.
 
+** Optimal price indices
   Now, suppose that prices aren't $p$, but are instead $p'$.  The
   level of expenditures is now required for the same household or
   consumer to maintain their same level of \lambda will be
@@ -1656,12 +1848,12 @@ def predicted_expenditures(yhat,e):
      R(\lambda,z,p',p) = \frac{x(\lambda,p',z)}{x(\lambda,p,z)}.
   \]
   Since the expenditure functions correspond to the CFE utility
-  functions, we say that the index $R$ is /exact/ for CFE utility.
+  functions, we say that the index $R$ is /optimal/ for CFE utility.
   Note that since CFE generalized Constant Elasticity of Substitution
-  (CES) utility, $R$ also generalizes the index which is exact for CES
+  (CES) utility, $R$ also generalizes the index which is optimal for CES
   described by cite:feenstra94. 
 
-  The following code defines a function =exact_index= designed to take
+  The following code defines a function =optimal_index= designed to take
   three inputs, each either supplied as a =pd.dataframe= or an
   =xr.DataArray=.  In the dataframe case with rows corresponding to
   goods and columns corresponding to $(t,mkt)$ pairs: First, estimated
@@ -1669,16 +1861,16 @@ def predicted_expenditures(yhat,e):
   Second, predicted log item expenditures =yhat=; and third the
   residuals =e= associated with the prediction.
 
-#+name: exact_index
+#+name: optimal_index
 #+begin_src python :exports code :tangle ../cfe/estimation.py
   import xarray as xr
   import pandas as pd
 
-  def exact_index(a,yhat,e):
-      """Return individual exact price indices for each household in all settings.
+  def optimal_index(a,yhat,e):
+      """Return individual optimal price indices for each household in all settings.
 
       Given log shadow prices =a=, predicted log expenditures =yhat=,
-      and residuals from prediction =e= calculate exact price indices
+      and residuals from prediction =e= calculate optimal price indices
       for each household =j= in each setting.
 
       A "setting" is a pair (t,m).  To get the price index for a
@@ -1708,42 +1900,42 @@ def predicted_expenditures(yhat,e):
 #+end_src
 
 
-** Test
-#+name: test_exact_index
-#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_exact_index.py
-import cfe
-import numpy as np
+*** Test
+ #+name: test_optimal_index
+ #+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_optimal_index.py
+ import cfe
+ import numpy as np
 
-<<predicted_expenditures>>
-<<exact_index>>
+ <<predicted_expenditures>>
+ <<optimal_index>>
 
-# Tangling may not include :vars from header
-try: 
-    N
-except NameError: # :var inputs not set?
-    N=5000
-    T=2
-    n=12
-    M=2
+ # Tangling may not include :vars from header
+ try: 
+     N
+ except NameError: # :var inputs not set?
+     N=5000
+     T=2
+     n=12
+     M=2
 
-p = cfe.dgp.prices(T,M,n)
-for s in range(1,T):  # Just scale prices over time by constant
-    p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
+ p = cfe.dgp.prices(T,M,n)
+ for s in range(1,T):  # Just scale prices over time by constant
+     p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
  
-x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
-x = x.where(x>0,np.nan)  # Zeros to missing
+ x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
+ x = x.where(x>0,np.nan)  # Zeros to missing
 
-z = parts['characteristics']
+ z = parts['characteristics']
 
-R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
+ R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
 
-R.drop_useless_expenditures()
+ R.drop_useless_expenditures()
 
-yhat = R.get_predicted_log_expenditures()
+ yhat = R.get_predicted_log_expenditures()
 
-pidx = exact_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
+ pidx = optimal_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
 
-#+END_SRC
+ #+END_SRC
 
 * Monte Carlo Data Generating Process
  Here we construct a simple data-generating process, and then use
@@ -1898,7 +2090,7 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
   <<measurement_error_dgp>>
 
-  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=None):
+  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None):
       """Generate artificial expenditures for $N$ households in $M$ markets
       over $T$ periods on $n$ items.  Return dataframe of expenditures
       and a dictionary of "true" underlying variables, the latter as
@@ -1927,7 +2119,7 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
 
       beta=Theta.sum('ip') # Row sum of elasticity matrix
 
-      l = lambdas(N,T,M,Fbar=geometric_brownian(.001))
+      l = lambdas(N,T,M,Fbar=Fbar)
       
       foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
 
@@ -1973,60 +2165,16 @@ subclasses the =xarray.Dataset= class.
   import xarray as xr
   import warnings
   from collections import namedtuple
+  from cfe.df_utils import to_dataframe, is_none, from_dataframe
 
-  def is_none(x):
-      """
-      Tests for None in an array x.
-      """
-      try:
-          if np.any(np.equal(x,None)):
-              return True
-      except TypeError:
-          return is_none(x.data)
-      else:
-          try:
-              if len(x.shape)==0:
-                  return True
-          except AttributeError:
-              if isinstance(x,str):
-                  if len(x)==0: return True
-                  else: return False
-              elif np.isscalar(x): return x is None
-              elif isinstance(x,list): return None in x
-              else:
-                  raise(TypeError,"Problematic type.")
-
-  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
-      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
-      """
-      df = arr.to_dataframe('foo').squeeze()
-
-      if column_index is not None:
-          df = df.unstack(column_index)
-
-      if dropna_all:
-          df.dropna(how='all',inplace=True)
-
-      df.name = name
-      return df
-
-  def from_dataframe(df,index_name=None):
-      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
-      """
-      if index_name is not None:
-          df.index = df.index.set_names(index_name)
-
-      df = pd.DataFrame(df) # Series to dataframe
-      if not is_none(df.columns.names):
-          df = df.stack(df.columns.names)
-
-      arr = df.squeeze().to_xarray()
-
-      return arr
 
   Indices = namedtuple('Indices',['j','t','m','i','k'])
 
   class Result(xr.Dataset):
+
+      """A class which packages together data and results for the CFE demand system.
+      
+      """
 
       def __init__(self,**kwargs):
           arrs = dict(alpha=None, beta=None, delta=None,
@@ -2135,12 +2283,36 @@ subclasses the =xarray.Dataset= class.
           ce.dropna(how='all',inplace=True)
 
           self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
-          self['delta'] = from_dataframe(d).to_array('k')
+          try:
+              self['delta'] = from_dataframe(d).to_array('k')
+          except AttributeError:
+              d.columns.name = 'k'
+              foo = from_dataframe(d)
+              self['delta'] = foo
+             
           self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
           self['se_delta'] = from_dataframe(sed)
           self['se_a'] = from_dataframe(sea).rename({'mkt':'m'})
           self['delta_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
 
+      def get_simple_reduced_form(self,VERBOSE=False):
+
+          d,ce,se,V = estimation.simple_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+
+          #self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
+          try:
+              self['delta'] = from_dataframe(d).to_array('k')
+          except AttributeError:
+              d.columns.name = 'k'
+              foo = from_dataframe(d)
+              self['delta'] = foo
+             
+          self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
+          self['se_delta'] = from_dataframe(sed)
+          self['se_a'] = from_dataframe(sea).rename({'mkt':'m'})
+          self['delta_covariance'] = V.to_xarray().rename({'items':'i','major_axis':'k','minor_axis':'kp'})
+
+   
       def get_loglambdas(self):
           if is_none(self.loglambdas):
               if is_none(self.ce):
@@ -2271,18 +2443,18 @@ subclasses the =xarray.Dataset= class.
           except (AttributeError,TypeError):
               pass
 
-      def exact_index():
+      def optimal_index(self):
           """Household-specific exact price index.
 
           For a household j observed at (t,m)=(t0,m0) computes
           proportional change in total expenditures required to keep
           \lambda constant across all observed settings (t,m).
           """
-          R = estimation.exact_index(self.a,self.yhat,self.e)
+          R = estimation.optimal_index(self.a,self.yhat,self.e)
 
           return R
 
-      def set_barloglambda_t():
+      def set_barloglambda_t(self):
           # FIXME: Issue here with dividing by a random variable.  What
           # properties do we want estimator of barloglambda_t to have?
           try: 
@@ -2475,6 +2647,528 @@ x = x.where(x>0,np.nan)  # Zeros to missing
 z = parts['characteristics']
 
 R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
+
+R.drop_useless_expenditures()
+
+R.get_beta()
+
+R.get_alpha()
+
+R.get_stderrs()
+
+assert len(R.se_alpha) == len(R.coords['i'])
+
+#+END_SRC
+* Class =NewResult=
+
+Here we define a class =NewResult= which offers an consolidated way to
+package data and results described elsewhere in this document; this
+subclasses the =xarray.Dataset= class.  
+
+In contrast with =Result= this class changes the order in which
+information is extracted from expenditures, with household-level
+variation in \log\lambda extracted before information related to prices.
+
+** Main description of =NewResult=
+#+name: new_result_class
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/new_result.py
+  import numpy as np
+  import pandas as pd
+  from . import estimation 
+  import xarray as xr
+  import warnings
+  from collections import namedtuple
+  from cfe.df_utils import to_dataframe, is_none, from_dataframe
+
+  def is_none(x):
+      """
+      Tests for None in an array x.
+      """
+      try:
+          if np.any(np.equal(x,None)):
+              return True
+      except TypeError:
+          return is_none(x.data)
+      else:
+          try:
+              if len(x.shape)==0:
+                  return True
+          except AttributeError:
+              if isinstance(x,str):
+                  if len(x)==0: return True
+                  else: return False
+              elif np.isscalar(x): return x is None
+              elif isinstance(x,list): return None in x
+              else:
+                  raise(TypeError,"Problematic type.")
+
+  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
+      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
+      """
+
+      if name is None:
+          df = arr.to_dataframe('foo').squeeze()
+      else:
+          df = arr.to_dataframe(name)
+
+      if column_index is not None:
+          df = df.unstack(column_index)
+
+      if dropna_all:
+          df.dropna(how='all',inplace=True)
+
+      return df
+
+  def from_dataframe(df,index_name=None):
+      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
+      """
+      if index_name is not None:
+          df.index = df.index.set_names(index_name)
+
+      df = pd.DataFrame(df) # Series to dataframe
+      if not is_none(df.columns.names):
+          df = df.stack(df.columns.names)
+
+      arr = df.squeeze().to_xarray()
+
+      return arr
+
+  Indices = namedtuple('Indices',['j','t','m','i','k'])
+
+  class NewResult(xr.Dataset):
+
+      """A class which packages together data and results for the CFE demand system.
+
+      """
+
+      def __init__(self,**kwargs):
+          arrs = dict(alpha=None, beta=None, delta=None,
+                      prices=None,characteristics=None,loglambdas=None,
+                      a=None, yhat=None, ce=None,
+                      cehat=None, e=None, delta_covariance=None, 
+                      se_delta=None, se_beta=None, se_a = None,
+                      y=None,logp=None,z=None)
+
+          attrs = dict(firstround=None,
+                       min_proportion_items=1./8,min_xproducts=30,
+                       useless_expenditures=True,
+                       stderr_tol=0.01,
+                       indices = Indices('j','t','m','i','k'),
+                       simple_reduced_form = False,
+                       verbose=False)
+
+          try: # Maybe input is already an xarray.Dataset?
+              ds = kwargs.pop('data')
+              for k in arrs:
+                  try:
+                      arrs[k] = ds.variables[k]
+                  except KeyError:
+                      pass
+
+              attrs.update(ds.attrs)
+              coords = ds.coords
+
+          except KeyError: # Or maybe it's just a tuple of arrays and attributes.
+              for k in arrs:
+                  try:
+                      arrs[k] = kwargs.pop(k)
+                  except KeyError:
+                      pass
+
+              attrs.update(kwargs)
+              coords = None
+
+          super(NewResult,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
+
+          if is_none(self.z) and  not is_none(self.characteristics):
+              self['z'] = self.characteristics
+          elif not is_none(self.z) and  is_none(self.characteristics):
+              self['characteristics'] = self.z
+          elif is_none(self.characteristics) and not is_none(self.y):
+              self['characteristics'] = pd.DataFrame(index=self.y.isel(i=0).index).to_xarray()
+              self['z'] = self['characteristics']
+
+          if is_none(self.logp) and not is_none(self.prices):
+              self['logp'] = np.log(self.prices)
+          elif not is_none(self.logp) and is_none(self.prices):
+              self['prices'] = np.exp(self.logp)
+
+          if not is_none(self.beta) and not is_none(self.alpha):
+              assert(self.alpha.shape == self.beta.shape)
+
+          if is_none(self.attrs['firstround']) and not is_none(self.y):
+              self.attrs['firstround'] = self.y.coords['t'][0].item()
+
+
+      def drop_useless_expenditures(self):
+          if self.attrs['useless_expenditures']:
+              y = self.y
+              min_proportion_items = self.attrs['min_proportion_items']
+              min_xproducts = self.attrs['min_xproducts']
+
+              use_goods=y.coords['i'].data
+
+              # Convert to pd.DataFrame
+              y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+
+              # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+              using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+              y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+
+              y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+              # Only keep goods with observations in each (t,mkt)
+              y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+
+              y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
+
+              new = self.sel(i=y.coords['i'],j=y.coords['j'])
+
+              new.attrs['useless_expenditures'] = False
+
+              self.__dict__.update(new.__dict__)
+
+          return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+
+      def get_reduced_form(self,VERBOSE=False):
+          y = self.drop_useless_expenditures() # Returns a dataframe
+          z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
+
+          a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+          ce.dropna(how='all',inplace=True)
+
+          self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
+          try:
+              self['delta'] = from_dataframe(d).to_array('k')
+          except AttributeError:
+              d.columns.name = 'k'
+              foo = from_dataframe(d)
+              self['delta'] = foo
+
+          self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
+          self['se_delta'] = from_dataframe(sed)
+          self['se_a'] = from_dataframe(sea).rename({'mkt':'m'})
+          self['delta_covariance'] = V
+
+          self.attrs['simple_reduced_form'] = False
+
+      def get_simple_reduced_form(self,VERBOSE=False):
+          y = from_dataframe(self.drop_useless_expenditures()).rename({'mkt':'m'})
+
+          d,ce,se,V = estimation.simple_reduced_form(y,self.z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+
+          self['a'] = d.sel(k='Constant',drop=True)
+
+          self['delta'] = d.sel(k=self.z.coords['k'])
+
+          self['ce'] = ce
+          self['se_delta'] = se.sel(k=self.z.coords['k'])
+          self['se_a'] = se.sel(k='Constant',drop=True)
+          self['delta_covariance'] = V
+
+          self.attrs['simple_reduced_form'] = True
+
+      def get_loglambdas(self):
+          if is_none(self.loglambdas):
+              if is_none(self.ce):
+                  if self.attrs['simple_reduced_form']:
+                      self.get_simple_reduced_form()
+                  else:
+                      self.get_reduced_form()
+
+              min_obs = self.attrs['min_xproducts']
+
+              ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
+
+              bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
+
+              assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+                  "Problem with normalization of loglambdas"
+
+              cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+              cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+
+              self['cehat'] = from_dataframe(cehat).rename({'mkt':'m'})
+              self['loglambdas'] = logL.to_xarray().rename({'mkt':'m'})
+              self['beta'] = bphi.to_xarray()
+
+          return self.loglambdas
+
+      def get_beta(self):
+          if is_none(self.beta):
+              self.get_loglambdas()
+
+          return self.beta
+
+      def get_cehat(self):
+          if is_none(self.beta):
+              self.get_loglambdas()
+
+          return self.cehat
+
+      def get_stderrs(self):
+          if is_none(self.se_beta):
+              if is_none(self.ce):
+                  if self.attrs['simple_reduced_form']:
+                      self.get_simple_reduced_form()
+                  else:
+                      self.get_reduced_form()
+
+              tol = self.attrs['stderr_tol']
+              VB = self.attrs['verbose']
+
+              ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
+
+              se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,VERBOSE=VB)
+              self['se_beta'] = from_dataframe(se)
+
+          return self['se_beta']
+
+      def anova(self):
+          """Table analyzing variance of expenditures.
+          """
+          if self.attrs['simple_reduced_form']:
+              self.get_simple_reduced_form()
+          else:
+              self.get_reduced_form()
+
+          miss2nan = self.ce*0
+
+          cehat = self.get_cehat()
+
+          y = self.drop_useless_expenditures() # A dataframe
+
+          df = pd.DataFrame({'Prices':to_dataframe(self.a.var(['t','m'],ddof=0)),
+                            'Characteristics':to_dataframe(self.z.dot(self.delta.T).var(['j','t','m'],ddof=0)),
+                            '$\log\lambda$':to_dataframe((self.cehat + miss2nan).var(['j','t','m'],ddof=0)),
+                            'Residual':to_dataframe((self.ce-self.cehat).var(['j','t','m'],ddof=0))})
+
+          df = df.div(y.var(ddof=0),axis=0)
+          df['Total var'] = y.var(ddof=0)
+
+          df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+
+          return df
+
+      def get_predicted_log_expenditures(self):
+          cehat = self.get_cehat()
+          self['yhat'] = cehat + self.z.dot(self.delta) + self.a
+
+          self['e'] = self.y - self.yhat
+
+          return self.yhat
+
+      def get_alpha(self):
+          """Return log of alpha parameters.  These are determined by the first
+          round of data on expenditures, and assumed equal across markets.
+          """
+          if is_none(self.loglambdas):
+              self.get_loglambdas()
+
+          if self.attrs['simple_reduced_form']:
+              self['alpha'] = self.a + self.ce.sel(t=self.firstround,drop=True).mean(['j','m'])
+              self['se_alpha'] = np.sqrt(self.se_a**2
+                                         + self.ce.sel(t=self.firstround,drop=True).var(['j','m'])/self.ce.sel(t=self.firstround).count(['j','m']))
+          else:
+              self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
+              self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
+
+          return self.alpha
+
+      def optimal_index(self):
+          """Household-specific exact price index.
+
+          For a household j observed at (t,m)=(t0,m0) computes
+          proportional change in total expenditures required to keep
+          \lambda constant across all observed settings (t,m).
+          """
+          if self.attrs['simple_reduced_form']:
+              a = self.a + self.cehat.mean('j')
+          else:
+              a = self.a                
+
+          R = estimation.optimal_index(a,self.yhat,self.e)
+
+          return R
+
+      def resample_lambdas(self):
+          """Resample self.loglambdas, producing a new object with preference
+          parameters drawn from self and a measurement error process for
+          expenditures which is log-normal.
+          """
+          d = self.dims
+          S = np.random.randint(0,d['j'],size=d['j'])
+
+          R = NewResult(data=self)
+
+          foo = self.loglambdas.isel(j=S)
+          foo.coords['j'] = self.loglambdas.coords['j']
+          R['loglambdas'] =  foo + self.loglambdas*0.
+
+          foo = self.z.isel(j=S)
+          foo.coords['j'] = self.z.coords['j']
+
+          R['z'] = foo
+          R['characteristics'] = R.z
+
+          R['cehat'] = R.loglambdas * R.beta
+
+          # Retrieve mean & std of errors
+          foo = (self.ce - self.cehat).to_dataframe('e').dropna()
+          mu = foo.mean()
+          sigma = foo.std()
+
+          # Generate new errors lognormally distributed
+          R['e'] = xr.DataArray(np.random.normal(loc=mu,scale=sigma,size=(d['j'],d['t'],d['m'],d['i'])),coords=R.ce.coords)
+
+          # Add missings back in where appropriate
+          foo = self.y.isel(j=S)
+          foo.coords['j'] = self.z.coords['j']
+          R['e'] = R['e'] + 0*foo
+
+          R['ce'] = R.cehat + R.e
+
+          R['yhat'] = R.cehat + R.z.dot(R.delta) + R.a
+
+          R['y'] = R.yhat + R.e
+
+          return R
+#+END_SRC
+
+** Persistent =Result=
+It's useful to be able to make a =Result= instance be persistent.
+Here we experiment with a way to save a =Result= instance to a
+file, using the =xarray= package.
+
+#+name: result_to_file
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/new_result.py
+      def to_dataset(self,fn=None):
+          """Convert NewResult instance to xarray.Dataset."""
+          D = xr.Dataset()
+          for k in vars(self):
+              v = self.__dict__[k]
+              if type(v) in np.ScalarType or isinstance(v,dict):
+                  D.attrs[k] = v
+              elif isinstance(v,pd.Series):
+                  D[k] = v.to_xarray()
+              elif isinstance(v,pd.DataFrame):
+                  D[k] = v.stack().to_xarray()
+              elif isinstance(v,pd.Panel):
+                  D[k] = v.to_frame().stack().to_xarray()
+              elif isinstance(v,set):
+                  D[k] = tuple(v)
+              elif v is None: pass
+              else:
+                  print("Problem type: %s, %s" % (k,type(v)))
+
+          if fn is not None:
+              D.to_netcdf(fn)
+
+          return D
+
+      def to_pickle(self,fn):
+          """Pickle NewResult instance in file fn."""
+          import pickle
+        
+          d = self.to_dict()
+          with open(fn,'wb') as f:
+              pickle.dump(d,f)
+
+          return d
+
+  def from_dataset(fn):
+      """
+      Read persistent netcdf (xarray.Dataset) file to NewResult.
+      """
+
+      D = xr.open_dataset(fn)
+
+      R = NewResult(data=D)
+
+      return R
+
+  def from_shelf(fn):
+      import shelve
+
+      with shelve.open(fn):
+          pass
+
+  def from_pickle(fn):
+      import xarray as xr
+      import pickle
+
+      with open(fn,'rb') as f:
+          X = pickle.load(f)
+
+      D = xr.Dataset.from_dict(X)
+
+      R = NewResult(data=D)
+
+      return R
+#+END_SRC
+
+** Tests
+*** Test drop_useless_expenditures()
+#+name: test_drop_useless_expenditures
+#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
+from scipy.stats.distributions import chi2
+import cfe
+import numpy as np
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=6
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+x = x.where(np.random.rand(*x.shape)>0.9,np.nan) # drop most observations
+
+
+z = parts['characteristics']
+
+R = cfe.NewResult(y=np.log(x),z=np.log(z),min_xproducts=50)
+
+R.drop_useless_expenditures()
+
+assert len(R.coords['i']<n), "Failed to drop missing items?"
+
+#+END_SRC
+*** Test get_stderrs()
+#+name: test_get_stderrs
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
+import cfe
+import numpy as np
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=2
+    n=12
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+z = parts['characteristics']
+
+R = cfe.NewResult(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
 
 R.drop_useless_expenditures()
 
@@ -2752,40 +3446,64 @@ print(s)
 ** Some econometric routines
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
+import xarray as xr
+from scipy.linalg import block_diag
 
-def arellano_robust_cov(X,u,clusterby=['t','mkt']):
+def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
+    """
+    Compute clustered estimates of covariance matrix, per Arellano (1987).
+    Estimates of variance of fixed effects use OLS estimator.
+    """
     X,u = drop_missing([X,u])
     clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
     if  len(clusters)>1:
         # Take out time averages
-        u = u - u.groupby(level=clusterby).transform(np.mean)
-        X = X - X.groupby(level=clusterby).transform(np.mean)
-        #u=broadcast_binary_op(u,lambda x,y:x-y, u.groupby(level=clusterby).mean()).squeeze()
-        #X=broadcast_binary_op(X,lambda x,y:x-y, X.groupby(level=clusterby).mean()) 
-        Xu=X.mul(u.squeeze(),axis=0)
-        if len(X.shape)==1:
-            XXinv=np.array([1./(X.T.dot(X))])
-        else:
-            XXinv=np.linalg.inv(X.T.dot(X))
-        Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+        ubar = u.groupby(level=clusterby).transform(np.mean)
+        Xbar = X.groupby(level=clusterby).transform(np.mean)
     else:
-        u=(u-u.mean()).squeeze()
-        X=X-X.mean()
+        ubar = u.mean()
+        Xbar = X.mean()
 
-        Xu=X.mul(u,axis=0)
-        if len(X.shape)==1:
-            XXinv=np.array([1./(X.T.dot(X))])
-        else:
-            XXinv=np.linalg.inv(X.T.dot(X))
-        Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+    ut = (u - ubar).squeeze()
+    Xt = X - Xbar
+
+    # Pull out columns spanned by cluster vars to get var of FEs
+    Cvars = Xt.columns[Xt.std()<tol]
+    Xvars = Xt.columns[Xt.std()>=tol]
+    if len(Cvars):
+        _,v = ols(X.loc[:,Cvars],u,return_se=False,return_v=True)
+
+    Xt = Xt.drop(columns=Cvars)
+
+    Xu=Xt.mul(ut,axis=0)
+
+    if len(Xt.shape)==1:
+        XXinv=np.array([1./(Xt.T.dot(Xt))])
+    else:
+        XXinv=np.linalg.inv(Xt.T.dot(Xt))
+    Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
 
     try:
-        return pd.DataFrame(Vhat,index=X.columns,columns=X.columns)
+        Allvars = Cvars.values.tolist() + Xvars.values.tolist()
+        if len(Cvars):
+            V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+        else:
+            V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+        return V
     except AttributeError:
-        return Vhat
+        if len(Cvars):
+            return v,Vhat
+        else:
+            return Vhat
 
 
 def ols(x,y,return_se=True,return_v=False,return_e=False):
+    """Produce OLS estimates of b in $y = xb + u$.
+
+    If standard errors (return_se=True) or covariance matrices (return_v=True) are returned, 
+    these are Seemingly Unrelated Regression (SUR) estimates if y has multiple columns, or the simple OLS estimator 
+    var(u)(X'X)^{-1} otherwise.
+    """
 
     x=pd.DataFrame(x) # Deal with possibility that x & y are series.
     y=pd.DataFrame(y)
@@ -2809,9 +3527,8 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
         S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
 
         if return_se or return_v:
-
-            # This will be a very large matrix!  Use sparse types
-            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).as_matrix().view(type=np.matrix).I).T
+            # This can be a very large matrix!  Use sparse types
+            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
             V=V.dot(S).dot(V.T)
 
         if return_se:
@@ -2820,13 +3537,41 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 
             out.append(se)
         if return_v:
-            # Extract blocks along diagonal; return an Nxkxn array
-            V={y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=x.columns,columns=x.columns) for i in range(n)} 
+            # Extract blocks along diagonal; return an k x kp x n array
+            col0 = x.columns
+            col1 = col0.rename(name='kp')
+            v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
+            V = xr.Dataset(v).to_array()
             out.append(V)
+
         if return_e:
             out.append(u)
     return tuple(out)
 #+END_SRC
+
+*** Tests
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
+  import cfe
+  import pylab as pl
+  import numpy as np
+  import pandas as pd
+
+  from cfe.dgp import geometric_brownian
+  from cfe.new_result import to_dataframe
+
+  n=12
+  T=4
+  x,parts = cfe.dgp.expenditures(1000,T,1,n,2,np.linspace(0.25,3,n),sigma_phi=0.,sigma_eps=0.01,Fbar=geometric_brownian(1.))
+  y = to_dataframe(np.log(x.where(x>0,np.nan)),'i')
+  z = to_dataframe(np.log(parts['characteristics']),'k')
+
+  X = z.copy()
+  X['Constant'] = 1
+
+  b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
+
+#+end_src
+
 
 ** Utility functions for dealing with some awkward multiindex issues
 
@@ -2982,3 +3727,62 @@ assert baz.iloc[3,0]==6
 #+results: test_broadcast_binary_op2
 
 
+
+** Utility functions related to transformations between xarray and pandas objects
+#+name: broadcast_binary_op 
+#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
+  import xarray as xr
+
+  def is_none(x):
+      """
+      Tests for None in an array x.
+      """
+      try:
+          if np.any(np.equal(x,None)):
+              return True
+      except TypeError:
+          return is_none(x.data)
+      else:
+          try:
+              if len(x.shape)==0:
+                  return True
+          except AttributeError:
+              if isinstance(x,str):
+                  if len(x)==0: return True
+                  else: return False
+              elif np.isscalar(x): return x is None
+              elif isinstance(x,list): return None in x
+              else:
+                  raise(TypeError,"Problematic type.")
+
+  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
+      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
+      """
+
+      if name is None:
+          df = arr.to_dataframe('foo').squeeze()
+      else:
+          df = arr.to_dataframe(name)
+
+      if column_index is not None:
+          df = df.unstack(column_index)
+
+      if dropna_all:
+          df.dropna(how='all',inplace=True)
+
+      return df
+
+  def from_dataframe(df,index_name=None):
+      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
+      """
+      if index_name is not None:
+          df.index = df.index.set_names(index_name)
+
+      df = pd.DataFrame(df) # Series to dataframe
+      if not is_none(df.columns.names):
+          df = df.stack(df.columns.names)
+
+      arr = df.squeeze().to_xarray()
+
+      return arr
+#+END_SRC
