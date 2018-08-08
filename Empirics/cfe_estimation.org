@@ -3461,7 +3461,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
     N,n=y.shape
     k=x.shape[1]
 
-    b=np.linalg.lstsq(x,y)[0]
+    b=np.linalg.lstsq(x,y,rcond=0)[0]
 
     b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
