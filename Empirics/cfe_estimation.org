@@ -2181,7 +2181,7 @@ subclasses the =xarray.Dataset= class.
                       prices=None,characteristics=None,loglambdas=None,
                       a=None, yhat=None, ce=None,
                       cehat=None, e=None, delta_covariance=None, 
-                      se_delta=None, se_beta=None, se_a = None,
+                      se_alpha=None, se_delta=None, se_beta=None, se_a = None,
                       y=None,logp=None,z=None,logalpha=None)
 
           attrs = dict(numeraire=None,firstround=None,
@@ -2680,58 +2680,6 @@ variation in \log\lambda extracted before information related to prices.
   from collections import namedtuple
   from cfe.df_utils import to_dataframe, is_none, from_dataframe
 
-  def is_none(x):
-      """
-      Tests for None in an array x.
-      """
-      try:
-          if np.any(np.equal(x,None)):
-              return True
-      except TypeError:
-          return is_none(x.data)
-      else:
-          try:
-              if len(x.shape)==0:
-                  return True
-          except AttributeError:
-              if isinstance(x,str):
-                  if len(x)==0: return True
-                  else: return False
-              elif np.isscalar(x): return x is None
-              elif isinstance(x,list): return None in x
-              else:
-                  raise(TypeError,"Problematic type.")
-
-  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
-      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
-      """
-
-      if name is None:
-          df = arr.to_dataframe('foo').squeeze()
-      else:
-          df = arr.to_dataframe(name)
-
-      if column_index is not None:
-          df = df.unstack(column_index)
-
-      if dropna_all:
-          df.dropna(how='all',inplace=True)
-
-      return df
-
-  def from_dataframe(df,index_name=None):
-      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
-      """
-      if index_name is not None:
-          df.index = df.index.set_names(index_name)
-
-      df = pd.DataFrame(df) # Series to dataframe
-      if not is_none(df.columns.names):
-          df = df.stack(df.columns.names)
-
-      arr = df.squeeze().to_xarray()
-
-      return arr
 
   Indices = namedtuple('Indices',['j','t','m','i','k'])
 
@@ -3034,7 +2982,7 @@ variation in \log\lambda extracted before information related to prices.
           return R
 #+END_SRC
 
-** Persistent =Result=
+** Persistent =NewResult=
 It's useful to be able to make a =Result= instance be persistent.
 Here we experiment with a way to save a =Result= instance to a
 file, using the =xarray= package.
