@@ -225,7 +225,7 @@ def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
     """Drop columns from pd.DataFrame that lead to missing elements of covariance matrix."""
 
     m,n=X.shape
-    assert m>n, "Fewer rows than columns."
+    assert m>n, "Fewer rows than columns.  Consider passing the transpose."
 
     HasMiss=True
     while HasMiss:
@@ -1892,7 +1892,7 @@ def predicted_expenditures(yhat,e):
       xsum = x0*np.exp(a)    # Predicted x_i in different settings (t,m)
                              # for households in every setting (t0,m0).
 
-      pidx = xsum.sum('i')   # Total expenditures in different settings.
+      pidx = xsum.sum('i',skipna=False)   # Total expenditures in different settings.
 
       R=pidx/pidx.sel(t0=pidx.coords['t'],t=pidx.coords['t'],m0=pidx.coords['m'],m=pidx.coords['m'])
 
@@ -2258,8 +2258,8 @@ subclasses the =xarray.Dataset= class.
               y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
 
               # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-              using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
-              y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+              using_goods = (y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+              y = y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
 
               y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
               # Only keep goods with observations in each (t,mkt)
@@ -2450,6 +2450,9 @@ subclasses the =xarray.Dataset= class.
           proportional change in total expenditures required to keep
           \lambda constant across all observed settings (t,m).
           """
+          if is_none(self.yhat):
+              self.get_predicted_log_expenditures()
+
           R = estimation.optimal_index(self.a,self.yhat,self.e)
 
           return R
@@ -2679,7 +2682,6 @@ variation in \log\lambda extracted before information related to prices.
   import warnings
   from collections import namedtuple
   from cfe.df_utils import to_dataframe, is_none, from_dataframe
-
 
   Indices = namedtuple('Indices',['j','t','m','i','k'])
 
@@ -2929,6 +2931,9 @@ variation in \log\lambda extracted before information related to prices.
           proportional change in total expenditures required to keep
           \lambda constant across all observed settings (t,m).
           """
+          if is_none(self.yhat):
+              self.get_predicted_log_expenditures()
+
           if self.attrs['simple_reduced_form']:
               a = self.a + self.cehat.mean('j')
           else:
