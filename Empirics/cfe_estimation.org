@@ -2681,7 +2681,7 @@ variation in \log\lambda extracted before information related to prices.
   import xarray as xr
   import warnings
   from collections import namedtuple
-  from cfe.df_utils import to_dataframe, is_none, from_dataframe
+  from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols
 
   Indices = namedtuple('Indices',['j','t','m','i','k'])
 
@@ -2906,6 +2906,14 @@ variation in \log\lambda extracted before information related to prices.
           self['e'] = self.y - self.yhat
 
           return self.yhat
+   
+      def get_predicted_expenditures(self):
+          """Return predicted levels of expenditures.
+          """
+          yhat = self.get_predicted_log_expenditures()
+          e = self.e
+
+          return estimation.predicted_expenditures(yhat,e)
 
       def get_alpha(self):
           """Return log of alpha parameters.  These are determined by the first
@@ -2924,6 +2932,50 @@ variation in \log\lambda extracted before information related to prices.
 
           return self.alpha
 
+      def a_decomposition(self):
+          """Decompose constant terms from reduced form regression.
+
+          Yields an xr.Dataset containing estimates of differences in
+          average \log\lambda and log price level across settings, along
+          with standard errors of these estimates.  In addition we provide
+          estimates of the "residual" prices.
+
+          Ethan Ligon                                           August 2018
+          """ 
+
+          self.get_loglambdas() 
+          alpha = self.get_alpha()
+
+          Pbar=[0]
+          Lbar=[0]
+          SE=[np.zeros(2)]
+          V=[np.zeros((2,2))]
+          P=[np.zeros(self.a.shape[0])]
+          b = self.beta - self.beta.mean('i')
+
+          rhs = xr.concat([(1 - self.beta*0),-b],'l').T
+          rhs = rhs.to_dataframe().unstack('l')
+          rhs.columns = rhs.columns.droplevel(0)
+          for t in self.coords['t'].values[1:]:
+              for m in self.coords['m'].values:
+                  lhs = ((self.a - alpha)/self.se_a).sel(t=t,m=m,drop=True).to_dataframe('')
+                  rhs = rhs.div(self.se_a.sel(t=t,m=m,drop=True).to_dataframe().squeeze(),axis=0)  
+                  b,se,v,p = ols(rhs,lhs,return_se=True,return_v=True,return_e=True)
+                  p = (p.to_xarray()*self.se_a.sel(t=t,m=m,drop=True)).to_array()
+                  Pbar.append(b[0].values[0])
+                  P.append(p.values)
+                  Lbar.append(b[1].values[0])
+                  SE.append(se.values.T[0])
+                  V.append(v)
+
+          Pbar = xr.DataArray([Pbar],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar')
+          Lbar = xr.DataArray([Lbar],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar')
+          Pse = xr.DataArray([np.array(SE)[:,0]],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar_se')
+          Lse = xr.DataArray([np.array(SE)[:,1]],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar_se')
+          P = xr.DataArray(np.array([[x.squeeze() for x in P]]),dims=['m','t','i'],coords=self.a.coords).transpose('i','t','m')
+
+          return xr.Dataset({'pbar':Pbar,'lbar':Lbar,'pbar_se':Pse,'lbar_se':Lse,'p_resid':P})
+  
       def optimal_index(self):
           """Household-specific exact price index.
 
