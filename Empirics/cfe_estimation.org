@@ -2696,7 +2696,7 @@ variation in \log\lambda extracted before information related to prices.
                       prices=None,characteristics=None,loglambdas=None,
                       a=None, yhat=None, ce=None,
                       cehat=None, e=None, delta_covariance=None, 
-                      se_delta=None, se_beta=None, se_a = None,
+                      se_delta=None, se_beta=None, se_alpha=None, se_a = None,
                       y=None,logp=None,z=None)
 
           attrs = dict(firstround=None,
@@ -3451,107 +3451,107 @@ print(s)
 ** Some econometric routines
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
-import xarray as xr
-from scipy.linalg import block_diag
+  import xarray as xr
+  from scipy.linalg import block_diag
 
-def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
-    """
-    Compute clustered estimates of covariance matrix, per Arellano (1987).
-    Estimates of variance of fixed effects use OLS estimator.
-    """
-    X,u = drop_missing([X,u])
-    clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
-    if  len(clusters)>1:
-        # Take out time averages
-        ubar = u.groupby(level=clusterby).transform(np.mean)
-        Xbar = X.groupby(level=clusterby).transform(np.mean)
-    else:
-        ubar = u.mean()
-        Xbar = X.mean()
+  def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
+      """
+      Compute clustered estimates of covariance matrix, per Arellano (1987).
+      Estimates of variance of fixed effects use OLS estimator.
+      """
+      X,u = drop_missing([X,u])
+      clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
+      if  len(clusters)>1:
+          # Take out time averages
+          ubar = u.groupby(level=clusterby).transform(np.mean)
+          Xbar = X.groupby(level=clusterby).transform(np.mean)
+      else:
+          ubar = u.mean()
+          Xbar = X.mean()
 
-    ut = (u - ubar).squeeze()
-    Xt = X - Xbar
+      ut = (u - ubar).squeeze()
+      Xt = X - Xbar
 
-    # Pull out columns spanned by cluster vars to get var of FEs
-    Cvars = Xt.columns[Xt.std()<tol]
-    Xvars = Xt.columns[Xt.std()>=tol]
-    if len(Cvars):
-        _,v = ols(X.loc[:,Cvars],u,return_se=False,return_v=True)
+      # Pull out columns spanned by cluster vars to get var of FEs
+      Cvars = Xt.columns[Xt.std()<tol]
+      Xvars = Xt.columns[Xt.std()>=tol]
+      if len(Cvars):
+          _,v = ols(X.loc[:,Cvars],u,return_se=False,return_v=True)
 
-    Xt = Xt.drop(columns=Cvars)
+      Xt = Xt.drop(columns=Cvars)
 
-    Xu=Xt.mul(ut,axis=0)
+      Xu=Xt.mul(ut,axis=0)
 
-    if len(Xt.shape)==1:
-        XXinv=np.array([1./(Xt.T.dot(Xt))])
-    else:
-        XXinv=np.linalg.inv(Xt.T.dot(Xt))
-    Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+      if len(Xt.shape)==1:
+          XXinv=np.array([1./(Xt.T.dot(Xt))])
+      else:
+          XXinv=np.linalg.inv(Xt.T.dot(Xt))
+      Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
 
-    try:
-        Allvars = Cvars.values.tolist() + Xvars.values.tolist()
-        if len(Cvars):
-            V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
-        else:
-            V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
-        return V
-    except AttributeError:
-        if len(Cvars):
-            return v,Vhat
-        else:
-            return Vhat
+      try:
+          Allvars = Cvars.values.tolist() + Xvars.values.tolist()
+          if len(Cvars):
+              V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+          else:
+              V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+          return V
+      except AttributeError:
+          if len(Cvars):
+              return v,Vhat
+          else:
+              return Vhat
 
 
-def ols(x,y,return_se=True,return_v=False,return_e=False):
-    """Produce OLS estimates of b in $y = xb + u$.
+  def ols(x,y,return_se=True,return_v=False,return_e=False):
+      """Produce OLS estimates of b in $y = xb + u$.
 
-    If standard errors (return_se=True) or covariance matrices (return_v=True) are returned, 
-    these are Seemingly Unrelated Regression (SUR) estimates if y has multiple columns, or the simple OLS estimator 
-    var(u)(X'X)^{-1} otherwise.
-    """
+      If standard errors (return_se=True) or covariance matrices (return_v=True) are returned, 
+      these are Seemingly Unrelated Regression (SUR) estimates if y has multiple columns, or the simple OLS estimator 
+      var(u)(X'X)^{-1} otherwise.
+      """
 
-    x=pd.DataFrame(x) # Deal with possibility that x & y are series.
-    y=pd.DataFrame(y)
-    # Drop any observations that have missing data in *either* x or y.
-    x,y = drop_missing([x,y]) 
+      x=pd.DataFrame(x) # Deal with possibility that x & y are series.
+      y=pd.DataFrame(y)
+      # Drop any observations that have missing data in *either* x or y.
+      x,y = drop_missing([x,y]) 
 
-    N,n=y.shape
-    k=x.shape[1]
+      N,n=y.shape
+      k=x.shape[1]
 
-    b=np.linalg.lstsq(x,y,rcond=0)[0]
+      b=np.linalg.lstsq(x,y,rcond=0)[0]
 
-    b=pd.DataFrame(b,index=x.columns,columns=y.columns)
+      b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
-    out=[b.T]
-    if return_se or return_v or return_e:
+      out=[b.T]
+      if return_se or return_v or return_e:
 
-        u=y-x.dot(b)
+          u=y-x.dot(b)
 
-        # Use SUR structure if multiple equations; otherwise OLS.
-        # Only using diagonal of this, for reasons related to memory.  
-        S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
+          # Use SUR structure if multiple equations; otherwise OLS.
+          # Only using diagonal of this, for reasons related to memory.  
+          S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
 
-        if return_se or return_v:
-            # This can be a very large matrix!  Use sparse types
-            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
-            V=V.dot(S).dot(V.T)
+          if return_se or return_v:
+              # This can be a very large matrix!  Use sparse types
+              V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
+              V=V.dot(S).dot(V.T)
 
-        if return_se:
-            se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
-            se=pd.DataFrame(se,index=x.columns,columns=y.columns)
+          if return_se:
+              se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
+              se=pd.DataFrame(se,index=x.columns,columns=y.columns)
 
-            out.append(se)
-        if return_v:
-            # Extract blocks along diagonal; return an k x kp x n array
-            col0 = x.columns
-            col1 = col0.rename(name='kp')
-            v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
-            V = xr.Dataset(v).to_array()
-            out.append(V)
+              out.append(se)
+          if return_v:
+              # Extract blocks along diagonal; return an k x kp x n array
+              col0 = x.columns
+              col1 = col0.rename(name='kp')
+              v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
+              V = xr.Dataset(v).to_array()
+              out.append(V)
 
-        if return_e:
-            out.append(u)
-    return tuple(out)
+          if return_e:
+              out.append(u)
+      return tuple(out)
 #+END_SRC
 
 *** Tests
