@@ -4,4 +4,3 @@ from . import demands
 from . import dgp
 from . import engel_curves
 from .result import Result, from_dataset
-from .new_result import NewResult
