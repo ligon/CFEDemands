@@ -12,4 +12,5 @@ pipelines:
           - pip
         script: # Modify the commands below to build your repository.
           - pip install -r cfe/requirements.txt
+          - pip install pytest
           - make test
