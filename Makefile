@@ -1,7 +1,12 @@
+ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
+             Demands/demands.org Demands/engel_curves.org    \
+             Demands/monotone_function_solver.org
+
 .PHONY: tangle wheel upload localinstall devinstall clean test
 
-tangle: Empirics/cfe_estimation.org
+tangle: $(ORG_INPUTS)
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
+	(cd Empirics; ../tangle.sh result.org)
 	(cd Demands; ../tangle.sh demands.org)
 	(cd Demands; ../tangle.sh engel_curves.org)
 	(cd Demands; ../tangle.sh monotone_function_solver.org)
@@ -21,7 +26,7 @@ cfe/requirements.txt:
 localinstall: clean wheel
 	(cd dist; pip install CFEDemands*.whl --upgrade)
 
-devinstall: tangle test
+devinstall: tangle test 
 	pip install -e .
 
 upload: wheel
