@@ -2211,7 +2211,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
             s+='| %s  ' % i
             for j in df.columns: # Point estimates
                 try:
-                    entry='| \('+float_fmt+'\)  '
+                    entry='| '+float_fmt+' '
                     if np.isnan(df[j][i]):
                         s+='| --- '
                     else:
@@ -2321,14 +2321,16 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
             s+='|\n'
         return s
 
-def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None):
+def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None, dtype=None):
   """
   Returns a pandas dataframe.
   Requires the use of the header `:colnames no` for preservation of original column names.
-  `table` is an org table which is just a list of lists in python.
-  `col_name_size` is the number of rows that make up the column names.
-  `format_string` is a format string to make the desired column names.
-  `index` is a column label or a list of column labels to be set as the index of the dataframe.
+
+  - `table` is an org table which is just a list of lists in python.
+  - `col_name_size` is the number of rows that make up the column names.
+  - `format_string` is a format string to make the desired column names.
+  - `index` is a column label or a list of column labels to be set as the index of the dataframe.
+  - `dtype` is type of data to return in DataFrame.  Only one type allowed.
   """
   import pandas as pd
 
