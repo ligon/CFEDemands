@@ -60,7 +60,7 @@ def utility(x,alpha,beta,phi):
     """
     Direct utility from consumption of x.
     """
-    n,alpha,beta,phi = check_args(x,alpha,beta,phi)
+    n,alpha,beta,phi = check_args(alpha=alpha,beta=beta,phi=phi)
 
     U=0
     for i in range(n):
@@ -75,7 +75,7 @@ def marginal_utilities(x,alpha,beta,phi):
     """
     Marginal utilities from consumption of x.
     """
-    n,alpha,beta,phi = check_args(x,alpha,beta,phi)
+    n,alpha,beta,phi = check_args(alpha=alpha,beta=beta,phi=phi)
 
     MU=[]
     for i in range(n):
@@ -98,9 +98,8 @@ def marginal_utilities(x,alpha,beta,phi):
       """
       Return a function which will tell excess expenditures associated with a lambda.
       """
-      n,alpha,beta,phi = check_args(p,alpha,beta,phi)
-      n = len(p)
-
+      n,alpha,beta,phi = check_args(p=p,alpha=alpha,beta=beta,phi=phi)
+  
       def f(lbda):
           lbda=abs(lbda)
 
@@ -252,33 +251,39 @@ def marginal_utilities(x,alpha,beta,phi):
 #+name: demand_utils
 #+BEGIN_SRC python :tangle ../cfe/_utils.py
 from scipy import optimize 
-from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all
+from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all, max
 import warnings
 
-def check_args(p,alpha,beta,phi):
+def check_args(p=None,alpha=None,beta=None,phi=None):
     """
     Perform sanity check on inputs.  Supply default values if these are missing.
     """
 
+    N = []
     # Make sure all args are of type array:
-    p=array(p,dtype=float)
+    if p is not None:
+        p=array(p,dtype=float)
+        N.append(len(p))
 
     try: 
         len(alpha) # If len() not defined, then must be a singleton
         alpha=array(alpha,dtype=float)
+        N.append(len(alpha))
     except TypeError: alpha=array([alpha],dtype=float)
 
     try:
         len(beta) # If len() not defined, then must be a singleton
         beta = array(beta,dtype=float)
+        N.append(len(beta))
     except TypeError: beta = array([beta],dtype=float)
 
     try:
         len(phi) # If len() not defined, then must be a singleton
         phi=array(phi,dtype=float)
+        N.append(len(phi))
     except TypeError: phi=array([phi],dtype=float)
 
-    n=len(p)
+    n = max(N)
 
     if len(alpha)==1<n:
         alpha=ones(n)*alpha
@@ -468,7 +473,10 @@ def budgetshares(U,p,alpha,beta,phi,NegativeDemands=True):
 #+END_SRC    
     
 #+name: main
-#+BEGIN_SRC python :tangle ../cfe/demands.py 
+#+BEGIN_SRC python :tangle ../cfe/test/test_demands.py 
+from cfe.demands import lambdavalue, marshallian, hicksian, derivative
+from numpy import array
+
 def main(y,p,alpha,beta,phi,NegativeDemands=True):
 
     n=len(p)
@@ -492,13 +500,10 @@ def main(y,p,alpha,beta,phi,NegativeDemands=True):
 
     tol=1e-6
 
-    try:
-        print("Evaluating lambda-V'...", end=' ')
-        lbda=lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
-        assert abs(dV(y)-lbda)<tol
-        print("within tolerance %f" % tol)
-    except AssertionError:
-        print("dV=%f; lambda=%f" % (dV(y),lbda))
+    print("Evaluating lambda-V'...", end=' ')
+    lbda=lambdavalue(y,p,alpha,beta,phi,NegativeDemands=NegativeDemands)
+    assert (abs(dV(y)-lbda)<tol), "dV=%f; lambda=%f" % (dV(y),lbda)
+    print("within tolerance %f" % tol)
 
 if __name__=="__main__":
     print("Single good; negative phi")
