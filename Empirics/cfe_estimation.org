@@ -2188,7 +2188,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\(%5.3f\)'):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2234,7 +2234,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
                         stars='^{'+'*'*stars + '}'
                     else: stars=''
                 except KeyError: stars=''
-                entry='| \('+float_fmt+stars+'\) '
+                entry='| '+float_fmt+stars+' '
                 if np.isnan(df[j][i]):
                     s+='| --- '
                 else:
@@ -2263,7 +2263,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| \('+float_fmt+stars+'\)  '
+                entry='| '+float_fmt+stars+'  '
                 if np.isnan(df[j][i]):
                     s+='| --- '
                 else:
@@ -2277,7 +2277,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
                     elif np.isnan(sedf[j][i]):
                         se='(---)'
                     else:
-                        se='\((' + float_fmt % sedf[j][i] + ')\)' 
+                        se='(' + float_fmt % sedf[j][i] + ')' 
                 except KeyError: se=''
                 entry='| '+se+'  '
                 s+=entry 
@@ -2304,7 +2304,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| \('+float_fmt+stars+'\) '
+                entry='| '+float_fmt+stars+' '
                 if np.isnan(df[j][i]):
                     s+='| --- '
                 else:
@@ -2313,7 +2313,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f'):
             for j in df.columns: # Now confidence intervals
                 s+='  '
                 try:
-                    ci='\([' + float_fmt +','+ float_fmt + ']\)'
+                    ci='[' + float_fmt +','+ float_fmt + ']'
                     ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
                 except KeyError: ci=''
                 entry='| '+ci+'  '
