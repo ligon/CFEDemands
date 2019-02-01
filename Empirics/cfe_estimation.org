@@ -88,7 +88,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
             vertical_scale=VERTICAL
         else:
             vertical_scale=6.
-        ax.plot(mratio.as_matrix(),list(range(mratio.shape[0])), 'o')
+        ax.plot(mratio.values,list(range(mratio.shape[0])), 'o')
         ax.legend(mratio.columns,loc=2)
         ax.set_xlabel('Log Aggregate shares divided by Mean shares')
         ax.set_yticks(list(range(mratio.shape[0])))
@@ -98,7 +98,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         ax.figure.set_figheight((v[-1]/24)*vertical_scale)
         pl.tight_layout()
     else:
-        ax.plot(list(range(mratio.shape[0])),mratio.as_matrix(), 'o')
+        ax.plot(list(range(mratio.shape[0])),mratio.values, 'o')
         ax.legend(mratio.columns,loc=2)
         ax.set_ylabel('Log Aggregate shares divided by Mean shares')
 
@@ -148,20 +148,20 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
             bootdf['j']=list(range(bootdf.shape[0]))
             bootdf.set_index(['t','j'],inplace=True)
             shares,mr=expenditure_shares(bootdf)
-            M=np.dstack((M,mr.as_matrix()))
+            M=np.dstack((M,mr.values))
             M.sort(axis=2)
             a=(1-ConfidenceIntervals)/2.
-            lb= mratio.as_matrix() - M[:,:,int(np.floor(M.shape[-1]*a))]
-            ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.as_matrix()
+            lb= mratio.values - M[:,:,int(np.floor(M.shape[-1]*a))]
+            ub=M[:,:,int(np.floor(M.shape[-1]*(ConfidenceIntervals+a)))] - mratio.values
             current=np.c_[lb,ub]
             i+=1
 
         T=mratio.shape[1]
         for t in range(T):
             if VERTICAL:
-                ax.errorbar(mratio.as_matrix()[:,t],np.arange(mratio.shape[0]),xerr=current[:,[t,t-T]].T.tolist())
+                ax.errorbar(mratio.values[:,t],np.arange(mratio.shape[0]),xerr=current[:,[t,t-T]].T.tolist())
             else:
-                ax.errorbar(np.arange(mratio.shape[0]),mratio.as_matrix()[:,t],yerr=current[:,[t,t-T]].T.tolist())
+                ax.errorbar(np.arange(mratio.shape[0]),mratio.values[:,t],yerr=current[:,[t,t-T]].T.tolist())
 
             tab[(df.index.levels[0][t],'Upper Int')]=current[:,t-T]
             tab[(df.index.levels[0][t],'Lower Int')]=current[:,t]
@@ -270,18 +270,19 @@ def svd_missing(A,max_rank=None,min_obs=None):
         s=s[:max_rank]
 
     r=len(s)
-    us=np.matrix(u)*np.diag(s)
+    # us=np.matrix(u)*np.diag(s) # np.matrix deprecated
+    us=u@np.diag(s) # Use new @ operator for matrix multiplication
 
     v=np.zeros((len(s),A.shape[1]))
     for j in range(A.shape[1]):
         a=A.iloc[:,j].values.reshape((-1,1))
         x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
         if len(x)>=r:
-            v[:,j]=(np.linalg.pinv(us[x,:])*a[x]).reshape(-1)
+            v[:,j]=(np.linalg.pinv(us[x,:])@a[x]).reshape(-1)
         else:
             v[:,j]=np.nan
 
-    return np.matrix(u),s,np.matrix(v).T
+    return u,s,v.T # np.matrix(u),s,np.matrix(v).T # np.matrix deprecated
 #+END_SRC
 
 #+results: svd_missing
@@ -321,13 +322,13 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
         print("Estimated singular values: ",)
         print(s)
 
-    xhat=pd.DataFrame(v[:,0]*s[0]*u[:,0].T,columns=x.index,index=x.columns).T
+    xhat=pd.DataFrame(s*v@u.T,columns=x.index,index=x.columns).T
 
     if TRANSPOSE: xhat=xhat.T
 
     if return_usv:
-        u = pd.Series(u.A.squeeze(),index=xhat.columns)
-        v = pd.Series(v.A.squeeze(),index=xhat.index)
+        u = pd.Series(u.squeeze(),index=xhat.columns)
+        v = pd.Series(v.squeeze(),index=xhat.index)
         return xhat,u,s,v
     else: return xhat
 #+end_src
@@ -441,7 +442,7 @@ Xhat,u,s,v=svd_rank1_approximation_with_missing_data(X,VERBOSE=False,return_usv=
 #rho_a=np.corrcoef(np.c_[a,u[:,0]],rowvar=0)[0,1]
 rho_a=pd.DataFrame({'a':a.reshape(-1),'u':u}).corr().iloc[0,1]
 rho_b=pd.DataFrame({'b':pd.Series(b.reshape(-1)),'v':v}).corr().iloc[0,1]
-missing=np.isnan(X.as_matrix()).reshape(-1,1).mean()
+missing=np.isnan(X.values).reshape(-1,1).mean()
 print("Proportion missing %g and correlations are %5.4f and %5.4f." % (missing, rho_a,rho_b),)
 print("Singular value=%g" % s[0],)
 if SEED: print("Seed=%g" % SEED)
@@ -449,9 +450,6 @@ else: print()
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_test
-: Proportion missing 0.499417 and correlations are 0.9996 and 0.9479.
-: Singular value=145.421
-: 
 
 
 
@@ -737,9 +735,9 @@ Dee=[]
 Vee=[]
 for i in range(DRAWS):
     <<test_estimate_reduced_form>>
-    Dee.append(d.as_matrix().squeeze().tolist())
+    Dee.append(d.values.squeeze().tolist())
     Jay.append(J[0,0])
-    Vee.append(V.squeeze().as_matrix().tolist())
+    Vee.append(V.squeeze().values.tolist())
 
 Dee=np.array(Dee)
 Jay=np.array(Jay)
@@ -929,9 +927,9 @@ Dee=[]
 Vee=[]
 for i in range(DRAWS):
     <<test_estimate_reduced_form>>
-    Dee.append(d.as_matrix().squeeze().tolist())
+    Dee.append(d.values.squeeze().tolist())
     Jay.append(J[0,0])
-    Vee.append(V.squeeze().as_matrix().tolist())
+    Vee.append(V.squeeze().values.tolist())
 
 Dee=np.array(Dee)
 Jay=np.array(Jay)
@@ -1408,15 +1406,15 @@ def indirect_price_elasticities(a,p,zbar):
 
     X = pe.copy()
 
-    Xm=np.matrix((X-X.mean()).values)
+    Xm = (X-X.mean()).values
 
-    ym=np.matrix((a-a.mean()).values)
+    ym = (a-a.mean()).values
   
     B=OrderedDict()
     SE=OrderedDict()
     for i,Item in enumerate(y.columns):
         B[Item] = np.linalg.lstsq(Xm[:,i],ym[:,i])[0][0,0]
-        e = ym[:,i] - Xm[:,i]*B[Item]
+        e = ym[:,i] - Xm[:,i]@B[Item]
         SE[Item] = np.sqrt(np.var(e)/np.var(Xm[:,i]))
 
     B = pd.Series(B)
@@ -1448,6 +1446,8 @@ print(x.head())
 
 #+END_SRC
 
+#+RESULTS:
+
 * Analysis Omnibus
   This describes a sort of `wrapper' routine which at a minimum takes
   as input a =pd.DataFrame= of log expenditures, indexed by household,
@@ -1470,147 +1470,147 @@ print(x.head())
 
 #+name: analysis_omnibus
 #+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
-  # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
-  import tempfile
-  import numpy as np
-  import pandas as pd
-  from numpy.linalg import norm
+import tempfile
+import numpy as np
+import pandas as pd
+from numpy.linalg import norm
 
-  def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
-                       VERBOSE=False, BOOTSTRAP=False):
+def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min_proportion_items=1./8,
+                     VERBOSE=False, BOOTSTRAP=False):
 
-      if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
-          BOOTSTRAP = 1e-3
+    if BOOTSTRAP is True: # Bootstrap also a tolerance parameter
+        BOOTSTRAP = 1e-3
 
-      if z is None:
-         z = pd.DataFrame(index=y.index)
+    if z is None:
+       z = pd.DataFrame(index=y.index)
 
-      if prices is not None: # Check price indices (t,mkt) consistent with indices in y
-          assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
-                 "Must have prices for every (t,mkt) in expenditures y."
+    if prices is not None: # Check price indices (t,mkt) consistent with indices in y
+        assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
+               "Must have prices for every (t,mkt) in expenditures y."
 
-      results={'y':y,'z':z}
-      if prices is not None: results['prices'] = prices
+    results={'y':y,'z':z}
+    if prices is not None: results['prices'] = prices
 
-      firstround=y.reset_index().iloc[0]['t']  
+    firstround=y.reset_index().iloc[0]['t']  
 
-      # Deflate expenditures and prices by prices of numeraire good.
-      if numeraire is not None and len(numeraire)>0:
-          y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
-          logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
+    # Deflate expenditures and prices by prices of numeraire good.
+    if numeraire is not None and len(numeraire)>0:
+        y = broadcast_binary_op(y, lambda foo,bar: foo-bar, np.log(prices[numeraire]))
+        logp=np.log(prices).sub(np.log(prices[numeraire]),axis=0)
 
-      use_goods = y.columns.tolist()
+    use_goods = y.columns.tolist()
 
-      # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-      using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
-      y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
-      y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-      # Only keep goods with observations in each (t,mkt)
-      y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
+    # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+    using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
+    y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
+    y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+    # Only keep goods with observations in each (t,mkt)
+    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
 
-      a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
-      ce.dropna(how='all',inplace=True)
-      se = sed
+    a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
+    ce.dropna(how='all',inplace=True)
+    se = sed
 
-      results['ce']=ce
-      results['delta_covariance'] = V
+    results['ce']=ce
+    results['delta_covariance'] = V
 
-      bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
+    bphi,logL = get_loglambdas(ce,TEST=True,min_obs=30)
 
-      assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
-             "Problem with normalization of loglambdas"
+    assert np.abs(logL.groupby(level='t').std().iloc[0] - 1) < 1e-12, \
+           "Problem with normalization of loglambdas"
 
-      cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-      cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
-      results['cehat']=cehat
+    cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+    cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+    results['cehat']=cehat
 
-      if VERBOSE:
-          print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
+    if VERBOSE:
+        print("Norm of error in approximation of CE divided by norm of CE: %f" % (df_norm(cehat,ce)/df_norm(ce)))
 
-      # Some naive standard errors & ANOVA
-      miss2nan = ce*0
-      anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
-                          'Characteristics':z.dot(d.T).var(ddof=0),
-                          '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
-                          'Residual':(ce-cehat).var(ddof=0)})
-      anova=anova.div(y.var(ddof=0),axis=0)
-      anova['Total var']=y.var(ddof=0)
-      anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
+    # Some naive standard errors & ANOVA
+    miss2nan = ce*0
+    anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
+                        'Characteristics':z.dot(d.T).var(ddof=0),
+                        '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
+                        'Residual':(ce-cehat).var(ddof=0)})
+    anova=anova.div(y.var(ddof=0),axis=0)
+    anova['Total var']=y.var(ddof=0)
+    anova.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
-      results['anova'] = anova
+    results['anova'] = anova
 
-      yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
+    yhat = broadcast_binary_op(cehat + z.dot(d.T),lambda x,y: x+y,a.T)
 
-      e = y.sub(yhat)
+    e = y.sub(yhat)
 
-      goodsdf=d.copy()
+    goodsdf=d.copy()
 
-      pref_params=[r'$\phi\beta_i$']
-      if numeraire is not None and len(numeraire)>0:
-          # FIXME: Issue here with dividing by a random variable.  What
-          # properties do we want estimator of barloglambda_t to have?
-          try:
-              barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
-              logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
-              a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
-          except KeyError:
-              pass
+    pref_params=[r'$\phi\beta_i$']
+    if numeraire is not None and len(numeraire)>0:
+        # FIXME: Issue here with dividing by a random variable.  What
+        # properties do we want estimator of barloglambda_t to have?
+        try:
+            barloglambda_t=-a.loc[numeraire]/bphi[numeraire]
+            logL = broadcast_binary_op(logL,lambda x,y: x+y,barloglambda_t) # Add term associated with numeraire good
+            a = a - pd.DataFrame(np.outer(bphi,barloglambda_t),index=bphi.index,columns=barloglambda_t.index)
+        except KeyError:
+            pass
 
-          # FIXME: Should really use weighted mean, since different precisions for a across different  markets
-          logalpha = a[firstround].T.mean() 
-          goodsdf[r'$\log\alpha_i$'] = logalpha
-          pref_params += [r'$\log\alpha_i$']
-      else:
-          pidx=a.mean()
-          logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
-          a = a - pidx
+        # FIXME: Should really use weighted mean, since different precisions for a across different  markets
+        logalpha = a[firstround].T.mean() 
+        goodsdf[r'$\log\alpha_i$'] = logalpha
+        pref_params += [r'$\log\alpha_i$']
+    else:
+        pidx=a.mean()
+        logL= broadcast_binary_op(logL,lambda x,y: x+y,pidx) # Add term associated with numeraire good
+        a = a - pidx
 
-      if VERBOSE:
-          print("Mean of errors:")
-          print(e.mean(axis=0))
+    if VERBOSE:
+        print("Mean of errors:")
+        print(e.mean(axis=0))
 
-      goodsdf[r'$\phi\beta_i$']=bphi
-      goodsdf['$R^2$']=1-e.var()/y.var()
+    goodsdf[r'$\phi\beta_i$']=bphi
+    goodsdf['$R^2$']=1-e.var()/y.var()
 
-      goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
-      goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
+    goodsdf=goodsdf[pref_params+d.columns.tolist()+['$R^2$']]
+    goodsdf['%Zero']=100-np.round(100*(~np.isnan(y[goodsdf.index])+0.).mean(),1)
 
-      ehat=e.dropna(how='all')
-      ehat=ehat-ehat.mean()
+    ehat=e.dropna(how='all')
+    ehat=ehat-ehat.mean()
 
-      if BOOTSTRAP:
-          tmpf = tempfile.mkstemp(suffix='.csv')
-          if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
+    if BOOTSTRAP:
+        tmpf = tempfile.mkstemp(suffix='.csv')
+        if VERBOSE: print("Bootstrapping.  Interim results written to %s." % tmpf[1])
 
-          sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
-          results['Bs'] = Bs
-          se[r'$\phi\beta_i$']=sel
-      else:
-          sel=[]
-          for i in ehat:
-              foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
-              sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).values[0,0]))
-          se[r'$\phi\beta_i$']=np.array(sel)
+        sel,Bs = bootstrap_elasticity_stderrs(ce,tol=1e-4,VERBOSE=VERBOSE,return_samples=True,outfn=tmpf[1])
+        results['Bs'] = Bs
+        se[r'$\phi\beta_i$']=sel
+    else:
+        sel=[]
+        for i in ehat:
+            foo=pd.DataFrame({'logL':logL.squeeze(),'e':ehat[i]}).dropna(how='any')
+            sel.append(np.sqrt(arellano_robust_cov(foo['logL'],foo['e']).values[0,0]))
+        se[r'$\phi\beta_i$']=np.array(sel)
 
-      if numeraire is not None:
-          se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
+    if numeraire is not None:
+        se[r'$\log\alpha_i$']=ehat.query('t==%d' % firstround).std()/np.sqrt(ehat.query('t==%d'  % firstround).count())
 
-      se.dropna(how='any',inplace=True)
+    se.dropna(how='any',inplace=True)
 
-      results['se'] = sed
-      goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
+    results['se'] = sed
+    goodsdf=goodsdf.T[se.index.tolist()].T # Drop goods that we can't compute std errs for.
 
-      goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
-      goodsdf.dropna(how='any',inplace=True)
-      results['goods'] = goodsdf
+    goodsdf.sort_values(by=[r'$\phi\beta_i$'],inplace=True,ascending=False)
+    goodsdf.dropna(how='any',inplace=True)
+    results['goods'] = goodsdf
 
-      results['a'] = a
-      results['loglambda'] = logL
-      results['logexpenditures'] = y
-      results['logexpenditures_hat'] = yhat
+    results['a'] = a
+    results['loglambda'] = logL
+    results['logexpenditures'] = y
+    results['logexpenditures_hat'] = yhat
 
-      return results
+    return results
 #+end_src
 
 * Distance between two estimates of \beta
@@ -1694,6 +1694,9 @@ from scipy.stats.distributions import f as F
 def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
 
     assert N2<N, "N2 should be size of sub-sample of pooled sample."
+    b1 = b1.reshape((-1,1))
+    b2 = b2.reshape((-1,1))
+
     n=len(b1)
 
     assert n==len(b2), "Length of vectors must be equal"
@@ -1704,14 +1707,12 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
         except (TypeError, IndexError):
             pass
 
-        d = np.matrix(psi*b1 - b2)
+        d = psi*b1 - b2
         if d.shape[0]<d.shape[1]: d = d.T
 
-        #W = np.matrix((psi**2)*v1 + v2*(1-2*(psi**2)*N2/N)).I
-        W = np.matrix((psi**2)*v1 + v2).I # Independent case
-        #W = np.matrix(v1 + v2).I # Independent case
+        W = np.linalg.inv((psi**2)*v1 + v2) # Independent case
 
-        F = N2*(N-n-1)/((N-1)*(n-1)) * d.T*W*d
+        F = N2*(N-n-1)/((N-1)*(n-1)) * d.T@W@d
 
         if ~np.isscalar(F):
             F=F[0,0]
@@ -1719,6 +1720,7 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
         return F
 
     #result = minimize_scalar(Fcriterion,method='bounded',bounds=[0,10])
+    Fcriterion(1.)
     result = minimize_scalar(Fcriterion)
     psi=np.abs(result['x'])
     Fstat=result['fun']
@@ -1865,40 +1867,40 @@ def predicted_expenditures(yhat,e):
 
 #+name: optimal_index
 #+begin_src python :exports code :tangle ../cfe/estimation.py
-  import xarray as xr
-  import pandas as pd
+import xarray as xr
+import pandas as pd
 
-  def optimal_index(a,yhat,e):
-      """Return individual optimal price indices for each household in all settings.
+def optimal_index(a,yhat,e):
+    """Return individual optimal price indices for each household in all settings.
 
-      Given log shadow prices =a=, predicted log expenditures =yhat=,
-      and residuals from prediction =e= calculate optimal price indices
-      for each household =j= in each setting.
+    Given log shadow prices =a=, predicted log expenditures =yhat=,
+    and residuals from prediction =e= calculate optimal price indices
+    for each household =j= in each setting.
 
-      A "setting" is a pair (t,m).  To get the price index for a
-      household j=0 observed at (t0,m0)=(1,2) for the counterfactual
-      setting (t,m)=(1,0) one can use something like
-      R.sel(j=0,t0=1,m0=2,t=1,m=0).
+    A "setting" is a pair (t,m).  To get the price index for a
+    household j=0 observed at (t0,m0)=(1,2) for the counterfactual
+    setting (t,m)=(1,0) one can use something like
+    R.sel(j=0,t0=1,m0=2,t=1,m=0).
 
-      Ethan Ligon                                                 July 2018
-      """
+    Ethan Ligon                                                 July 2018
+    """
 
-      # Begin by obtaining predicted expenditure shares in null setting.
-      # Subtract relevant actual prices for household;
-      # yhat missing for all but actual setting, missings propagate.
-      x0 = predicted_expenditures(yhat - a,e)
+    # Begin by obtaining predicted expenditure shares in null setting.
+    # Subtract relevant actual prices for household;
+    # yhat missing for all but actual setting, missings propagate.
+    x0 = predicted_expenditures(yhat - a,e)
 
-      # (t0,m0) is 'home' setting
-      x0 = x0.rename({'t':'t0','m':'m0'}) 
+    # (t0,m0) is 'home' setting
+    x0 = x0.rename({'t':'t0','m':'m0'}) 
 
-      xsum = x0*np.exp(a)    # Predicted x_i in different settings (t,m)
-                             # for households in every setting (t0,m0).
+    xsum = x0*np.exp(a)    # Predicted x_i in different settings (t,m)
+                           # for households in every setting (t0,m0).
 
-      pidx = xsum.sum('i',skipna=False)   # Total expenditures in different settings.
+    pidx = xsum.sum('i',skipna=False)   # Total expenditures in different settings.
 
-      R=pidx/pidx.sel(t0=pidx.coords['t'],t=pidx.coords['t'],m0=pidx.coords['m'],m=pidx.coords['m'])
+    R=pidx/pidx.sel(t0=pidx.coords['t'],t=pidx.coords['t'],m0=pidx.coords['m'],m=pidx.coords['m'])
 
-      return R.transpose('j','t0','m0','t','m')
+    return R.transpose('j','t0','m0','t','m')
 #+end_src
 
 
@@ -1972,29 +1974,29 @@ def predicted_expenditures(yhat,e):
 
 #+name: lambdas_dgp
 #+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
-  from scipy.stats.distributions import lognorm
-  import numpy as np
-  import xarray as xr
+from scipy.stats.distributions import lognorm
+import numpy as np
+import xarray as xr
 
-  def geometric_brownian(sigma=1.):
-      return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
+def geometric_brownian(sigma=1.):
+    return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
 
-  def lambdabar(T,M,Fbar):
-      return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
-                          dims=('t','m'),
-                          coords={'t':range(T),'m':range(M)})
+def lambdabar(T,M,Fbar):
+    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
+                        dims=('t','m'),
+                        coords={'t':range(T),'m':range(M)})
 
-  def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
+def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
 
-      L0 = xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
-                      coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
-      innov = xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
-                               coords={'j':range(N),'t':range(1,T),'m':range(M)})
+    L0 = xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
+                    coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
+    innov = xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
+                             coords={'j':range(N),'t':range(1,T),'m':range(M)})
 
-      L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
-    
-      # Add aggregate shocks Lbar:
-      return L*lambdabar(T,M,Fbar=Fbar)
+    L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
+  
+    # Add aggregate shocks Lbar:
+    return L*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
 
   In addition, time-varying household characteristics can affect
@@ -2038,30 +2040,30 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
     are generated below.
 #+name: measurement_error_dgp
 #+BEGIN_SRC python :results value 
-  import pandas as pd
-  from scipy.stats import distributions
-  import numpy as np
+import pandas as pd
+from scipy.stats import distributions
+import numpy as np
 
-  def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
-      """Return samples from two measurement error processes; one additive, the other  multiplicative.
+def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
+    """Return samples from two measurement error processes; one additive, the other  multiplicative.
+  
+    - The additive error (phi) is a normal distribution with mean
+      =mu_phi= and standard deviation =sigma_phi=.
     
-      - The additive error (phi) is a normal distribution with mean
-        =mu_phi= and standard deviation =sigma_phi=.
-      
-      - The multiplicative error (eps) is a log-normal distribution with mean
-        =mu_eps= and standard deviation =sigma_eps=.
-      """
+    - The multiplicative error (eps) is a log-normal distribution with mean
+      =mu_eps= and standard deviation =sigma_eps=.
+    """
 
-      def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
-          return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
+    def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
+        return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
 
-      def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
-          return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
+    def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
+        return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
 
-      phi=additive_error(N,T,M,n,sigma=sigma_phi)
-      eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
+    phi=additive_error(N,T,M,n,sigma=sigma_phi)
+    eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
 
-      return phi,eps
+    return phi,eps
 #+END_SRC
 
 ** Data-generating process for expenditures
@@ -2090,66 +2092,66 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
     of the matrix $\Theta$.  Instantiated in code:
 #+name: expenditures_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-  <<measurement_error_dgp>>
+<<measurement_error_dgp>>
 
-  def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None):
-      """Generate artificial expenditures for $N$ households in $M$ markets
-      over $T$ periods on $n$ items.  Return dataframe of expenditures
-      and a dictionary of "true" underlying variables, the latter as
-      type =xarray.DataArray=.
+def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None):
+    """Generate artificial expenditures for $N$ households in $M$ markets
+    over $T$ periods on $n$ items.  Return dataframe of expenditures
+    and a dictionary of "true" underlying variables, the latter as
+    type =xarray.DataArray=.
 
-      Households are distinguished by a $k$-vector of characteristics,
-      but common Frisch elasticities expressed as an $n$-vector beta.
+    Households are distinguished by a $k$-vector of characteristics,
+    but common Frisch elasticities expressed as an $n$-vector beta.
 
-      If supplied, optional arguments
-      (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
-      different measurement error processes.  The first is a normally
-      distributed additive measurement error process, with mean =mu_phi=
-      and standard deviation =sigma_phi=.  The second is a
-      multiplicative log-normal error process, with (log) mean =mu_eps=
-      and (log) standard deviation =sigma_eps=.
+    If supplied, optional arguments
+    (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
+    different measurement error processes.  The first is a normally
+    distributed additive measurement error process, with mean =mu_phi=
+    and standard deviation =sigma_phi=.  The second is a
+    multiplicative log-normal error process, with (log) mean =mu_eps=
+    and (log) standard deviation =sigma_eps=.
 
-      An optional xarray of prices =p= can also be provided.
+    An optional xarray of prices =p= can also be provided.
 
-      Ethan Ligon                                                     January 2018
-      """
+    Ethan Ligon                                                     January 2018
+    """
 
-      if len(beta.shape)<2:
-          Theta=xr.DataArray(np.diag(beta),dims=('i','ip'))
-      else:
-          Theta=xr.DataArray(beta,dims=('i','ip'))
+    if len(beta.shape)<2:
+        Theta=xr.DataArray(np.diag(beta),dims=('i','ip'))
+    else:
+        Theta=xr.DataArray(beta,dims=('i','ip'))
 
-      beta=Theta.sum('ip') # Row sum of elasticity matrix
+    beta=Theta.sum('ip') # Row sum of elasticity matrix
 
-      l = lambdas(N,T,M,Fbar=Fbar)
-      
-      foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
+    l = lambdas(N,T,M,Fbar=Fbar)
+    
+    foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
 
-      dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
+    dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
 
-      L = np.reshape(l,(N,T,M)) 
-      
-      if p is None:
-          p = prices(T,M,n)
+    L = np.reshape(l,(N,T,M)) 
+    
+    if p is None:
+        p = prices(T,M,n)
 
-      # Build x in steps
-      #x = np.kron(np.log(L),-beta)
-      x = np.log(L)*(-beta)
-      x = x + np.log(p) - (Theta*np.log(p)).sum('ip') 
-      x = x + np.log(dz).sum('k')
+    # Build x in steps
+    #x = np.kron(np.log(L),-beta)
+    x = np.log(L)*(-beta)
+    x = x + np.log(p) - (Theta*np.log(p)).sum('ip') 
+    x = x + np.log(dz).sum('k')
 
-      x = np.exp(x)
+    x = np.exp(x)
 
-      phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
+    phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
 
-      truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':dz,'prices':p,'x0':x})
+    truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':dz,'prices':p,'x0':x})
 
-      x = (x + p*phi) # Additive error
-      x = x*e # Multiplicative error
+    x = (x + p*phi) # Additive error
+    x = x*e # Multiplicative error
 
-      x = x*(x>0) # Truncation
+    x = x*(x>0) # Truncation
 
-      return x,truth
+    return x,truth
 #+END_SRC
 
 * Utility Functions
@@ -2188,7 +2190,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\(%5.3f\)'):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2419,131 +2421,130 @@ print(s)
 ** Some econometric routines
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
-  import xarray as xr
-  from scipy.linalg import block_diag
+import xarray as xr
+from scipy.linalg import block_diag
 
-  def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
-      """
-      Compute clustered estimates of covariance matrix, per Arellano (1987).
-      Estimates of variance of fixed effects use OLS estimator.
-      """
-      X,u = drop_missing([X,u])
-      clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
-      if  len(clusters)>1:
-          # Take out time averages
-          ubar = u.groupby(level=clusterby).transform(np.mean)
-          Xbar = X.groupby(level=clusterby).transform(np.mean)
-      else:
-          ubar = u.mean()
-          Xbar = X.mean()
+def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
+    """
+    Compute clustered estimates of covariance matrix, per Arellano (1987).
+    Estimates of variance of fixed effects use OLS estimator.
+    """
+    X,u = drop_missing([X,u])
+    clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
+    if  len(clusters)>1:
+        # Take out time averages
+        ubar = u.groupby(level=clusterby).transform(np.mean)
+        Xbar = X.groupby(level=clusterby).transform(np.mean)
+    else:
+        ubar = u.mean()
+        Xbar = X.mean()
 
-      ut = (u - ubar).squeeze()
-      Xt = X - Xbar
+    ut = (u - ubar).squeeze()
+    Xt = X - Xbar
 
-      # Pull out columns spanned by cluster vars to get var of FEs
-      Cvars = Xt.columns[Xt.std()<tol]
-      Xvars = Xt.columns[Xt.std()>=tol]
-      if len(Cvars):
-          _,v = ols(X.loc[:,Cvars],u,return_se=False,return_v=True)
+    # Pull out columns spanned by cluster vars to get var of FEs
+    Cvars = Xt.columns[Xt.std()<tol]
+    Xvars = Xt.columns[Xt.std()>=tol]
+    if len(Cvars):
+        _,v = ols(X.loc[:,Cvars],u,return_se=False,return_v=True)
 
-      Xt = Xt.drop(columns=Cvars)
+    Xt = Xt.drop(columns=Cvars)
 
-      Xu=Xt.mul(ut,axis=0)
+    Xu=Xt.mul(ut,axis=0)
 
-      if len(Xt.shape)==1:
-          XXinv=np.array([1./(Xt.T.dot(Xt))])
-      else:
-          XXinv=np.linalg.inv(Xt.T.dot(Xt))
-      Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
+    if len(Xt.shape)==1:
+        XXinv=np.array([1./(Xt.T.dot(Xt))])
+    else:
+        XXinv=np.linalg.inv(Xt.T.dot(Xt))
+    Vhat = XXinv.dot(Xu.T.dot(Xu)).dot(XXinv)
 
-      try:
-          Allvars = Cvars.values.tolist() + Xvars.values.tolist()
-          if len(Cvars):
-              V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
-          else:
-              V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
-          return V
-      except AttributeError:
-          if len(Cvars):
-              return v,Vhat
-          else:
-              return Vhat
+    try:
+        Allvars = Cvars.values.tolist() + Xvars.values.tolist()
+        if len(Cvars):
+            V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+        else:
+            V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+        return V
+    except AttributeError:
+        if len(Cvars):
+            return v,Vhat
+        else:
+            return Vhat
 
 
-  def ols(x,y,return_se=True,return_v=False,return_e=False):
-      """Produce OLS estimates of b in $y = xb + u$.
+def ols(x,y,return_se=True,return_v=False,return_e=False):
+    """Produce OLS estimates of b in $y = xb + u$.
 
-      If standard errors (return_se=True) or covariance matrices
-      (return_v=True) are returned, these are Seemingly Unrelated
-      Regression (SUR) estimates if y has multiple columns, or the
-      simple OLS estimator var(u)(X'X)^{-1} otherwise.
-      """
+    If standard errors (return_se=True) or covariance matrices
+    (return_v=True) are returned, these are Seemingly Unrelated
+    Regression (SUR) estimates if y has multiple columns, or the
+    simple OLS estimator var(u)(X'X)^{-1} otherwise.
+    """
 
-      x=pd.DataFrame(x) # Deal with possibility that x & y are series.
-      y=pd.DataFrame(y)
-      # Drop any observations that have missing data in *either* x or y.
-      x,y = drop_missing([x,y]) 
+    x=pd.DataFrame(x) # Deal with possibility that x & y are series.
+    y=pd.DataFrame(y)
+    # Drop any observations that have missing data in *either* x or y.
+    x,y = drop_missing([x,y]) 
 
-      N,n=y.shape
-      k=x.shape[1]
+    N,n=y.shape
+    k=x.shape[1]
 
-      b=np.linalg.lstsq(x,y,rcond=0)[0]
+    b=np.linalg.lstsq(x,y,rcond=0)[0]
 
-      b=pd.DataFrame(b,index=x.columns,columns=y.columns)
+    b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
-      out=[b.T]
-      if return_se or return_v or return_e:
+    out=[b.T]
+    if return_se or return_v or return_e:
 
-          u=y-x.dot(b)
+        u=y-x.dot(b)
 
-          # Use SUR structure if multiple equations; otherwise OLS.
-          # Only using diagonal of this, for reasons related to memory.  
-          S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
+        # Use SUR structure if multiple equations; otherwise OLS.
+        # Only using diagonal of this, for reasons related to memory.  
+        S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
 
-          if return_se or return_v:
-              # This can be a very large matrix!  Use sparse types
-              V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
-              V=V.dot(S).dot(V.T)
+        if return_se or return_v:
+            # This can be a very large matrix!  Use sparse types
+            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
+            V=V.dot(S).dot(V.T)
 
-          if return_se:
-              se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
-              se=pd.DataFrame(se,index=x.columns,columns=y.columns)
+        if return_se:
+            se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
+            se=pd.DataFrame(se,index=x.columns,columns=y.columns)
 
-              out.append(se)
-          if return_v:
-              # Extract blocks along diagonal; return an k x kp x n array
-              col0 = x.columns
-              col1 = col0.rename(name='kp')
-              v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
-              V = xr.Dataset(v).to_array()
-              out.append(V)
+            out.append(se)
+        if return_v:
+            # Extract blocks along diagonal; return an k x kp x n array
+            col0 = x.columns
+            col1 = col0.rename(name='kp')
+            v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
+            V = xr.Dataset(v).to_array()
+            out.append(V)
 
-          if return_e:
-              out.append(u)
-      return tuple(out)
+        if return_e:
+            out.append(u)
+    return tuple(out)
 #+END_SRC
 
 *** Tests
 #+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
-  import cfe
-  import pylab as pl
-  import numpy as np
-  import pandas as pd
+import cfe
+import pylab as pl
+import numpy as np
+import pandas as pd
 
-  from cfe.dgp import geometric_brownian
-  from cfe.result import to_dataframe
+from cfe.dgp import geometric_brownian
+from cfe.result import to_dataframe
 
-  n=12
-  T=4
-  x,parts = cfe.dgp.expenditures(1000,T,1,n,2,np.linspace(0.25,3,n),sigma_phi=0.,sigma_eps=0.01,Fbar=geometric_brownian(1.))
-  y = to_dataframe(np.log(x.where(x>0,np.nan)),'i')
-  z = to_dataframe(np.log(parts['characteristics']),'k')
+n=12
+T=4
+x,parts = cfe.dgp.expenditures(1000,T,1,n,2,np.linspace(0.25,3,n),sigma_phi=0.,sigma_eps=0.01,Fbar=geometric_brownian(1.))
+y = to_dataframe(np.log(x.where(x>0,np.nan)),'i')
+z = to_dataframe(np.log(parts['characteristics']),'k')
 
-  X = z.copy()
-  X['Constant'] = 1
+X = z.copy()
+X['Constant'] = 1
 
-  b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
-
+b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
 #+end_src
 
 
@@ -2705,58 +2706,58 @@ assert baz.iloc[3,0]==6
 ** Utility functions related to transformations between xarray and pandas objects
 #+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
-  import xarray as xr
+import xarray as xr
 
-  def is_none(x):
-      """
-      Tests for None in an array x.
-      """
-      try:
-          if np.any(np.equal(x,None)):
-              return True
-      except TypeError:
-          return is_none(x.data)
-      else:
-          try:
-              if len(x.shape)==0:
-                  return True
-          except AttributeError:
-              if isinstance(x,str):
-                  if len(x)==0: return True
-                  else: return False
-              elif np.isscalar(x): return x is None
-              elif isinstance(x,list): return None in x
-              else:
-                  raise(TypeError,"Problematic type.")
+def is_none(x):
+    """
+    Tests for None in an array x.
+    """
+    try:
+        if np.any(np.equal(x,None)):
+            return True
+    except TypeError:
+        return is_none(x.data)
+    else:
+        try:
+            if len(x.shape)==0:
+                return True
+        except AttributeError:
+            if isinstance(x,str):
+                if len(x)==0: return True
+                else: return False
+            elif np.isscalar(x): return x is None
+            elif isinstance(x,list): return None in x
+            else:
+                raise(TypeError,"Problematic type.")
 
-  def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
-      """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
-      """
+def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
+    """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
+    """
 
-      if name is None:
-          df = arr.to_dataframe('foo').squeeze()
-      else:
-          df = arr.to_dataframe(name)
+    if name is None:
+        df = arr.to_dataframe('foo').squeeze()
+    else:
+        df = arr.to_dataframe(name)
 
-      if column_index is not None:
-          df = df.unstack(column_index)
+    if column_index is not None:
+        df = df.unstack(column_index)
 
-      if dropna_all:
-          df.dropna(how='all',inplace=True)
+    if dropna_all:
+        df.dropna(how='all',inplace=True)
 
-      return df
+    return df
 
-  def from_dataframe(df,index_name=None):
-      """Convert from dataframe used in cfe.estimation to xarray.DataArray.
-      """
-      if index_name is not None:
-          df.index = df.index.set_names(index_name)
+def from_dataframe(df,index_name=None):
+    """Convert from dataframe used in cfe.estimation to xarray.DataArray.
+    """
+    if index_name is not None:
+        df.index = df.index.set_names(index_name)
 
-      df = pd.DataFrame(df) # Series to dataframe
-      if not is_none(df.columns.names):
-          df = df.stack(df.columns.names)
+    df = pd.DataFrame(df) # Series to dataframe
+    if not is_none(df.columns.names):
+        df = df.stack(df.columns.names)
 
-      arr = df.squeeze().to_xarray()
+    arr = df.squeeze().to_xarray()
 
-      return arr
+    return arr
 #+END_SRC
