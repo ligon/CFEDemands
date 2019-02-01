@@ -143,7 +143,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         while np.max(np.abs(current-last))>0.001 or i < 1000:
             last=current
             # Sample households in each  round with replacement
-            bootdf=mydf.iloc[np.random.random_integers(0,df.shape[0]-1,df.shape[0]),:]
+            bootdf=mydf.iloc[np.random.randint(0,df.shape[0],df.shape[0]),:]
             bootdf.reset_index(inplace=True)
             bootdf['j']=list(range(bootdf.shape[0]))
             bootdf.set_index(['t','j'],inplace=True)
@@ -554,7 +554,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   try:
       assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
-      assert z.columns.name == 'k', "Name of column index should be l?"
+      assert z.columns.name == 'k', "Name of column index should be k?"
   except AssertionError:
       z = z.reset_index()
       if not 'mkt' in z.columns: z['mkt']=1
@@ -753,7 +753,7 @@ assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 
 
 
-* Simple reduced form
+* COMMENT Simple reduced form
 
     This code takes as input time-varying household-level data on log
     expenditures and characteristics, and takes data defining
@@ -1008,7 +1008,7 @@ def iqr(x):
         return np.nan
 
 def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
-    """Bootstrap estimates of standard errors for \phi\beta.
+    """Bootstrap estimates of standard errors for \\phi\\beta.
 
     Takes pd.DataFrame of residuals as input.
 
@@ -1024,7 +1024,8 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,retu
     """
 
     def resample(e):
-        e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
+        #e = e.iloc[np.random.random_integers(0,e.shape[0]-1,size=e.shape[0]),:]
+        e = e.iloc[np.random.randint(0,e.shape[0],size=e.shape[0]),:]
         e = e - e.mean()
         return e
 
@@ -1532,7 +1533,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
     miss2nan = ce*0
     anova=pd.DataFrame({'Prices':a.T.var(ddof=0),
                         'Characteristics':z.dot(d.T).var(ddof=0),
-                        '$\log\lambda$':(cehat + miss2nan).var(ddof=0),
+                        r'$\log\lambda$':(cehat + miss2nan).var(ddof=0),
                         'Residual':(ce-cehat).var(ddof=0)})
     anova=anova.div(y.var(ddof=0),axis=0)
     anova['Total var']=y.var(ddof=0)
@@ -1907,38 +1908,37 @@ def optimal_index(a,yhat,e):
 *** Test
  #+name: test_optimal_index
  #+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_optimal_index.py
- import cfe
- import numpy as np
+import cfe
+import numpy as np
 
- <<predicted_expenditures>>
- <<optimal_index>>
+<<predicted_expenditures>>
+<<optimal_index>>
 
- # Tangling may not include :vars from header
- try: 
-     N
- except NameError: # :var inputs not set?
-     N=5000
-     T=2
-     n=12
-     M=2
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=2
+    n=12
+    M=2
 
- p = cfe.dgp.prices(T,M,n)
- for s in range(1,T):  # Just scale prices over time by constant
-     p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
+p = cfe.dgp.prices(T,M,n)
+for s in range(1,T):  # Just scale prices over time by constant
+    p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
  
- x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
- x = x.where(x>0,np.nan)  # Zeros to missing
+x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
+x = x.where(x>0,np.nan)  # Zeros to missing
 
- z = parts['characteristics']
+z = parts['characteristics']
 
- R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
+R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=30,verbose='True')
 
- R.drop_useless_expenditures()
+R.drop_useless_expenditures()
 
- yhat = R.get_predicted_log_expenditures()
+yhat = R.get_predicted_log_expenditures()
 
- pidx = optimal_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
-
+pidx = optimal_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
  #+END_SRC
 
 * Monte Carlo Data Generating Process
