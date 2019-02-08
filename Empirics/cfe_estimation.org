@@ -89,7 +89,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         else:
             vertical_scale=6.
         ax.plot(mratio.values,list(range(mratio.shape[0])), 'o')
-        ax.legend(mratio.columns,loc=2)
+        ax.legend(mratio.columns,loc=2,fontsize='small')
         ax.set_xlabel('Log Aggregate shares divided by Mean shares')
         ax.set_yticks(list(range(mratio.shape[0])))
         ax.set_yticklabels(mratio.index.values.tolist(),rotation=0,size='small')
@@ -99,7 +99,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         pl.tight_layout()
     else:
         ax.plot(list(range(mratio.shape[0])),mratio.values, 'o')
-        ax.legend(mratio.columns,loc=2)
+        ax.legend(mratio.columns,loc=2,fontsize='small')
         ax.set_ylabel('Log Aggregate shares divided by Mean shares')
 
         v=ax.axis()
