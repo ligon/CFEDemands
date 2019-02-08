@@ -338,7 +338,7 @@ class Result(xr.Dataset):
 
         y = self.drop_useless_expenditures() # A dataframe
 
-        miss2nan = ce*0 
+        miss2nan = self.ce*0 
 
         df = pd.DataFrame({'Prices':to_dataframe(self.a.var(['t','m'],ddof=0)),
                           'Characteristics':to_dataframe(self.z.dot(self.delta.T).var(['j','t','m'],ddof=0)),
