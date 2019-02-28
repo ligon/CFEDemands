@@ -623,8 +623,12 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
           if z.shape[1]:
               V[Item]=arellano_robust_cov(z,ce[Item])
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+              
+              stderrs = (mye.groupby(['t','mkt']).std()/np.sqrt(mye.groupby(['t','mkt']).count()))
               if len(useDateLocs) > 0:
-                  sea[Item] = np.sqrt(mye.groupby(['t','mkt']).var()/np.sqrt(mye.groupby(['t','mkt']).count())).squeeze()
+                  sea[Item] = stderrs.squeeze()
+              else:
+                  sea[Item] = stderrs[Item]
 
       d[Item]=myb[z.columns] # reduced form coefficients on characteristics
 
@@ -759,6 +763,53 @@ xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
 
 assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 #+END_SRC
+
+*** Test with one period, one market
+
+    This is a simple test of the stage one SUR estimation with a
+    single period and a single market.
+
+#+name: test_one_period_one_market
+#+begin_src python :tangle ../cfe/test/test_one_period_one_market.py
+import cfe
+import numpy as np
+
+J = 100
+T = 1
+M = 1
+n = 20
+k = 2
+
+def some_result(M,T):
+    x, stuff = cfe.dgp.expenditures(J,T,M,n,k,np.linspace(0,1,n))
+
+    y = np.log(x)
+
+    z = stuff.characteristics
+
+    result = cfe.Result(y=y,z=z)
+
+    result.get_reduced_form()
+
+    return result
+
+def test_se_a():
+    """Compute reduced_form for cases with singular mkts and t,
+       and multiple mkts and t."""
+
+    result = some_result(1,1)
+    assert np.all(result.se_a>0)
+
+    result = some_result(2,1)
+    assert np.all(result.se_a>0)
+
+    result = some_result(1,2)
+    assert np.all(result.se_a>0)
+
+    result = some_result(2,2)
+    assert np.all(result.se_a>0)
+
+#+end_src
 
 
 
