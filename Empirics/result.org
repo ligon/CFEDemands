@@ -180,7 +180,16 @@ class Result(xr.Dataset):
         except KeyError: # Or maybe it's just a tuple of arrays and attributes.
             for k in arrs:
                 try:
-                    arrs[k] = kwargs.pop(k)
+                    thing = kwargs.pop(k)
+                    try: # thing may be a dataframe?
+                        thing = thing.to_xarray()
+                        if k in ['y','yhat','ce','cehat','e']:
+                            thing = thing.to_array('i')
+                        elif k in ['z','characteristics']:
+                            thing = thing.to_array('k')
+                    except AttributeError: # Guess not!
+                        pass
+                    arrs[k] = thing
                 except KeyError:
                     pass
 
