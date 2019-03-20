@@ -2076,8 +2076,12 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
     if len(df.shape)==1: # We have a series?
        df=pd.DataFrame(df)
 
+    if df.index.name is not None:
+        name = df.index.name
+    else: name = ''
+
     if (tdf is None) and (sedf is None) and (conf_ints is None):
-        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        s = '| '+ name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
         for i in df.index:
             s+='| %s  ' % i
             for j in df.columns: # Point estimates
@@ -2092,7 +2096,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
             s+='|\n'
         return s
     elif not (tdf is None) and (sedf is None) and (conf_ints is None):
-        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'\t|\n|-\n'
+        s = '| '+ name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
         for i in df.index:
             s+='| %s  ' % i
             for j in df.columns:
@@ -2119,7 +2123,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                 tdf.shape
             except AttributeError:  
                 tdf=df[sedf.columns]/sedf
-        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        s = '| '+ df.index.name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
         for i in df.index:
             s+='| %s  ' % i
             for j in df.columns: # Point estimates
@@ -2404,9 +2408,10 @@ import pandas as pd
 from cfe.dgp import geometric_brownian
 from cfe.result import to_dataframe
 
+J=100
 n=12
 T=4
-x,parts = cfe.dgp.expenditures(1000,T,1,n,2,np.linspace(0.25,3,n),sigma_phi=0.,sigma_eps=0.01,Fbar=geometric_brownian(1.))
+x,parts = cfe.dgp.expenditures(J,T,1,n,2,np.linspace(0.25,3,n),sigma_phi=0.,sigma_eps=0.01,Fbar=geometric_brownian(1.))
 y = to_dataframe(np.log(x.where(x>0,np.nan)),'i')
 z = to_dataframe(np.log(parts['characteristics']),'k')
 
