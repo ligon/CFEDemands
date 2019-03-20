@@ -11,8 +11,11 @@ tangle: $(ORG_INPUTS)
 	(cd Demands; ../tangle.sh engel_curves.org)
 	(cd Demands; ../tangle.sh monotone_function_solver.org)
 
-test:
+test: .test 
+
+.test: $(ORG_INPUTS)
 	pytest cfe/test/
+	touch .test
 
 wheel: setup.py tangle test CHANGES.txt cfe/requirements.txt
 	pip wheel --wheel-dir=dist/ .
@@ -36,3 +39,4 @@ clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
 	-rm -f cfe/requirements.txt
 	-rm -f CHANGES.txt
+	-rm -f .test
