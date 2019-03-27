@@ -2030,6 +2030,7 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
 import numpy as np
 from scipy import sparse
 import pandas as pd
+from warnings import warn
 
 def df_norm(a,b=None,ignore_nan=True,ord=None):
     """
@@ -2073,6 +2074,11 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
     If tdf is False and sedf is supplied then stars will decorate significant point estimates.
     If tdf is a df of t-statistics stars will decorate significant point estimates.
     """
+
+    # Test for duplicates in index
+    if df.index.duplicated().sum()>0:
+        warn('Dataframe index contains duplicates.')
+
     if len(df.shape)==1: # We have a series?
        df=pd.DataFrame(df)
 
