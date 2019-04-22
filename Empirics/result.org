@@ -259,8 +259,11 @@ class Result(xr.Dataset):
 
             y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
 
-            self['prices'] = self.prices.sel(i=y.coords['i'])
-            self['logp'] = np.log(self.prices)
+            try:
+                self['prices'] = self.prices.sel(i=y.coords['i'])
+                self['logp'] = np.log(self.prices)
+            except ValueError:
+                pass # No prices in self?
 
             new = self.sel(i=y.coords['i'],j=y.coords['j'])
 
