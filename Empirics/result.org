@@ -183,7 +183,7 @@ class Result(xr.Dataset):
                     thing = kwargs.pop(k)
                     try: # thing may be a dataframe?
                         thing = thing.to_xarray()
-                        if k in ['y','yhat','ce','cehat','e']:
+                        if k in ['y','yhat','ce','cehat','e','prices']:
                             thing = thing.to_array('i')
                         elif k in ['z','characteristics']:
                             thing = thing.to_array('k')
@@ -218,7 +218,7 @@ class Result(xr.Dataset):
             self.attrs['firstround'] = self.y.coords['t'][0].item()
 
 
-    def drop_useless_expenditures(self):
+    def drop_useless_expenditures(self,VERBOSE=False):
         """Drop expenditure items with too few observations.
 
         "Too few" depends on the attributes min_proportion_items and min_xproducts.  
@@ -234,16 +234,33 @@ class Result(xr.Dataset):
 
             # Convert to pd.DataFrame
             y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+            J,n = y.shape
 
             # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
             using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
             y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
 
-            y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
+            if VERBOSE:
+                print('min_proportion_items test drops %d households.' % (J-y.shape[0]))
+                J,n = y.shape
+
+            y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=VERBOSE)
+
+            if VERBOSE:
+                print('drop_columns_wo_covariance test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+                J,n = y.shape
+
             # Only keep goods with observations in each (t,mkt)
             y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
 
+            if VERBOSE:
+                print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+                J,n = y.shape
+
             y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
+
+            self['prices'] = self.prices.sel(i=y.coords['i'])
+            self['logp'] = np.log(self.prices)
 
             new = self.sel(i=y.coords['i'],j=y.coords['j'])
 
@@ -634,7 +651,7 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
     n = len(beta)
 
     if z is None:
-        z = self.z.isel(j=0,t=0,m=0,drop=True)*0
+        z = self.z.isel(j=0,t=0,m=0,drop=True).fillna(0)*0
 
     alpha = np.exp(self.get_alpha() + self.delta.dot(z))
 
