@@ -636,20 +636,14 @@ def from_pickle(fn):
 from cfe import demands
 import pandas as pd
 
-def _demands(self,x,p=None,z=None,type="Marshallian"):
-    """Quantities demanded at prices p for household with observable
-    characteristics z, having a utility function with parameters given
-    by (possibly estimated) attributes from a Result (i.e., the
-    vectors of parameters alpha, beta, delta).
+def _demand_parameters(self,p=None,z=None):
+    """Return tuple of (p,alpha,beta,phi) from result.
 
-    Default type is "Marshallian", in which case argument x is budget.
+    Note that the alpha returned is exp(alpha + delta.T z).
 
-    Alternative types:
-       - "Frischian" :: argument x is Marginal utility of expenditures
-       - "Hicksian" :: argument x is level of utility
-
-    Ethan Ligon                                    April 2019
+    Suitable for passing to =cfe.demand= functions.
     """
+
     beta = self.get_beta()
     n = len(beta)
 
@@ -666,15 +660,39 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
     # The following hijinks deal with missing values (e.g., in prices)
     foo = xr.Dataset({'beta':beta,'alpha':alpha,'prices':p}).to_dataframe().dropna(how='any')
 
+    if len(foo)==0:
+        raise ValueError("No goods have non-missing beta, alpha, and price; can't compute demands.")
+
     p = foo.prices
     beta = foo.beta
     alpha = foo.alpha 
 
-    Qs = {'Marshallian':demands.marshallian.demands(x,p,alpha,beta,0),
-          'Hicksian':demands.hicksian.demands(x,p,alpha,beta,0),
-          'Frischian':demands.frischian.demands(x,p,alpha,beta,0)}
+    phi = 0 # phi not (yet?) an attribute of Result.
 
-    q = pd.Series(Qs[type],index=foo.alpha.index,name='quantities')
+    return (p,alpha,beta,phi)
+    
+def _demands(self,x,p=None,z=None,type="Marshallian"):
+    """Quantities demanded at prices p for household with observable
+    characteristics z, having a utility function with parameters given
+    by (possibly estimated) attributes from a Result (i.e., the
+    vectors of parameters alpha, beta, delta).
+
+    Default type is "Marshallian", in which case argument x is budget.
+
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Hicksian" :: argument x is level of utility
+
+    Ethan Ligon                                    April 2019
+    """
+
+    pparms = _demand_parameters(self,p,z)
+
+    Qs = {'Marshallian':demands.marshallian.demands,
+          'Hicksian':demands.hicksian.demands,
+          'Frischian':demands.frischian.demands}
+
+    q = pd.Series(Qs[type](x,*pparms),index=pparms[1].index,name='quantities')
 
     return q
 
@@ -689,21 +707,28 @@ def _utility(self,x,p=None,z=None):
     Ethan Ligon                                    April 2019
     """
 
-    beta = self.get_beta()
-    n = len(beta)
+    pparms = _demand_parameters(self,p,z)
 
-    if p is None:
-        p = [1]*n   
+    return demands.marshallian.indirect_utility(x,*pparms)
 
-    if z is None:
-        z = self.z.isel(j=0,t=0,m=0,drop=True)*0
+def _expenditurefunction(self,U,p=None,z=None):
+    """Total Expenditures
 
-    alpha = np.exp(self.get_alpha() + self.delta.dot(z))
+    Varies with level of utility U, prices p, and observable
+    characteristics z, with a utility function having parameters given
+    by (possibly estimated) attributes from a Result (i.e., the
+    vectors of parameters alpha, beta, delta).
 
-    return demands.marshallian.indirect_utility(x,p,alpha,beta,0)
+    Ethan Ligon                                    April 2019
+    """
+
+    pparms = _demand_parameters(self,p,z)
+
+    return demands.hicksian.expenditurefunction(U,*pparms)
 
 Result.demands = _demands
 Result.indirect_utility = _utility
+Result.expenditure = _expenditurefunction
 #+end_src
 
 
