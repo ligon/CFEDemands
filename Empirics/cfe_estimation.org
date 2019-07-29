@@ -37,7 +37,7 @@ corresponding to period-households, indexed by $(t,j)$.
 import pylab as pl 
 import pandas as pd
 import numpy as np
-from cfe.df_utils import broadcast_binary_op
+from cfe.df_utils import broadcast_binary_op, is_none
 from itertools import cycle
 
 def expenditure_shares(df):
@@ -188,7 +188,11 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.items():
-        myX[k]=df[['$x_{%d}$' % i for i in v]].sum(axis=1)
+        if len(k):
+            myv = [int(i) for i in v if len(str(i))>0]
+            try:
+                myX[k]=df[['$x_{%d}$' % int(i) for i in myv]].sum(axis=1)
+            except KeyError: pass
             
     return myX
 #+end_src
@@ -592,6 +596,9 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       if VERBOSE: print(Item)
 
       lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
+      stdev = rhs.std()
+      for constant in stdev[stdev==0].index.tolist():
+          warnings.warn("No variation in %s" % constant)
       rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
       useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
@@ -2428,6 +2435,175 @@ b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
 #+end_src
 
 
+** Implementation of iterative Frisch-Waugh-Lovell least squares estimator
+#+begin_src python :tangle /tmp/fwl_test.py
+import numpy as np
+import pandas as pd
+from cfe.df_utils import drop_missing
+import cfe
+
+precision='float64'
+def fullrank(X,VERBOSE=False):
+    """
+    Test if 2d array X has full column rank.
+
+    Examples:
+    >>> X=np.array([[0,0],[0,1]])
+    >>> fullrank(X)
+    False
+
+    >>> X=np.array([[1,0],[0,1]])
+    >>> fullrank(X)
+    True
+    """
+    assert len(X.shape)==2
+    assert X.shape[1]<=X.shape[0]
+    try:
+        cX=X.T@X
+        cnd=np.linalg.cond(cX) - 1
+        if cnd>1e16: 
+            if VERBOSE:
+                print("Condition - 1 = %f" % cnd)
+            raise np.linalg.LinAlgError
+        elif cnd>1e10:
+            print("Warning: Condition %g, columns %d" % (cnd,X.shape[1]))
+        return True
+    except np.linalg.LinAlgError:
+        return False
+
+def reduce_rank_deficiency(X,tol=1e-10,VERBOSE=False):
+    """Reduce the rank deficiency of a pd.DataFrame X.
+    
+    If X is empty or has only columns of zeros, return [] and labels
+    of dropped columns.  If X has some zero columns, eliminate these
+    and return [X], along with labels of dropped columns.  Otherwise,
+    split X into two parts and return [X1,X2].
+
+    Ethan Ligon                                        July 2019
+    """
+    X = X.copy()
+
+    k = X.shape[1]
+    zerocols = np.abs(X).mean(axis=0) < tol
+    zeros = X.loc[:,zerocols]
+    X = X.loc[:,~zerocols]
+    assert (k-zeros.shape[1])==X.shape[1]
+
+
+    if X.shape[1]<k: # If X is empty or all zeros...
+        if VERBOSE:
+            print("Dropping zeros")
+        return [X], [zeros.sum()*0]
+    elif not fullrank(X,VERBOSE=VERBOSE):
+        if VERBOSE:
+            print("Partioning X into two.")
+        m = int(np.floor(k/2)) # Nb: integer division -> integer
+
+        return [X.iloc[:,0:m],X.iloc[:,m:]],[]
+    else: return [X],[]
+
+def fwl_pop(X,VERBOSE=False):
+    """b1,(r1,r2,...,rn)=fwl_pop([X0,X1,...,Xn])
+
+    Linear projection of X1,...,Xn-1 on X0.  Returns the coefficients
+    of regressing Xn on X0 in b1,...,bn, and the residuals in
+    r1,r2,..,rn. Note that the Xi may be Series or DataFrames.  These
+    are assumed to have no missing values.
+
+    """
+
+    if len(X)==1:  # Deal with single dataframe
+        return pd.Series([]),X
+
+    x = X.pop(0)
+    B=[]
+    R=[]
+    for y in X:
+        b,e,rnk,s = np.linalg.lstsq(-x,y,rcond=None)
+        if VERBOSE: print("Columns,rank=(%d,%d)" % (x.shape[1],rnk))
+        b = pd.DataFrame(b,index=x.columns,columns=y.columns)
+        r = y + x@b
+        r,zeros = reduce_rank_deficiency(r,VERBOSE=VERBOSE)
+        B = B + [pd.concat([b]+zeros,axis=0)]
+        R += r
+
+    return B,R
+
+def fwl_regress(y,X,VERBOSE=False):
+    Xy = list(drop_missing(X+[y]))
+
+    B=[]
+    A=[]
+    while len(Xy)>1:
+        b,Xy = fwl_pop(Xy,VERBOSE=VERBOSE)
+        yb = b.pop()
+        A.append(pd.concat([pd.DataFrame(-np.eye(yb.shape[0]),
+                                    columns=yb.index,index=yb.index)]+b,axis=1))
+        B.append(yb)
+
+    A = pd.concat(A,axis=0,sort=False).fillna(0)
+    B = pd.concat(B,axis=0,sort=False)
+
+    columns=[]
+    for x in X:
+        columns = columns + x.columns.tolist()
+
+    x = pd.DataFrame(np.linalg.solve(A,B),index=columns,columns=y.columns)
+
+    return x,Xy[0]
+
+#+end_src
+
+#+begin_src python :tangle /tmp/fwl_test.py
+def test_fwl_regress_simple(n=100):
+    
+    X = pd.DataFrame({'Constant':np.ones(n),
+                      'X1':np.random.rand(n)})
+    X = [X,pd.DataFrame({'X2':np.random.rand(n)})]
+    B = [pd.Series([1,2],index=X[0].columns),
+         pd.Series([3],index=X[1].columns)]
+    y=0
+    for i,b in enumerate(B):
+        y = y + X[i]@b
+
+    y = pd.DataFrame({'y':y + pd.Series(np.random.normal(0,.000001,n)),})
+
+    myB,E  = fwl_regress(y,X,VERBOSE=True)
+
+    oneX = pd.concat(X,axis=1)
+    b = np.linalg.lstsq(oneX,y,rcond=None)[0]
+    b = pd.DataFrame(b,index=oneX.columns,columns=y.columns)
+
+    e = y - oneX@b
+
+    assert np.allclose(b,myB)
+    print("Success")
+
+def test_fwl_regress_realdata():
+    r = cfe.from_dataset('~/Data/Palestine_ECS/Data/2016-17/palestine.ds')
+    y = r.y.to_dataframe().dropna()
+    z = r.z.to_dataframe('').squeeze().unstack('k').dropna()
+
+    foo = y.reset_index()
+
+    Z = y.join(z,how='outer',on=['j','t','m'])[z.columns]
+    y,Z = drop_missing([y,Z])
+
+    # Stacked regression, ordered by (i,t,m)
+    X = [Z,      
+         pd.get_dummies(pd.Series(list(zip(foo['t'],foo['m'])),index=y.index)),
+         pd.get_dummies(pd.Series(foo['i'].values,index=y.index))]
+
+    B,e = fwl_regress(y,X,VERBOSE=True)
+
+    assert np.allclose(y.var(), (pd.concat(X,axis=1)@B).var() + e.var())
+
+if __name__=='__main__':
+    test_fwl_regress_simple()
+    test_fwl_regress_realdata()
+
+#+end_src
+
 ** Utility functions for dealing with some awkward multiindex issues
 
 #+name: broadcast_binary_op 
@@ -2585,7 +2761,8 @@ assert baz.iloc[3,0]==6
 
 ** Utility functions related to transformations between xarray and pandas objects
 #+name: broadcast_binary_op 
-#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
+
+#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py 
 import xarray as xr
 
 def is_none(x):
