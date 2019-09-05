@@ -562,6 +562,35 @@ class Result(xr.Dataset):
 
         return R
 #+END_SRC
+** Alternative Decomposition
+   A more direct approach to estimation allows us to simultaneously
+   estimate parameters returned by =a_decomposition= above.  In
+   particular, consider the estimating equation
+   #+begin_equation  
+   #+LATEX: y^j_{itm} = \alpha_i + \pi_{tm} + \delta_i(z^j_{tm} - \bar{z}_{tm}) - \beta_i(\log\lambda^j_{tm} + \overline{\log\lambda^j_{tm}) -\beta_ir_{itm} + \epsilon^j_{itm},
+   #+end_equation 
+   where notation is familiar, but where $\pi_{tm}$ is a (log) general
+   price level.
+
+#+begin_src python :tangle no 
+    import numpy as np
+    
+    def alternative_estimation(self):
+
+        y = r.y.to_dataframe().dropna()
+        z = r.z.to_dataframe('').squeeze().unstack('k').dropna()
+
+        foo = y.reset_index()
+
+        Z = y.join(z,how='outer',on=['j','t','m'])[z.columns]
+
+        # Stacked regression, ordered by (i,t,m)
+        X = [Z,      
+             pd.get_dummies(pd.Series(list(zip(foo['t'],foo['m'])),index=y.index)),
+             pd.get_dummies(pd.Series(foo['i'].values,index=y.index))]
+                 
+        B,e = fwl_regress(y,X)
+#+end_src
 
 ** Persistent =Result=
 It's useful to be able to make a =Result= instance be persistent.
