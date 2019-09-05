@@ -1,0 +1,105 @@
+This file describes procedures for converting particular sorts of
+files from survey data into the data structures required for analysis
+by CFE Demands.
+
+A common pattern (shared, for example, by many of the LSMS surveys)
+involves data distributed as a set of =dta= files.  Surveys which are
+repeated in different periods may have different sets of files.  Any
+such file will basically describe a rectangular array of data, with
+rows distinguished by some set of index variables, and columns
+describing the corresponding variables.
+
+
+
+|    t | Output | Input    | Mapping                                                |
+|------+--------+----------+--------------------------------------------------------|
+| 2016 | urban  | loctype  | None                                                   |
+| 2016 | region | id09     | lambda x: 'Gaza Strip' if np.isnan(x) else 'West Bank' |
+| 2011 | urban  | loc_type | None                                                   |
+
+#+name: VARS
+|    t | Output | File                                           | Grouping  | Mapping                                               |
+|------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
+| 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
+| 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
+| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['Gaza','West Bank'][np.isnan(x.id09)]      |
+| 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
+| 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
+| 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
+| 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
+| 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
+
+
+#+name: INDICES
+| File                                           | j    |    t |
+|------------------------------------------------+------+------|
+| ~/Data/Palestine_ECS/Data/2011/cover.dta       | ID00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2011/roster.dta      | id00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | id00 | 2016 |
+
+
+#+begin_src python :var VARS=VARS INDICES=INDICES :colnames no :tangle /tmp/test.py
+from cfe.df_utils import orgtbl_to_df
+import numpy as np
+import pandas as pd
+from collections import defaultdict
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+def construct_df(VARS,INDICES):
+
+    def construct_column(df,Mapping):
+        try:
+            return df[Mapping]
+        except KeyError:
+            return df.apply(eval(Mapping),axis=1)
+
+    def read_and_index(fn,indices):
+        df = pd.read_stata(fn).rename(columns=dict(map(reversed, indices.items())))
+        df['t'] = indices['t']
+        df.set_index(['j','t'],inplace=True)
+        return df
+
+    DFs = defaultdict(list)
+    file_groups = INDICES.groupby('File')
+    for group in VARS.groupby(['t','File']):
+        fn = group[0][1]
+        mydf = read_and_index(group[0][1],INDICES.loc[fn].to_dict())
+        d = {}
+        for v in group[1].itertuples():
+            d[v.Output] = construct_column(mydf,v.Mapping)
+            try:
+                idx,op = eval(v.Grouping)
+                groups = d[v.Output].groupby([idx,'t'])
+                if op == sum:
+                    d[v.Output] = groups.sum()
+                else:
+                    d[v.Output] = groups.apply(op)
+            except (ValueError,TypeError): pass
+
+        DFs[group[0][0]].append(pd.DataFrame(d))
+
+    by_year = [pd.concat(DFs[t],join='inner',axis=1) for t in DFs.keys()]
+    
+    df = pd.concat(by_year,axis=0)
+    return df
+
+df=construct_df(VARS,INDICES)
+print(df.head())
+#+end_src
+
+#+results:
+:              Boys  Girls  Men  Women          m  urban
+: j      t                                              
+: 923.0  2016   NaN    NaN  NaN    NaN       Gaza  Urban
+: 3637.0 2016   NaN    NaN  NaN    NaN       Gaza  Urban
+: 4090.0 2016   NaN    NaN  NaN    NaN  West Bank   Camp
+: 4113.0 2016   NaN    NaN  NaN    NaN  West Bank   Camp
+: 4582.0 2016   NaN    NaN  NaN    NaN  West Bank  Urban
+
+
+
+
