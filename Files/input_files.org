@@ -1,3 +1,20 @@
+:SETUP:
+#+TITLE: Code and Methods for Munging Input Data Files
+#+AUTHOR: Ethan Ligon
+#+OPTIONS: toc:nil
+#+PROPERTY: header-args:python :results output :noweb no-export :exports code :comments link :prologue (format "# Tangled on %s" (current-time-string))
+#+LATEX_HEADER: \renewcommand{\vec}[1]{\boldsymbol{#1}}
+#+LATEX_HEADER: \newcommand{\T}{\top}
+#+LATEX_HEADER: \newcommand{\E}{\ensuremath{\mbox{E}}}
+#+LATEX_HEADER: \newcommand{\R}{\ensuremath{\mathbb{R}}}
+#+LATEX_HEADER: \newcommand{\Cov}{\ensuremath{\mbox{Cov}}}
+#+LATEX_HEADER: \newcommand{\Eq}[1]{(\ref{eq:#1})}
+#+LATEX_HEADER: \newcommand{\Fig}[1]{Figure \ref{fig:#1}} \newcommand{\Tab}[1]{Table \ref{tab:#1}}
+#+LATEX_HEADER: \addbibresource{main.bib}\renewcommand{\refname}{}
+#+LATEX_HEADER: \addbibresource{ligon.bib}
+#+LATEX_HEADER: \usepackage{stringstrings}\renewcommand{\cite}[1]{\caselower[q]{#1}\citet{\thestring}}
+:END:
+
 This file describes procedures for converting particular sorts of
 files from survey data into the data structures required for analysis
 by CFE Demands.
@@ -9,45 +26,10 @@ such file will basically describe a rectangular array of data, with
 rows distinguished by some set of index variables, and columns
 describing the corresponding variables.
 
-
-
-|    t | Output | Input    | Mapping                                                |
-|------+--------+----------+--------------------------------------------------------|
-| 2016 | urban  | loctype  | None                                                   |
-| 2016 | region | id09     | lambda x: 'Gaza Strip' if np.isnan(x) else 'West Bank' |
-| 2011 | urban  | loc_type | None                                                   |
-
-#+name: VARS
-|    t | Output | File                                           | Grouping  | Mapping                                               |
-|------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
-| 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
-| 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
-| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['Gaza','West Bank'][np.isnan(x.id09)]      |
-| 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
-| 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
-| 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
-| 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
-| 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
-
-
-#+name: INDICES
-| File                                           | j    |    t |
-|------------------------------------------------+------+------|
-| ~/Data/Palestine_ECS/Data/2011/cover.dta       | ID00 | 2011 |
-| ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | id00 | 2016 |
-| ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | id00 | 2016 |
-| ~/Data/Palestine_ECS/Data/2011/roster.dta      | id00 | 2011 |
-| ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | id00 | 2016 |
-
-
-#+begin_src python :var VARS=VARS INDICES=INDICES :colnames no :tangle /tmp/test.py
-from cfe.df_utils import orgtbl_to_df
+#+begin_src python :tangle ../cfe/input_files.py
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-
-VARS = orgtbl_to_df(VARS)
-INDICES = orgtbl_to_df(INDICES).set_index('File')
 
 def construct_df(VARS,INDICES):
 
@@ -87,18 +69,49 @@ def construct_df(VARS,INDICES):
     df = pd.concat(by_year,axis=0)
     return df
 
+#+end_src
+** Example
+#+name: VARS
+|    t | Output | File                                           | Grouping  | Mapping                                               |
+|------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
+| 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
+| 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
+| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['Gaza','West Bank'][np.isnan(x.id09)]      |
+| 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
+| 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
+| 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
+| 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
+| 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
+
+
+#+name: INDICES
+| File                                           | j    |    t |
+|------------------------------------------------+------+------|
+| ~/Data/Palestine_ECS/Data/2011/cover.dta       | ID00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2011/roster.dta      | id00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | id00 | 2016 |
+
+#+begin_src python :var VARS=VARS INDICES=INDICES :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
 df=construct_df(VARS,INDICES)
 print(df.head())
 #+end_src
 
 #+results:
-:              Boys  Girls  Men  Women          m  urban
-: j      t                                              
-: 923.0  2016   NaN    NaN  NaN    NaN       Gaza  Urban
-: 3637.0 2016   NaN    NaN  NaN    NaN       Gaza  Urban
-: 4090.0 2016   NaN    NaN  NaN    NaN  West Bank   Camp
-: 4113.0 2016   NaN    NaN  NaN    NaN  West Bank   Camp
-: 4582.0 2016   NaN    NaN  NaN    NaN  West Bank  Urban
+:            Boys  Girls  Men  Women          m  urban
+: j    t                                              
+: 6.0  2011   1.0    1.0  1.0    1.0  West Bank  Urban
+: 8.0  2011   0.0    1.0  3.0    2.0  West Bank  Urban
+: 10.0 2011   0.0    0.0  1.0    1.0  West Bank  Urban
+: 14.0 2011   0.0    0.0  2.0    2.0  West Bank  Urban
+: 16.0 2011   1.0    1.0  1.0    1.0  West Bank  Urban
 
 
 
