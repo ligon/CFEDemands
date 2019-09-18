@@ -46,6 +46,9 @@
           ax.text(-0.01, y, ylabel, transform=trans_y, fontsize=fontsize, va='center',ha='right')
 
   def plot(p,alpha,beta,phi,labels=[],ybounds=[0,10],npts=100,fname=None,NegativeDemands=True,use_linestyles=False,shares=False,logs=True,use_figure=1,ax=None):
+      """
+      Plots ???
+      """
       n,alpha,beta,phi = check_args(p,alpha,beta,phi)
 
       if not shares:
@@ -83,7 +86,7 @@
           if shares: loc='upper right'
           else: loc='upper left'
           ax.legend(labels,loc=loc)
- 
+
       if logs:
           ax.set_xlabel('Log Total Expenditures',x=1.,fontsize=16,ha='right')
       else:

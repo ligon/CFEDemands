@@ -369,6 +369,10 @@ from ._core import lambdavalue
 from ._utils import check_args, derivative
 from numpy import array
 
+"""
+Marshallian characterization of the CFE demand system taking budget and prices. 
+"""
+
 def demands(y,p,alpha,beta,phi,NegativeDemands=True):
 
     n,alpha,beta,phi = check_args(p,alpha,beta,phi)
