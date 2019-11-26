@@ -42,7 +42,12 @@ def construct_df(VARS,INDICES):
     def read_and_index(fn,indices):
         df = pd.read_stata(fn).rename(columns=dict(map(reversed, indices.items())))
         df['t'] = indices['t']
-        df.set_index(['j','t'],inplace=True)
+        for index in indices.keys(): # Cast to simplest type (int or str)
+            try:
+                df[index] = df[index].astype(int)
+            except ValueError:
+                df[index] = df[index].astype(str)
+        df.set_index(list(indices.keys()),inplace=True)
         return df
 
     DFs = defaultdict(list)
@@ -64,24 +69,33 @@ def construct_df(VARS,INDICES):
 
         DFs[group[0][0]].append(pd.DataFrame(d))
 
-    by_year = [pd.concat(DFs[t],join='inner',axis=1) for t in DFs.keys()]
+    by_year = []
+    for t in DFs.keys():
+        df_for_year = pd.concat(DFs[t],join='inner',axis=1)
+        assert not any(df_for_year.columns.duplicated()), "Duplicate output columns not allowed; t=%s." % t
+        by_year.append(df_for_year)
     
     df = pd.concat(by_year,axis=0)
     return df
 
 #+end_src
 ** Example
+*** Constructing Household Characteristics
 #+name: VARS
 |    t | Output | File                                           | Grouping  | Mapping                                               |
 |------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
 | 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
 | 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
-| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['Gaza','West Bank'][np.isnan(x.id09)]      |
+| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['West Bank','Gaza'][np.isnan(x.id09)]      |
 | 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
 | 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
 | 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
 | 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
 | 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
+| 2016 | Girls  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 <= 16) |
+| 2016 | Boys   | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 <= 16)   |
+| 2016 | Women  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 > 16)  |
+| 2016 | Men    | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 > 16)    |
 
 
 #+name: INDICES
@@ -101,17 +115,47 @@ VARS = orgtbl_to_df(VARS)
 INDICES = orgtbl_to_df(INDICES).set_index('File')
 
 df=construct_df(VARS,INDICES)
-print(df.head())
+print(df.groupby(['t','m']).mean())
 #+end_src
 
 #+results:
-:            Boys  Girls  Men  Women          m  urban
-: j    t                                              
-: 6.0  2011   1.0    1.0  1.0    1.0  West Bank  Urban
-: 8.0  2011   0.0    1.0  3.0    2.0  West Bank  Urban
-: 10.0 2011   0.0    0.0  1.0    1.0  West Bank  Urban
-: 14.0 2011   0.0    0.0  2.0    2.0  West Bank  Urban
-: 16.0 2011   1.0    1.0  1.0    1.0  West Bank  Urban
+:                    Girls      Boys     Women       Men
+: t    m                                                
+: 2011 Gaza       1.591619  1.653409  1.711648  1.715909
+:      West Bank  1.177037  1.242351  1.623582  1.646958
+: 2016 Gaza       1.428741  1.447743  1.622328  1.614014
+:      West Bank  1.029341  1.070072  1.535036  1.556438
+
+
+*** Constructing Household Expenditures
+#+name: xVARS
+|    t | Output | File                                        | Grouping | Mapping   |
+|------+--------+---------------------------------------------+----------+-----------|
+| 2011 | value  | ~/Data/Palestine_ECS/Data/2011/items.dta    | None     | Value_Tot |
+| 2016 | value  | ~/Data/Palestine_ECS/Data/2016-17/list1.dta | None     | tot_1     |
+
+#+name: xINDICES
+| File                                        | i    | j    |    t |
+|---------------------------------------------+------+------+------|
+| ~/Data/Palestine_ECS/Data/2011/items.dta    | ITEM | ID00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/list1.dta | item | id00 | 2016 |
+
+#+begin_src python :var VARS=xVARS INDICES=xINDICES :colnames no  :tangle /tmp/test.py
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+print(df.groupby('t').count())
+#+end_src
+
+#+results:
+:        value
+: t           
+: 2011  390319
+: 2016  314158
 
 
 

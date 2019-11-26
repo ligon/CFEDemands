@@ -2530,6 +2530,12 @@ def fwl_pop(X,VERBOSE=False):
     return B,R
 
 def fwl_regress(y,X,VERBOSE=False):
+    """
+    Estimate linear regression in the spirit of Frisch-Waugh-Lovell.
+
+    Iteratively project (y,X) on the first dataframe in list X,
+    collecting point estimates & residuals.
+    """
     Xy = list(drop_missing(X+[y]))
 
     B=[]
@@ -2551,7 +2557,6 @@ def fwl_regress(y,X,VERBOSE=False):
     x = pd.DataFrame(np.linalg.solve(A,B),index=columns,columns=y.columns)
 
     return x,Xy[0]
-
 #+end_src
 
 #+begin_src python :tangle /tmp/fwl_test.py
@@ -2578,9 +2583,10 @@ def test_fwl_regress_simple(n=100):
 
     assert np.allclose(b,myB)
     print("Success")
+    return b
 
 def test_fwl_regress_realdata():
-    r = cfe.from_dataset('~/Data/Palestine_ECS/Data/2016-17/palestine.ds')
+    r = cfe.from_dataset('~/Research/NotPPP/var/r.ds')
     y = r.y.to_dataframe().dropna()
     z = r.z.to_dataframe('').squeeze().unstack('k').dropna()
 
@@ -2598,9 +2604,11 @@ def test_fwl_regress_realdata():
 
     assert np.allclose(y.var(), (pd.concat(X,axis=1)@B).var() + e.var())
 
+    return B,e
+
 if __name__=='__main__':
-    test_fwl_regress_simple()
-    test_fwl_regress_realdata()
+    print(test_fwl_regress_simple())
+    B,e = test_fwl_regress_realdata()
 
 #+end_src
 
