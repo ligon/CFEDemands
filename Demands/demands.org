@@ -212,7 +212,7 @@ def relative_risk_aversion0(p,alpha,beta,phi,NegativeDemands=True,ub=10,method='
 
     NB: This is also relative risk aversion.
 
-    DEPRECATED: This replaced by more analytical solution, _core.relative_risk_aversion.
+    DEPRECATED: This has been replaced by a more analytical solution, _core.relative_risk_aversion.
     """
     n,alpha,beta,phi = check_args(p,alpha,beta,phi)
 
@@ -368,6 +368,10 @@ from . import frischian
 from ._core import lambdavalue
 from ._utils import check_args, derivative
 from numpy import array
+
+"""
+Marshallian characterization of the CFE demand system taking budget and prices. 
+"""
 
 def demands(y,p,alpha,beta,phi,NegativeDemands=True):
 
