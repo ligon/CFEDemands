@@ -17,7 +17,7 @@
 
 This file describes procedures for converting particular sorts of
 files from survey data into the data structures required for analysis
-by CFE Demands.
+by =CFEDemands=.
 
 A common pattern (shared, for example, by many of the LSMS surveys)
 involves data distributed as a set of =dta= files.  Surveys which are
@@ -79,7 +79,7 @@ def construct_df(VARS,INDICES):
     return df
 
 #+end_src
-** Example
+** Example: Palestine Expenditure & Consumption Survey (PECS)
 *** Constructing Household Characteristics
 #+name: VARS
 |    t | Output | File                                           | Grouping  | Mapping                                               |
