@@ -32,3 +32,5 @@ dist/
 /cfe/test/svd_rank1_approximation_with_missing_data_example.py
 /cfe/test/svd_rank1_approximation_with_missing_data_test.py
 .cache/
+/.tangle
+/.test
