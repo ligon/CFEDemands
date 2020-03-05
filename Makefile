@@ -4,12 +4,18 @@ ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
 
 .PHONY: tangle wheel upload localinstall devinstall clean test
 
-tangle: $(ORG_INPUTS)
+all: tangle test devinstall wheel
+
+tangle: .tangle
+
+.tangle: $(ORG_INPUTS) 
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
 	(cd Empirics; ../tangle.sh result.org)
+	(cd Files; ../tangle.sh input_files.org)
 	(cd Demands; ../tangle.sh demands.org)
 	(cd Demands; ../tangle.sh engel_curves.org)
 	(cd Demands; ../tangle.sh monotone_function_solver.org)
+	touch .tangle
 
 test: .test 
 

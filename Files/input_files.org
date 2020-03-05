@@ -32,6 +32,11 @@ import pandas as pd
 from collections import defaultdict
 
 def construct_df(VARS,INDICES):
+    """ 
+    Compile data on a collection of variables from one or more Stata =dta= files into a single pandas DataFrame.
+
+    Ethan Ligon                                              February 2020
+    """
 
     def construct_column(df,Mapping):
         try:
@@ -140,7 +145,8 @@ print(df.groupby(['t','m']).mean())
 | ~/Data/Palestine_ECS/Data/2011/items.dta    | ITEM | ID00 | 2011 |
 | ~/Data/Palestine_ECS/Data/2016-17/list1.dta | item | id00 | 2016 |
 
-#+begin_src python :var VARS=xVARS INDICES=xINDICES :colnames no  :tangle /tmp/test.py
+#+name: build_expenditures
+#+begin_src python :var VARS=xVARS INDICES=xINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
 from cfe.df_utils import orgtbl_to_df
 from cfe.input_files import construct_df
 
@@ -148,6 +154,7 @@ VARS = orgtbl_to_df(VARS)
 INDICES = orgtbl_to_df(INDICES).set_index('File')
 
 df=construct_df(VARS,INDICES)
+df.to_pickle(OUTPUTFN)
 print(df.groupby('t').count())
 #+end_src
 
@@ -156,6 +163,116 @@ print(df.groupby('t').count())
 : t           
 : 2011  390319
 : 2016  314158
+
+
+
+** Example: Tanzanian LSMS
+*** Constructing Household Characteristics
+#+name: VARS
+|    t | Output | File                                           | Grouping  | Mapping                                               |
+|------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
+| 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
+| 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
+| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['West Bank','Gaza'][np.isnan(x.id09)]      |
+| 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
+| 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
+| 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
+| 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
+| 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
+| 2016 | Girls  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 <= 16) |
+| 2016 | Boys   | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 <= 16)   |
+| 2016 | Women  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 > 16)  |
+| 2016 | Men    | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 > 16)    |
+
+
+#+name: INDICES
+| File                                           | j    |    t |
+|------------------------------------------------+------+------|
+| ~/Data/Palestine_ECS/Data/2011/cover.dta       | ID00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | id00 | 2016 |
+| ~/Data/Palestine_ECS/Data/2011/roster.dta      | id00 | 2011 |
+| ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | id00 | 2016 |
+
+#+begin_src python :var VARS=VARS INDICES=INDICES :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+print(df.groupby(['t','m']).mean())
+#+end_src
+
+#+results:
+:                    Girls      Boys     Women       Men
+: t    m                                                
+: 2011 Gaza       1.591619  1.653409  1.711648  1.715909
+:      West Bank  1.177037  1.242351  1.623582  1.646958
+: 2016 Gaza       1.428741  1.447743  1.622328  1.614014
+:      West Bank  1.029341  1.070072  1.535036  1.556438
+
+
+*** Constructing Household Expenditures
+#+name: xVARS_Tanzania
+|    t | Output | File                                    | Grouping | Mapping |
+|------+--------+-----------------------------------------+----------+---------|
+| 2008 | value  | ~/Data/LSMS/Tanzania/2008/SEC_K1.dta    | None     | skq4    |
+| 2010 | value  | ~/Data/LSMS/Tanzania/2010/HH_SEC_K1.dta | None     | hh_k04  |
+| 2012 | value  | ~/Data/LSMS/Tanzania/2012/HH_SEC_J1.dta | None     | hh_j04  |
+| 2014 | value  | ~/Data/LSMS/Tanzania/2014/hh_sec_j1.dta | None     | hh_j04  |
+
+#+name: xINDICES_Tanzania
+| File                                    | i        | j       |    t |
+|-----------------------------------------+----------+---------+------|
+| ~/Data/LSMS/Tanzania/2008/SEC_K1.dta    | skcode   | hhid    | 2008 |
+| ~/Data/LSMS/Tanzania/2010/HH_SEC_K1.dta | itemcode | y2_hhid | 2010 |
+| ~/Data/LSMS/Tanzania/2012/HH_SEC_J1.dta | itemcode | y3_hhid | 2012 |
+| ~/Data/LSMS/Tanzania/2014/hh_sec_j1.dta | itemcode | y4_hhid | 2014 |
+
+#+call: build_expenditures(VARS=xVARS_Tanzania, INDICES=xINDICES_Tanzania)
+
+#+results:
+:       value
+: t          
+: 2008  34586
+: 2010  42123
+: 2012  52623
+: 2014  38539
+
+
+
+
+
+
+** Example: Malawi LSMS
+
+*** Constructing Household Expenditures
+#+name: xVARS_Malawi
+|    t | Output | File                                     | Grouping | Mapping |
+|------+--------+------------------------------------------+----------+---------|
+| 2010 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_10.dta | None     | hh_g05  |
+| 2013 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_13.dta | None     | hh_g05  |
+| 2016 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_16.dta | None     | hh_g05  |
+
+#+name: xINDICES_Malawi
+| File                                     | i      | j       |    t |
+|------------------------------------------+--------+---------+------|
+| ~/Data/LSMS/Malawi/Panel/hh_mod_g_10.dta | hh_g02 | HHID    | 2010 |
+| ~/Data/LSMS/Malawi/Panel/hh_mod_g_13.dta | hh_g02 | y2_hhid | 2013 |
+| ~/Data/LSMS/Malawi/Panel/hh_mod_g_16.dta | hh_g02 | y3_hhid | 2016 |
+
+#+call: build_expenditures(VARS=xVARS_Tanzania, INDICES=xINDICES_Tanzania)
+
+#+results:
+:       value
+: t          
+: 2008  34586
+: 2010  42123
+: 2012  52623
+: 2014  38539
+
 
 
 
