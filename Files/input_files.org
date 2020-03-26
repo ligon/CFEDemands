@@ -242,10 +242,6 @@ print(df.groupby(['t','m']).mean())
 : 2014  38539
 
 
-
-
-
-
 ** Example: Malawi LSMS
 
 *** Constructing Household Expenditures
