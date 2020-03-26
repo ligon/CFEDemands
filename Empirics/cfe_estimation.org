@@ -605,7 +605,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       # Calculate deviations
       lhsbar=lhs.mean(axis=0)
       assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs for item %s." % Item
-      assert lhs.std()>0, "No variation in non-missing data for item %s." % Item
+      assert np.all(lhs.std()>0), "No variation in non-missing data for item %s." % Item
       lhs=lhs-lhsbar
       lhs=lhs-lhs.mean(axis=0)
 
