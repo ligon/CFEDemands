@@ -290,7 +290,7 @@ class Result(xr.Dataset):
         Computes a, ce, delta, se_delta, delta_covariance.          
         """
 
-        y = self.drop_useless_expenditures() # Returns a dataframe
+        y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
         z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
 
         a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
@@ -857,8 +857,6 @@ x = x.where(np.random.rand(*x.shape)>0.9,np.nan) # drop most observations
 z = parts['characteristics']
 
 R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=50)
-
-R.drop_useless_expenditures()
 
 assert len(R.coords['i']<n), "Failed to drop missing items?"
 
