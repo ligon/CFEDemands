@@ -54,6 +54,7 @@ class Result(xr.Dataset):
     Ethan Ligon                                                 August 2018
     """
 
+
     def __init__(self,**kwargs):
         """To load data from a netcdf file, use cfe.result.from_dataset().
 
@@ -139,8 +140,11 @@ class Result(xr.Dataset):
             covariance matrix of residuals from the reduced form then
             the good will be dropped.  Default is 30.
 
-          - useless_expenditures : A boolean flag, set to True unless
-            the method drop_useless_expenditures() has been invoked.
+          - useless_expenditures : A boolean flag.  Set to true at
+            point of instantiation if you want to /keep/ expenditures
+            with few observations.  The definition of "useless"
+            depends on the attributes =min_proportion_items= and
+            =min_xproducts=.
 
           - stderr_tol : A tolerance parameter governing the precision
             with which se_beta are estimated.  Default is 0.01.
@@ -161,7 +165,7 @@ class Result(xr.Dataset):
 
         attrs = dict(firstround=None,
                      min_proportion_items=1./8,min_xproducts=30,
-                     useless_expenditures=True,
+                     useless_expenditures=None,
                      stderr_tol=0.01,
                      indices = Indices('j','t','m','i','k'),
                      verbose=False)
@@ -196,6 +200,10 @@ class Result(xr.Dataset):
             attrs.update(kwargs)
             coords = None
 
+        # Deal with useless expenditures
+        if not attrs['useless_expenditures']: 
+            _drop_useless_expenditures(arrs,attrs,coords)
+
         super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
         if is_none(self.z) and  not is_none(self.characteristics):
@@ -218,13 +226,14 @@ class Result(xr.Dataset):
             self.attrs['firstround'] = self.y.coords['t'][0].item()
 
 
-    def drop_useless_expenditures(self,VERBOSE=False):
+
+    def drop_useless_expenditures(self,as_df=False,VERBOSE=False):
         """Drop expenditure items with too few observations.
 
         "Too few" depends on the attributes min_proportion_items and min_xproducts.  
         Once called this method sets the attribute 'useless_expenditures' to False.
         """
-
+    
         if self.attrs['useless_expenditures']:
             y = self.y
             min_proportion_items = self.attrs['min_proportion_items']
@@ -265,13 +274,15 @@ class Result(xr.Dataset):
             except ValueError:
                 pass # No prices in self?
 
-            new = self.sel(i=y.coords['i'],j=y.coords['j'])
-
+            new =  self.sel(i=y.coords['i'],j=y.coords['j'])
             new.attrs['useless_expenditures'] = False
 
-            self.__dict__.update(new.__dict__)
+            self = new
 
-        return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+        if as_df:
+            return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+        else:
+            return self
 
     def get_reduced_form(self,VERBOSE=False):
         """Estimate reduced form expression for system of log expenditures.
@@ -562,6 +573,66 @@ class Result(xr.Dataset):
 
         return R
 #+END_SRC
+** Drop useless expenditures
+
+Define a module-level function to drop "useless" expenditures; used
+(by default) when instantiating a new Result.  If one wishes to keep
+useless expenditures call something like
+=Result(y=y,z=z,useless_expenditures=True)=.
+
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
+def _drop_useless_expenditures(arrs,attrs,coords,VERBOSE=False):
+    """Drop expenditure items with too few observations.
+
+    "Too few" depends on the attributes min_proportion_items and min_xproducts.  
+    Once called this method sets the attribute 'useless_expenditures' to False.
+    """
+    y = arrs['y']
+
+    min_proportion_items = attrs['min_proportion_items']
+    min_xproducts = attrs['min_xproducts']
+
+    use_goods=y.coords['i'].data
+
+    # Convert to pd.DataFrame
+    y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+    J,n = y.shape
+
+    # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+    using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+    y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+
+    if VERBOSE:
+        print('min_proportion_items test drops %d households.' % (J-y.shape[0]))
+        J,n = y.shape
+
+    y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=VERBOSE)
+
+    if VERBOSE:
+        print('drop_columns_wo_covariance test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+        J,n = y.shape
+
+    # Only keep goods with observations in each (t,mkt)
+    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+
+    if VERBOSE:
+        print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+        J,n = y.shape
+
+    y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
+
+    try:
+        arrs['prices'] = arrs['prices'].sel(i=y.coords['i'])
+        arrs['logp'] = np.log(arrs['prices'])
+    except AttributeError:
+        pass # No prices in self?
+
+    arrs['y'] = y
+    attrs['useless_expenditures'] = False
+    if coords is not None:
+        coords['i'] = y.coords
+#+end_src
+
 ** Alternative Decomposition
    A more direct approach to estimation allows us to simultaneously
    estimate parameters returned by =a_decomposition= above.  In
