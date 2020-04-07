@@ -55,7 +55,7 @@ class Result(xr.Dataset):
     """
 
 
-    def __init__(self,**kwargs):
+    def __init__(self, **kwargs):
         """To load data from a netcdf file, use cfe.result.from_dataset().
 
         To instantiate from data on log expenditures (y) and household
@@ -155,43 +155,44 @@ class Result(xr.Dataset):
           - verbose : A boolean; set to True for a more verbose
             description of progress during estimation.
 
-        """ 
+        """
 
         arrs = dict(alpha=None, beta=None, delta=None,
-                    prices=None,characteristics=None,loglambdas=None, a=None,
+                    prices=None, characteristics=None, loglambdas=None, a=None,
                     yhat=None, ce=None, cehat=None, e=None, delta_covariance=None,
                     se_delta=None, se_beta=None, se_alpha=None, se_a = None,
-                    y=None,logp=None,z=None)
+                    y=None, logp=None, z=None)
 
         attrs = dict(firstround=None,
-                     min_proportion_items=1./8,min_xproducts=30,
+                     min_proportion_items=1./8, min_xproducts=30,
                      useless_expenditures=None,
                      stderr_tol=0.01,
-                     indices = Indices('j','t','m','i','k'),
+                     indices = Indices('j', 't', 'm', 'i', 'k'),
                      verbose=False)
 
         try: # Maybe input is already an xarray.Dataset?
             ds = kwargs.pop('data')
             for k in arrs:
                 try:
-                    arrs[k] = ds.variables[k]
+                    a = xr.DataArray(ds.variables[k])
+                    arrs[k] = a.assign_coords({d:ds.coords[d] for d in a.dims})
                 except KeyError:
                     pass
 
             attrs.update(ds.attrs)
             coords = ds.coords
 
-        except KeyError: # Or maybe it's just a tuple of arrays and attributes.
+        except KeyError:  # Or maybe it's just a tuple of arrays and attributes.
             for k in arrs:
                 try:
                     thing = kwargs.pop(k)
-                    try: # thing may be a dataframe?
+                    try:  # thing may be a dataframe?
                         thing = thing.to_xarray()
-                        if k in ['y','yhat','ce','cehat','e','prices']:
+                        if k in ['y', 'yhat', 'ce', 'cehat', 'e', 'prices']:
                             thing = thing.to_array('i')
-                        elif k in ['z','characteristics']:
+                        elif k in ['z', 'characteristics']:
                             thing = thing.to_array('k')
-                    except AttributeError: # Guess not!
+                    except AttributeError:  # Guess not!
                         pass
                     arrs[k] = thing
                 except KeyError:
@@ -201,14 +202,13 @@ class Result(xr.Dataset):
             coords = None
 
         # Deal with useless expenditures
-        if not attrs['useless_expenditures']: 
-            _drop_useless_expenditures(arrs,attrs,coords)
+        arrs['y'], attrs = _drop_useless_expenditures(arrs['y'], attrs,VERBOSE=attrs['verbose'])
 
         super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
-        if is_none(self.z) and  not is_none(self.characteristics):
+        if is_none(self.z) and not is_none(self.characteristics):
             self['z'] = self.characteristics
-        elif not is_none(self.z) and  is_none(self.characteristics):
+        elif not is_none(self.z) and is_none(self.characteristics):
             self['characteristics'] = self.z
         elif is_none(self.characteristics) and not is_none(self.y):
             self['characteristics'] = pd.DataFrame(index=self.y.isel(i=0).index).to_xarray()
@@ -668,26 +668,31 @@ useless expenditures call something like
 =Result(y=y,z=z,useless_expenditures=True)=.
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-def _drop_useless_expenditures(arrs,attrs,coords,VERBOSE=False):
+def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
     """Drop expenditure items with too few observations.
 
     "Too few" depends on the attributes min_proportion_items and min_xproducts.  
     Once called this method sets the attribute 'useless_expenditures' to False.
     """
-    y = arrs['y']
+
+    if attrs['useless_expenditures'] is False:
+        return y0, attrs
+    
+    _y = y0.to_dataset('i')
 
     min_proportion_items = attrs['min_proportion_items']
     min_xproducts = attrs['min_xproducts']
 
-    use_goods=y.coords['i'].data
+    use_goods = [v for v in _y]
 
-    # Convert to pd.DataFrame
-    y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
-    J,n = y.shape
+    _y = _y[use_goods]
+    y = _y.to_dataframe()
+    y.index = y.index.rename(['j', 'mkt', 't'])
+    J, n = y.shape
 
     # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
-    using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
-    y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+    using_goods = (y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+    y = y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
 
     if VERBOSE:
         print('min_proportion_items test drops %d households.' % (J-y.shape[0]))
@@ -706,18 +711,10 @@ def _drop_useless_expenditures(arrs,attrs,coords,VERBOSE=False):
         print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
         J,n = y.shape
 
-    y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
-
-    try:
-        arrs['prices'] = arrs['prices'].sel(i=y.coords['i'])
-        arrs['logp'] = np.log(arrs['prices'])
-    except AttributeError:
-        pass # No prices in self?
-
-    arrs['y'] = y
+    _y = y.to_xarray().rename({'mkt':'m'}).to_array('i')
     attrs['useless_expenditures'] = False
-    if coords is not None:
-        coords['i'] = y.coords
+
+    return _y,attrs
 #+end_src
 
 ** Interface to demand module
