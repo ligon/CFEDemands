@@ -585,7 +585,7 @@ netcdf file, using the =xarray= package.
         D = xr.Dataset(self)
 
         if fn is not None:
-            D.to_netcdf(fn)
+            D.to_netcdf(fn,engine='h5netcdf',invalid_netcdf=True)
 
         return D
 
@@ -604,7 +604,7 @@ def from_dataset(fn):
     Read persistent netcdf (xarray.Dataset) file to Result.
     """
 
-    D = xr.open_dataset(fn)
+    D = xr.open_dataset(fn,engine='h5netcdf')
 
     R = Result(data=D)
 
@@ -665,7 +665,7 @@ def from_pickle(fn):
 Define a module-level function to drop "useless" expenditures; used
 (by default) when instantiating a new Result.  If one wishes to keep
 useless expenditures call something like
-=Result(y=y,z=z,useless_expenditures=True)=.
+=Result(y=y,z=z,useless_expenditures=False)=.
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
 def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
