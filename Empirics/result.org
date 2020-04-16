@@ -202,8 +202,9 @@ class Result(xr.Dataset):
             coords = None
 
         # Deal with useless expenditures
-        arrs['y'], attrs = _drop_useless_expenditures(arrs['y'], attrs,VERBOSE=attrs['verbose'])
-
+        if arrs['y'] is not None:
+            arrs['y'], attrs = _drop_useless_expenditures(arrs['y'], attrs,VERBOSE=attrs['verbose'])
+      
         super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
         if is_none(self.z) and not is_none(self.characteristics):
@@ -453,11 +454,12 @@ class Result(xr.Dataset):
         expenditures, and assumed equal across markets and periods.
         """
 
-        if is_none(self.loglambdas):
-            self.get_loglambdas()
+        if self['alpha'] is None:
+            if is_none(self.loglambdas):
+                self.get_loglambdas()
 
-        self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
-        self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
+            self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
+            self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
 
         out = self.alpha
 
