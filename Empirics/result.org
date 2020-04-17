@@ -761,15 +761,22 @@ def _demand_parameters(self,p=None,z=None):
 
     alpha = np.exp(self.get_alpha() + self.delta.dot(z))
 
+    replace = False
     if type(p) is dict:  # Try replacing some prices?
         replace = p.copy()
         p = None
     elif type(p) is tuple and len(p)==2: # Select (t,m) prices
         p = self.p.sel(t=p[0],m=p[1])
-    elif is_none(p):
+
+    if is_none(p):
         p = beta*0 # Copy coords, etc from beta
         p.data = [1]*n   
         p.name = 'prices'
+
+    if replace:
+        p = p.to_dataframe().squeeze()
+        for k,v in replace.items():
+            p[k] = v
 
     
     # The following hijinks deal with missing values (e.g., in prices)
