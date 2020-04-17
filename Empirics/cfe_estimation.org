@@ -598,13 +598,14 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
       stdev = rhs.std()
       for constant in stdev[stdev==0].index.tolist():
-          warnings.warn("No variation in %s" % constant)
+          warnings.warn("No variation in: %s" % str(constant))
       rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
       useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
       # Calculate deviations
       lhsbar=lhs.mean(axis=0)
-      assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs?"
+      assert ~np.any(np.isnan(lhsbar)), "Missing data in lhs for item %s." % Item
+      assert np.all(lhs.std()>0), "No variation in non-missing data for item %s." % Item
       lhs=lhs-lhsbar
       lhs=lhs-lhs.mean(axis=0)
 

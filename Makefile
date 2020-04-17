@@ -46,3 +46,4 @@ clean:
 	-rm -f cfe/requirements.txt
 	-rm -f CHANGES.txt
 	-rm -f .test
+	-rm -f .tangle

@@ -300,6 +300,7 @@ print(tanzania_expenditures.head())
 : [5 rows x 61 columns]
 
 
+<<<<<<< HEAD
 
 *** Constructing Household Consumption
 #+name: build_consumption

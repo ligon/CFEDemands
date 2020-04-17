@@ -54,7 +54,8 @@ class Result(xr.Dataset):
     Ethan Ligon                                                 August 2018
     """
 
-    def __init__(self,**kwargs):
+
+    def __init__(self, **kwargs):
         """To load data from a netcdf file, use cfe.result.from_dataset().
 
         To instantiate from data on log expenditures (y) and household
@@ -139,8 +140,11 @@ class Result(xr.Dataset):
             covariance matrix of residuals from the reduced form then
             the good will be dropped.  Default is 30.
 
-          - useless_expenditures : A boolean flag, set to True unless
-            the method drop_useless_expenditures() has been invoked.
+          - useless_expenditures : A boolean flag.  Set to true at
+            point of instantiation if you want to /keep/ expenditures
+            with few observations.  The definition of "useless"
+            depends on the attributes =min_proportion_items= and
+            =min_xproducts=.
 
           - stderr_tol : A tolerance parameter governing the precision
             with which se_beta are estimated.  Default is 0.01.
@@ -151,43 +155,44 @@ class Result(xr.Dataset):
           - verbose : A boolean; set to True for a more verbose
             description of progress during estimation.
 
-        """ 
+        """
 
         arrs = dict(alpha=None, beta=None, delta=None,
-                    prices=None,characteristics=None,loglambdas=None, a=None,
+                    prices=None, characteristics=None, loglambdas=None, a=None,
                     yhat=None, ce=None, cehat=None, e=None, delta_covariance=None,
                     se_delta=None, se_beta=None, se_alpha=None, se_a = None,
-                    y=None,logp=None,z=None)
+                    y=None, logp=None, z=None)
 
         attrs = dict(firstround=None,
-                     min_proportion_items=1./8,min_xproducts=30,
-                     useless_expenditures=True,
+                     min_proportion_items=1./8, min_xproducts=30,
+                     useless_expenditures=None,
                      stderr_tol=0.01,
-                     indices = Indices('j','t','m','i','k'),
+                     indices = Indices('j', 't', 'm', 'i', 'k'),
                      verbose=False)
 
         try: # Maybe input is already an xarray.Dataset?
             ds = kwargs.pop('data')
             for k in arrs:
                 try:
-                    arrs[k] = ds.variables[k]
+                    a = xr.DataArray(ds.variables[k])
+                    arrs[k] = a.assign_coords({d:ds.coords[d] for d in a.dims})
                 except KeyError:
                     pass
 
             attrs.update(ds.attrs)
             coords = ds.coords
 
-        except KeyError: # Or maybe it's just a tuple of arrays and attributes.
+        except KeyError:  # Or maybe it's just a tuple of arrays and attributes.
             for k in arrs:
                 try:
                     thing = kwargs.pop(k)
-                    try: # thing may be a dataframe?
+                    try:  # thing may be a dataframe?
                         thing = thing.to_xarray()
-                        if k in ['y','yhat','ce','cehat','e','prices']:
+                        if k in ['y', 'yhat', 'ce', 'cehat', 'e', 'prices']:
                             thing = thing.to_array('i')
-                        elif k in ['z','characteristics']:
+                        elif k in ['z', 'characteristics']:
                             thing = thing.to_array('k')
-                    except AttributeError: # Guess not!
+                    except AttributeError:  # Guess not!
                         pass
                     arrs[k] = thing
                 except KeyError:
@@ -196,11 +201,14 @@ class Result(xr.Dataset):
             attrs.update(kwargs)
             coords = None
 
+        # Deal with useless expenditures
+        arrs['y'], attrs = _drop_useless_expenditures(arrs['y'], attrs,VERBOSE=attrs['verbose'])
+
         super(Result,self).__init__(data_vars=arrs, coords=coords, attrs=attrs)
 
-        if is_none(self.z) and  not is_none(self.characteristics):
+        if is_none(self.z) and not is_none(self.characteristics):
             self['z'] = self.characteristics
-        elif not is_none(self.z) and  is_none(self.characteristics):
+        elif not is_none(self.z) and is_none(self.characteristics):
             self['characteristics'] = self.z
         elif is_none(self.characteristics) and not is_none(self.y):
             self['characteristics'] = pd.DataFrame(index=self.y.isel(i=0).index).to_xarray()
@@ -218,13 +226,14 @@ class Result(xr.Dataset):
             self.attrs['firstround'] = self.y.coords['t'][0].item()
 
 
-    def drop_useless_expenditures(self,VERBOSE=False):
+
+    def drop_useless_expenditures(self,as_df=False,VERBOSE=False):
         """Drop expenditure items with too few observations.
 
         "Too few" depends on the attributes min_proportion_items and min_xproducts.  
         Once called this method sets the attribute 'useless_expenditures' to False.
         """
-
+    
         if self.attrs['useless_expenditures']:
             y = self.y
             min_proportion_items = self.attrs['min_proportion_items']
@@ -265,13 +274,15 @@ class Result(xr.Dataset):
             except ValueError:
                 pass # No prices in self?
 
-            new = self.sel(i=y.coords['i'],j=y.coords['j'])
-
+            new =  self.sel(i=y.coords['i'],j=y.coords['j'])
             new.attrs['useless_expenditures'] = False
 
-            self.__dict__.update(new.__dict__)
+            self = new
 
-        return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+        if as_df:
+            return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+        else:
+            return self
 
     def get_reduced_form(self,VERBOSE=False):
         """Estimate reduced form expression for system of log expenditures.
@@ -279,7 +290,7 @@ class Result(xr.Dataset):
         Computes a, ce, delta, se_delta, delta_covariance.          
         """
 
-        y = self.drop_useless_expenditures() # Returns a dataframe
+        y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
         z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
 
         a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
@@ -562,6 +573,63 @@ class Result(xr.Dataset):
 
         return R
 #+END_SRC
+** Persistent =Result=
+It's useful to be able to make a =Result= instance be persistent.
+Here we experiment with a way to save a =Result= instance to a
+netcdf file, using the =xarray= package.
+
+#+name: result_to_file
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
+    def to_dataset(self,fn=None):
+        """Convert Result instance to xarray.Dataset."""
+        D = xr.Dataset(self)
+
+        if fn is not None:
+            D.to_netcdf(fn,engine='h5netcdf',invalid_netcdf=True)
+
+        return D
+
+    def to_pickle(self,fn):
+        """Pickle Result instance in file fn."""
+        import pickle
+      
+        d = self.to_dict()
+        with open(fn,'wb') as f:
+            pickle.dump(d,f)
+
+        return d
+
+def from_dataset(fn):
+    """
+    Read persistent netcdf (xarray.Dataset) file to Result.
+    """
+
+    D = xr.open_dataset(fn,engine='h5netcdf')
+
+    R = Result(data=D)
+
+    return R
+
+def from_shelf(fn):
+    import shelve
+
+    with shelve.open(fn):
+        pass
+
+def from_pickle(fn):
+    import xarray as xr
+    import pickle
+
+    with open(fn,'rb') as f:
+        X = pickle.load(f)
+
+    D = xr.Dataset.from_dict(X)
+
+    R = Result(data=D)
+
+    return R
+#+END_SRC
+
 ** Alternative Decomposition
    A more direct approach to estimation allows us to simultaneously
    estimate parameters returned by =a_decomposition= above.  In
@@ -592,62 +660,62 @@ class Result(xr.Dataset):
         B,e = fwl_regress(y,X)
 #+end_src
 
-** Persistent =Result=
-It's useful to be able to make a =Result= instance be persistent.
-Here we experiment with a way to save a =Result= instance to a
-netcdf file, using the =xarray= package.
+** Drop useless expenditures
 
-#+name: result_to_file
+Define a module-level function to drop "useless" expenditures; used
+(by default) when instantiating a new Result.  If one wishes to keep
+useless expenditures call something like
+=Result(y=y,z=z,useless_expenditures=False)=.
+
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-    def to_dataset(self,fn=None):
-        """Convert Result instance to xarray.Dataset."""
-        D = xr.Dataset(self)
+def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
+    """Drop expenditure items with too few observations.
 
-        if fn is not None:
-            D.to_netcdf(fn)
-
-        return D
-
-    def to_pickle(self,fn):
-        """Pickle Result instance in file fn."""
-        import pickle
-      
-        d = self.to_dict()
-        with open(fn,'wb') as f:
-            pickle.dump(d,f)
-
-        return d
-
-def from_dataset(fn):
-    """
-    Read persistent netcdf (xarray.Dataset) file to Result.
+    "Too few" depends on the attributes min_proportion_items and min_xproducts.  
+    Once called this method sets the attribute 'useless_expenditures' to False.
     """
 
-    D = xr.open_dataset(fn)
+    if attrs['useless_expenditures'] is False:
+        return y0, attrs
+    
+    _y = y0.to_dataset('i')
 
-    R = Result(data=D)
+    min_proportion_items = attrs['min_proportion_items']
+    min_xproducts = attrs['min_xproducts']
 
-    return R
+    use_goods = [v for v in _y]
 
-def from_shelf(fn):
-    import shelve
+    _y = _y[use_goods]
+    y = _y.to_dataframe()
+    y.index = y.index.rename(['j', 'mkt', 't'])
+    J, n = y.shape
 
-    with shelve.open(fn):
-        pass
+    # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
+    using_goods = (y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
+    y = y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
 
-def from_pickle(fn):
-    import xarray as xr
-    import pickle
+    if VERBOSE:
+        print('min_proportion_items test drops %d households.' % (J-y.shape[0]))
+        J,n = y.shape
 
-    with open(fn,'rb') as f:
-        X = pickle.load(f)
+    y = estimation.drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=VERBOSE)
 
-    D = xr.Dataset.from_dict(X)
+    if VERBOSE:
+        print('drop_columns_wo_covariance test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+        J,n = y.shape
 
-    R = Result(data=D)
+    # Only keep goods with observations in each (t,mkt)
+    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
 
-    return R
-#+END_SRC
+    if VERBOSE:
+        print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+        J,n = y.shape
+
+    _y = y.to_xarray().rename({'mkt':'m'}).to_array('i')
+    attrs['useless_expenditures'] = False
+
+    return _y,attrs
+#+end_src
 
 ** Interface to demand module
    We've tucked code to calculate demands and related objects into
@@ -786,8 +854,6 @@ x = x.where(np.random.rand(*x.shape)>0.9,np.nan) # drop most observations
 z = parts['characteristics']
 
 R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=50)
-
-R.drop_useless_expenditures()
 
 assert len(R.coords['i']<n), "Failed to drop missing items?"
 
