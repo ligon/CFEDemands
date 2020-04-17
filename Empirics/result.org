@@ -292,6 +292,8 @@ class Result(xr.Dataset):
         """
 
         y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
+        y.dropna(how='all',axis=1,inplace=True)
+
         z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
 
         a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
@@ -417,10 +419,11 @@ class Result(xr.Dataset):
 
         Sets yhat and e.
         """
-        cehat = self.get_cehat()
-        self['yhat'] = cehat + self.z.dot(self.delta) + self.a
+        if is_none(self.yhat):
+            cehat = self.get_cehat()
+            self['yhat'] = cehat + self.z.dot(self.delta) + self.a
 
-        self['e'] = self.y - self.yhat
+            self['e'] = self.y - self.yhat
 
         out = self.yhat
 
@@ -454,7 +457,7 @@ class Result(xr.Dataset):
         expenditures, and assumed equal across markets and periods.
         """
 
-        if self['alpha'] is None:
+        if is_none(self['alpha']):
             if is_none(self.loglambdas):
                 self.get_loglambdas()
 
@@ -740,22 +743,35 @@ def _demand_parameters(self,p=None,z=None):
 
     Note that the alpha returned is exp(alpha + delta.T z).
 
+    p can be a complete collection (e.g. Series) of prices, or a 
+    dictionary specifying a subset of prices.  In this case
+    unspecified prices are taken to be equal to one.  
+
+    If p is an (t,m) tuple will attempt to set prices from self.prices.
+
     Suitable for passing to =cfe.demand= functions.
+
     """
 
     beta = self.get_beta()
     n = len(beta)
 
-    if z is None:
+    if is_none(z):
         z = self.z.isel(j=0,t=0,m=0,drop=True).fillna(0)*0
 
     alpha = np.exp(self.get_alpha() + self.delta.dot(z))
 
-    if p is None:
+    if type(p) is dict:  # Try replacing some prices?
+        replace = p.copy()
+        p = None
+    elif type(p) is tuple and len(p)==2: # Select (t,m) prices
+        p = self.p.sel(t=p[0],m=p[1])
+    elif is_none(p):
         p = beta*0 # Copy coords, etc from beta
         p.data = [1]*n   
         p.name = 'prices'
 
+    
     # The following hijinks deal with missing values (e.g., in prices)
     foo = xr.Dataset({'beta':beta,'alpha':alpha,'prices':p}).to_dataframe().dropna(how='any')
 
