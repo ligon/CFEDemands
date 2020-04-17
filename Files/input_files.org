@@ -15,6 +15,8 @@
 #+LATEX_HEADER: \usepackage{stringstrings}\renewcommand{\cite}[1]{\caselower[q]{#1}\citet{\thestring}}
 :END:
 
+* Introduction
+
 This file describes procedures for converting particular sorts of
 files from survey data into the data structures required for analysis
 by =CFEDemands=.
@@ -25,6 +27,8 @@ repeated in different periods may have different sets of files.  Any
 such file will basically describe a rectangular array of data, with
 rows distinguished by some set of index variables, and columns
 describing the corresponding variables.
+
+* Code for constructing inputs to CFEDemands from *.dta files
 
 #+begin_src python :tangle ../cfe/input_files.py
 import numpy as np
@@ -85,9 +89,9 @@ def construct_df(VARS,INDICES):
 
 #+end_src
 
-#+RESULTS:
+* Examples
 
-** Example: Palestine Expenditure & Consumption Survey (PECS)
+** Palestine Expenditure & Consumption Survey (PECS)
 *** Constructing Household Characteristics
 #+name: VARS
 |    t | Output | File                                           | Grouping  | Mapping                                               |
@@ -174,7 +178,7 @@ df.to_pickle(OUTPUTFN)
 
 
 
-** Example: Tanzanian LSMS
+** Tanzanian LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Tanzania
 |    t | Output  | File                               | Grouping  | Mapping                                                                   |
@@ -300,8 +304,6 @@ print(tanzania_expenditures.head())
 : [5 rows x 61 columns]
 
 
-<<<<<<< HEAD
-
 *** Constructing Household Consumption
 #+name: build_consumption
 #+begin_src python :var VARS=yVARS INDICES=yINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
@@ -396,7 +398,7 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 #+RESULTS: tanzania-gs
 
 
-** Example: Malawi LSMS
+** Malawi LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Malawi
 |    t | Output  | File                               | Grouping  | Mapping                                                                    |
@@ -574,7 +576,7 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 ***
 
 
-** Example: Uganda LSMS
+** Uganda LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Uganda
 |    t | Output  | File                            | Grouping  | Mapping                                                             |
@@ -799,7 +801,8 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 
  [[https://bcourses.berkeley.edu/courses/1487903/files/76983962/download?wrap=1]] 
 
-** Example: Ethiopia LSMS
+
+** Ethiopia LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Ethiopia
 |    t | Output  | File                                           | Grouping  | Mapping                                                                             |
@@ -1002,7 +1005,7 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 #+RESULTS: ethiopia-gs
 
 
-** Example: Niger LSMS
+** Niger LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Niger
 |    t | Output  | File                                    | Grouping  | Mapping                                                                          |
@@ -1185,7 +1188,7 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 #+RESULTS: niger-gs
 
 
-** Example: Nigeria LSMS
+** Nigeria LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Nigeria
 |    t | Output  | File                                                                  | Grouping  | Mapping                                                                |
@@ -1336,9 +1339,10 @@ print(nigeria_expenditures.head())
 : [5 rows x 124 columns]
 
 *** Constructing Household Consumption
-consumption.csv generated in cell below is filtered after the fact in
-order to bring cell count <5M. Removed all rows where units were not
-descriptive in terms of weight (g, kg, l, ml, etc.)
+The file =consumption.csv= generated below is filtered after the fact
+in order to bring cell count below five million. Removed all rows
+where units were not descriptive in terms of weight (g, kg, l, ml,
+etc.)
 
 #+name: yVARS_Nigeria
 |    t | Output | File                                                                    | Grouping | Mapping |
