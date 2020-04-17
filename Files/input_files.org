@@ -45,7 +45,7 @@ def construct_df(VARS,INDICES):
             return df.apply(eval(Mapping),axis=1)
 
     def read_and_index(fn,indices):
-        df = pd.read_stata(fn).rename(columns=dict(map(reversed, indices.items())))
+        df = pd.read_stata(fn,convert_categoricals=False).rename(columns=dict(map(reversed, indices.items())))
         df['t'] = indices['t']
         for index in indices.keys(): # Cast to simplest type (int or str)
             try:
@@ -84,6 +84,9 @@ def construct_df(VARS,INDICES):
     return df
 
 #+end_src
+
+#+RESULTS:
+
 ** Example: Palestine Expenditure & Consumption Survey (PECS)
 *** Constructing Household Characteristics
 #+name: VARS
@@ -149,14 +152,19 @@ print(df.groupby(['t','m']).mean())
 #+begin_src python :var VARS=xVARS INDICES=xINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
 from cfe.df_utils import orgtbl_to_df
 from cfe.input_files import construct_df
+import pandas as pd
+import numpy as np
 
 VARS = orgtbl_to_df(VARS)
 INDICES = orgtbl_to_df(INDICES).set_index('File')
 
-df=construct_df(VARS,INDICES)
+df=construct_df(VARS,INDICES).reset_index()
+df=df.pivot_table(index=['t','j'],columns='i',values='value',aggfunc=np.sum)
 df.to_pickle(OUTPUTFN)
-print(df.groupby('t').count())
+#print(df.groupby('t').count())
 #+end_src
+
+#+RESULTS: build_expenditures
 
 #+results:
 :        value
@@ -168,108 +176,1239 @@ print(df.groupby('t').count())
 
 ** Example: Tanzanian LSMS
 *** Constructing Household Characteristics
-#+name: VARS
-|    t | Output | File                                           | Grouping  | Mapping                                               |
-|------+--------+------------------------------------------------+-----------+-------------------------------------------------------|
-| 2011 | m      | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda s: s.REGION.title()                            |
-| 2011 | urban  | ~/Data/Palestine_ECS/Data/2011/cover.dta       | None      | lambda x: x.loc_type.title()                          |
-| 2016 | m      | ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | None      | lambda x: ['West Bank','Gaza'][np.isnan(x.id09)]      |
-| 2016 | urban  | ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | None      | lambda x: ['Urban','Rural','Camp'][int(x.loctype-1)]  |
-| 2011 | Girls  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 <= 16) |
-| 2011 | Boys   | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 <= 16)   |
-| 2011 | Women  | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d5 > 16)  |
-| 2011 | Men    | ~/Data/Palestine_ECS/Data/2011/roster.dta      | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d5 > 16)    |
-| 2016 | Girls  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 <= 16) |
-| 2016 | Boys   | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 <= 16)   |
-| 2016 | Women  | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Female') & (x.d6 > 16)  |
-| 2016 | Men    | ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | ('j',sum) | lambda x: 0 + (x.d4.title()=='Male') & (x.d6 > 16)    |
+#+name: VARS_Tanzania
+|    t | Output  | File                               | Grouping  | Mapping                                                                   |
+|------+---------+------------------------------------+-----------+---------------------------------------------------------------------------|
+| 2008 | M 0-3   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 0) & (x.s1q2 < 4) & (x.s1q3 =='MALE')            |
+| 2008 | M 4-8   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 4) & (x.s1q2 < 9) & (x.s1q3 =='MALE')            |
+| 2008 | M 9-13  | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 9) & (x.s1q2 < 14) & (x.s1q3 =='MALE')           |
+| 2008 | M 14-18 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 14) & (x.s1q2 < 19) & (x.s1q3 =='MALE')          |
+| 2008 | M 19-30 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 19)  & (x.s1q2 < 31) & (x.s1q3 =='MALE')         |
+| 2008 | M 31-50 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 31) & (x.s1q2 < 51) & (x.s1q3 =='MALE')          |
+| 2008 | M 51+   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 51) & (x.s1q3 =='MALE')                          |
+| 2008 | F 0-3   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 0) & (x.s1q2 < 4) & (x.s1q3 =='FEMALE')          |
+| 2008 | F 4-8   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 4) & (x.s1q2 < 9) & (x.s1q3 =='FEMALE')          |
+| 2008 | F 9-13  | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 9) & (x.s1q2 < 14) & (x.s1q3 =='FEMALE')         |
+| 2008 | F 14-18 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 14) & (x.s1q2 < 19) & (x.s1q3 =='FEMALE')        |
+| 2008 | F 19-30 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 19)  & (x.s1q2 < 31) & (x.s1q3 =='FEMALE')       |
+| 2008 | F 31-50 | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 31) & (x.s1q2 < 51) & (x.s1q3 =='FEMALE')        |
+| 2008 | F 51+   | ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | ('j',sum) | lambda x: 0 + (x.s1q2 >= 51) & (x.s1q3 =='FEMALE')                        |
+| 2010 | M 0-3   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='Male')      |
+| 2010 | M 4-8   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='Male')      |
+| 2010 | M 9-13  | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='Male')     |
+| 2010 | M 14-18 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='Male')    |
+| 2010 | M 19-30 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='Male')   |
+| 2010 | M 31-50 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='Male')    |
+| 2010 | M 51+   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='Male')                      |
+| 2010 | F 0-3   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='Female')    |
+| 2010 | F 4-8   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='Female')    |
+| 2010 | F 9-13  | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='Female')   |
+| 2010 | F 14-18 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='Female')  |
+| 2010 | F 19-30 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='Female') |
+| 2010 | F 31-50 | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='Female')  |
+| 2010 | F 51+   | ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='Female')                    |
+| 2012 | M 0-3   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='MALE')      |
+| 2012 | M 4-8   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='MALE')      |
+| 2012 | M 9-13  | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='MALE')     |
+| 2012 | M 14-18 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='MALE')    |
+| 2012 | M 19-30 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='MALE')   |
+| 2012 | M 31-50 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='MALE')    |
+| 2012 | M 51+   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='MALE')                      |
+| 2012 | F 0-3   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='FEMALE')    |
+| 2012 | F 4-8   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='FEMALE')    |
+| 2012 | F 9-13  | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='FEMALE')   |
+| 2012 | F 14-18 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='FEMALE')  |
+| 2012 | F 19-30 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='FEMALE') |
+| 2012 | F 31-50 | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='FEMALE')  |
+| 2012 | F 51+   | ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='FEMALE')                    |
+| 2014 | M 0-3   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='male')      |
+| 2014 | M 4-8   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='male')      |
+| 2014 | M 9-13  | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='male')     |
+| 2014 | M 14-18 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='male')    |
+| 2014 | M 19-30 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='male')   |
+| 2014 | M 31-50 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='male')    |
+| 2014 | M 51+   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='male')                      |
+| 2014 | F 0-3   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 0) & (x.hh_b04 < 4) & (x.hh_b02 =='female')    |
+| 2014 | F 4-8   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 4) & (x.hh_b04 < 9) & (x.hh_b02 =='female')    |
+| 2014 | F 9-13  | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 9) & (x.hh_b04 < 14) & (x.hh_b02 =='female')   |
+| 2014 | F 14-18 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 14) & (x.hh_b04 < 19) & (x.hh_b02 =='female')  |
+| 2014 | F 19-30 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 19)  & (x.hh_b04 < 31) & (x.hh_b02 =='female') |
+| 2014 | F 31-50 | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 31) & (x.hh_b04 < 51) & (x.hh_b02 =='female')  |
+| 2014 | F 51+   | ~/LSMS/Tanzania/2014/hh_sec_b.dta  | ('j',sum) | lambda x: 0 + (x.hh_b04 >= 51) & (x.hh_b02 =='female')                    |
 
+#+name: INDICES_Tanzania
+| File                               | j       |    t |
+|------------------------------------+---------+------|
+| ~/LSMS/Tanzania/2008/SEC_1_ALL.dta | hhid    | 2008 |
+| ~/LSMS/Tanzania/2010/HH_SEC_B.dta  | y2_hhid | 2010 |
+| ~/LSMS/Tanzania/2012/HH_SEC_B.dta  | y3_hhid | 2012 |
+| ~/LSMS/Tanzania/2014/hh_sec_b.dta  | y4_hhid | 2014 |
 
-#+name: INDICES
-| File                                           | j    |    t |
-|------------------------------------------------+------+------|
-| ~/Data/Palestine_ECS/Data/2011/cover.dta       | ID00 | 2011 |
-| ~/Data/Palestine_ECS/Data/2016-17/cover.dta    | id00 | 2016 |
-| ~/Data/Palestine_ECS/Data/2016-17/dwelling.dta | id00 | 2016 |
-| ~/Data/Palestine_ECS/Data/2011/roster.dta      | id00 | 2011 |
-| ~/Data/Palestine_ECS/Data/2016-17/roster.dta   | id00 | 2016 |
-
-#+begin_src python :var VARS=VARS INDICES=INDICES :colnames no 
+#+begin_src python :var VARS=VARS_Tanzania INDICES=INDICES_Tanzania :colnames no 
 from cfe.df_utils import orgtbl_to_df
 from cfe.input_files import construct_df
+import pandas as pd
 
 VARS = orgtbl_to_df(VARS)
 INDICES = orgtbl_to_df(INDICES).set_index('File')
 
 df=construct_df(VARS,INDICES)
-print(df.groupby(['t','m']).mean())
+df.to_csv('~/tanzania_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
 #+end_src
 
 #+results:
-:                    Girls      Boys     Women       Men
-: t    m                                                
-: 2011 Gaza       1.591619  1.653409  1.711648  1.715909
-:      West Bank  1.177037  1.242351  1.623582  1.646958
-: 2016 Gaza       1.428741  1.447743  1.622328  1.614014
-:      West Bank  1.029341  1.070072  1.535036  1.556438
-
 
 *** Constructing Household Expenditures
 #+name: xVARS_Tanzania
-|    t | Output | File                                    | Grouping | Mapping |
-|------+--------+-----------------------------------------+----------+---------|
-| 2008 | value  | ~/Data/LSMS/Tanzania/2008/SEC_K1.dta    | None     | skq4    |
-| 2010 | value  | ~/Data/LSMS/Tanzania/2010/HH_SEC_K1.dta | None     | hh_k04  |
-| 2012 | value  | ~/Data/LSMS/Tanzania/2012/HH_SEC_J1.dta | None     | hh_j04  |
-| 2014 | value  | ~/Data/LSMS/Tanzania/2014/hh_sec_j1.dta | None     | hh_j04  |
+|    t | Output | File                               | Grouping | Mapping |
+|------+--------+------------------------------------+----------+---------|
+| 2008 | value  | ~/LSMS/Tanzania/2008/SEC_K1.dta    | None     | skq4    |
+| 2010 | value  | ~/LSMS/Tanzania/2010/HH_SEC_K1.dta | None     | hh_k04  |
+| 2012 | value  | ~/LSMS/Tanzania/2012/HH_SEC_J1.dta | None     | hh_j04  |
+| 2014 | value  | ~/LSMS/Tanzania/2014/hh_sec_j1.dta | None     | hh_j04  |
 
 #+name: xINDICES_Tanzania
-| File                                    | i        | j       |    t |
-|-----------------------------------------+----------+---------+------|
-| ~/Data/LSMS/Tanzania/2008/SEC_K1.dta    | skcode   | hhid    | 2008 |
-| ~/Data/LSMS/Tanzania/2010/HH_SEC_K1.dta | itemcode | y2_hhid | 2010 |
-| ~/Data/LSMS/Tanzania/2012/HH_SEC_J1.dta | itemcode | y3_hhid | 2012 |
-| ~/Data/LSMS/Tanzania/2014/hh_sec_j1.dta | itemcode | y4_hhid | 2014 |
+| File                               | i        | j       |    t |
+|------------------------------------+----------+---------+------|
+| ~/LSMS/Tanzania/2008/SEC_K1.dta    | skcode   | hhid    | 2008 |
+| ~/LSMS/Tanzania/2010/HH_SEC_K1.dta | itemcode | y2_hhid | 2010 |
+| ~/LSMS/Tanzania/2012/HH_SEC_J1.dta | itemcode | y3_hhid | 2012 |
+| ~/LSMS/Tanzania/2014/hh_sec_j1.dta | itemcode | y4_hhid | 2014 |
 
 #+call: build_expenditures(VARS=xVARS_Tanzania, INDICES=xINDICES_Tanzania)
 
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+tanzania_expenditures = pd.read_pickle("/tmp/y.pickle")
+tanzania_expenditures.to_csv("~/tanzania_expenditures.csv")
+print(tanzania_expenditures.head())
+
+#+END_SRC
+
 #+results:
-:       value
-: t          
-: 2008  34586
-: 2010  42123
-: 2012  52623
-: 2014  38539
+: i                   Beef including minced sausage  ...  Yams/cocoyams
+: t    j                                             ...               
+: 2008 1010140020171                         2500.0  ...            0.0
+:      1010140020284                            0.0  ...            0.0
+:      1010140020297                         7500.0  ...            0.0
+:      1010140020409                            0.0  ...            0.0
+:      1010140020471                            0.0  ...            0.0
+: 
+: [5 rows x 61 columns]
+
+
+<<<<<<< HEAD
+
+*** Constructing Household Consumption
+#+name: build_consumption
+#+begin_src python :var VARS=yVARS INDICES=yINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+import numpy as np
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES).reset_index()
+df=df.pivot_table(index=['t','j','u'],columns='i',values='value',aggfunc=np.sum)
+df.to_pickle(OUTPUTFN)
+#print(df.groupby('t').count())
+#+end_src
+
+#+name: yVARS_Tanzania
+|    t | Output | File                               | Grouping | Mapping     |
+|------+--------+------------------------------------+----------+-------------|
+| 2008 | value  | ~/LSMS/Tanzania/2008/SEC_K1.dta    | None     | skq3_amount |
+| 2010 | value  | ~/LSMS/Tanzania/2010/HH_SEC_K1.dta | None     | hh_k03_2    |
+| 2012 | value  | ~/LSMS/Tanzania/2012/HH_SEC_J1.dta | None     | hh_j03_2    |
+| 2014 | value  | ~/LSMS/Tanzania/2014/hh_sec_j1.dta | None     | hh_j03_2    |
+
+#+name: yINDICES_Tanzania
+| File                               | i        | j       |    t | u         |
+|------------------------------------+----------+---------+------+-----------|
+| ~/LSMS/Tanzania/2008/SEC_K1.dta    | skcode   | hhid    | 2008 | skq3_meas |
+| ~/LSMS/Tanzania/2010/HH_SEC_K1.dta | itemcode | y2_hhid | 2010 | hh_k03_1  |
+| ~/LSMS/Tanzania/2012/HH_SEC_J1.dta | itemcode | y3_hhid | 2012 | hh_j03_1  |
+| ~/LSMS/Tanzania/2014/hh_sec_j1.dta | itemcode | y4_hhid | 2014 | hh_j03_1  |
+
+#+call: build_consumption(VARS=yVARS_Tanzania, INDICES=yINDICES_Tanzania)
+
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+tanzania_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+tanzania_consumption['u'] = tanzania_consumption['u'].astype('str')
+tanzania_consumption = tanzania_consumption[(tanzania_consumption['u'] != 'NA') & (tanzania_consumption['u'] != 'nan')]
+tanzania_consumption = tanzania_consumption.set_index(['t', 'j'])
+tanzania_consumption.to_csv("~/tanzania_consumption.csv")
+print(tanzania_consumption.head())
+
+#+END_SRC
+
+#+results:
+: i                            u  ...  Yams/cocoyams
+: t    j                          ...               
+: 2008 1010140020171       GRAMS  ...            NaN
+:      1010140020171   KILOGRAMS  ...            NaN
+:      1010140020171  MILLILITRE  ...            NaN
+:      1010140020284       GRAMS  ...            NaN
+:      1010140020284  MILLILITRE  ...            NaN
+: 
+: [5 rows x 62 columns]
+
+*** Export to Google Sheets
+#+NAME: tanzania-gsheets
+| Worksheet Name     | File                           |
+|--------------------+--------------------------------|
+| Expenditures       | ~/tanzania_expenditures.csv    |
+| HH Characteristics | ~/tanzania_characteristics.csv |
+| Consumption        | ~/tanzania_consumption.csv     |
+
+#+NAME: tanzania-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=tanzania-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Tanzania", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: tanzania-gs
 
 
 ** Example: Malawi LSMS
+*** Constructing Household Characteristics
+#+name: VARS_Malawi
+|    t | Output  | File                               | Grouping  | Mapping                                                                    |
+|------+---------+------------------------------------+-----------+----------------------------------------------------------------------------|
+| 2004 | M 0-3   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 0) & (x.b05a < 4) & (x.b03 =='Male')              |
+| 2004 | M 4-8   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 4) & (x.b05a < 9) & (x.b03 =='Male')              |
+| 2004 | M 9-13  | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 9) & (x.b05a < 14) & (x.b03 =='Male')             |
+| 2004 | M 14-18 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 14) & (x.b05a < 19) & (x.b03 =='Male')            |
+| 2004 | M 19-30 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 19)  & (x.b05a < 31) & (x.b03 =='Male')           |
+| 2004 | M 31-50 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 31) & (x.b05a < 51) & (x.b03 =='Male')            |
+| 2004 | M 51+   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 51) & (x.b03 =='Male')                            |
+| 2004 | F 0-3   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 0) & (x.b05a < 4) & (x.b03 =='Female')            |
+| 2004 | F 4-8   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 4) & (x.b05a < 9) & (x.b03 =='Female')            |
+| 2004 | F 9-13  | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 9) & (x.b05a < 14) & (x.b03 =='Female')           |
+| 2004 | F 14-18 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 14) & (x.b05a < 19) & (x.b03 =='Female')          |
+| 2004 | F 19-30 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 19)  & (x.b05a < 31) & (x.b03 =='Female')         |
+| 2004 | F 31-50 | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 31) & (x.b05a < 51) & (x.b03 =='Female')          |
+| 2004 | F 51+   | ~/LSMS/Malawi/2004/sec_b.dta       | ('j',sum) | lambda x: 0 + (x.b05a >= 51) & (x.b03 =='Female')                          |
+| 2010 | M 0-3   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 0) & (x.hh_b05a < 4) & (x.hh_b03 =='Male')     |
+| 2010 | M 4-8   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 4) & (x.hh_b05a < 9) & (x.hh_b03 =='Male')     |
+| 2010 | M 9-13  | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 9) & (x.hh_b05a < 14) & (x.hh_b03 =='Male')    |
+| 2010 | M 14-18 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 14) & (x.hh_b05a < 19) & (x.hh_b03 =='Male')   |
+| 2010 | M 19-30 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 19)  & (x.hh_b05a < 31) & (x.hh_b03 =='Male')  |
+| 2010 | M 31-50 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 31) & (x.hh_b05a < 51) & (x.hh_b03 =='Male')   |
+| 2010 | M 51+   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 51) & (x.hh_b03=='Male')                       |
+| 2010 | F 0-3   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 0) & (x.hh_b05a < 4) & (x.hh_b03 =='Female')   |
+| 2010 | F 4-8   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 4) & (x.hh_b05a < 9) & (x.hh_b03 =='Female')   |
+| 2010 | F 9-13  | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 9) & (x.hh_b05a < 14) & (x.hh_b03=='Female')   |
+| 2010 | F 14-18 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 14) & (x.hh_b05a < 19) & (x.hh_b03=='Female')  |
+| 2010 | F 19-30 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 19)  & (x.hh_b05a < 31) & (x.hh_b03=='Female') |
+| 2010 | F 31-50 | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 31) & (x.hh_b05a < 51) & (x.hh_b03=='Female')  |
+| 2010 | F 51+   | ~/LSMS/Malawi/2010-11/HH_MOD_B.dta | ('j',sum) | lambda x: 0 + (x.hh_b05a >= 51) & (x.hh_b03=='Female')                     |
+
+
+#+name: INDICES_Malawi
+| File                                    | j       |    t |
+|-----------------------------------------+---------+------|
+| ~/LSMS/Malawi/2004/sec_b.dta            | case_id | 2004 |
+| ~/LSMS/Malawi/2010-11/HH_MOD_B.dta      | case_id | 2010 |
+| ~/LSMS/Malawi/2010-11/HH_MOD_A_FILT.dta | case_id | 2010 |
+
+
+#+begin_src python :var VARS=VARS_Malawi INDICES=INDICES_Malawi :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+df.to_csv('~/malawi_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
+#print(df.tail())
+#+end_src
+
+#+results:
 
 *** Constructing Household Expenditures
 #+name: xVARS_Malawi
-|    t | Output | File                                     | Grouping | Mapping |
-|------+--------+------------------------------------------+----------+---------|
-| 2010 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_10.dta | None     | hh_g05  |
-| 2013 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_13.dta | None     | hh_g05  |
-| 2016 | value  | ~/Data/LSMS/Malawi/Panel/hh_mod_g_16.dta | None     | hh_g05  |
+|    t | Output | File                                | Grouping | Mapping |
+|------+--------+-------------------------------------+----------+---------|
+| 2004 | value  | ~/LSMS/Malawi/2004/sec_i.dta        | None     | i05     |
+| 2010 | value  | ~/LSMS/Malawi/2010-11/HH_MOD_G1.dta | None     | hh_g05  |
+
 
 #+name: xINDICES_Malawi
-| File                                     | i      | j       |    t |
-|------------------------------------------+--------+---------+------|
-| ~/Data/LSMS/Malawi/Panel/hh_mod_g_10.dta | hh_g02 | HHID    | 2010 |
-| ~/Data/LSMS/Malawi/Panel/hh_mod_g_13.dta | hh_g02 | y2_hhid | 2013 |
-| ~/Data/LSMS/Malawi/Panel/hh_mod_g_16.dta | hh_g02 | y3_hhid | 2016 |
+| File                                | i      | j       |    t |
+|-------------------------------------+--------+---------+------|
+| ~/LSMS/Malawi/2004/sec_i.dta        | i02    | case_id | 2004 |
+| ~/LSMS/Malawi/2010-11/HH_MOD_G1.dta | hh_g02 | case_id | 2010 |
 
-#+call: build_expenditures(VARS=xVARS_Tanzania, INDICES=xINDICES_Tanzania)
+
+#+call: build_expenditures(VARS=xVARS_Malawi, INDICES=xINDICES_Malawi)
 
 #+results:
-:       value
-: t          
-: 2008  34586
-: 2010  42123
-: 2012  52623
-: 2014  38539
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+malawi_expenditures = pd.read_pickle("/tmp/y.pickle")
+malawi_expenditures.to_csv("~/malawi_expenditures.csv")
+print(malawi_expenditures.head())
+
+#+END_SRC
+
+#+RESULTS:
+: i                 Apple  Avocado  ...  Yoghurt  nan
+: t    j                            ...              
+: 2004 10101002025    0.0     10.0  ...      0.0  NaN
+:      10101002051    0.0      0.0  ...      0.0  NaN
+:      10101002072    0.0      5.0  ...      0.0  NaN
+:      10101002079    0.0     16.0  ...      0.0  NaN
+:      10101002095    0.0      0.0  ...      0.0  NaN
+: 
+: [5 rows x 129 columns]
+
+
+
+
+*** Constructing Household Consumption
+#+name: yVARS_Malawi
+|    t | Output | File                                | Grouping | Mapping |
+|------+--------+-------------------------------------+----------+---------|
+| 2004 | value  | ~/LSMS/Malawi/2004/sec_i.dta        | None     | i04a    |
+| 2010 | value  | ~/LSMS/Malawi/2010-11/HH_MOD_G1.dta | None     | hh_g04a |
+
+#+name: yINDICES_Malawi
+| File                                | i      | j       |    t | u       |
+|-------------------------------------+--------+---------+------+---------|
+| ~/LSMS/Malawi/2004/sec_i.dta        | i02    | case_id | 2004 | i04b    |
+| ~/LSMS/Malawi/2010-11/HH_MOD_G1.dta | hh_g02 | case_id | 2010 | hh_g04b |
+
+#+call: build_consumption(VARS=yVARS_Malawi, INDICES=yINDICES_Malawi)
+
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+malawi_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+malawi_consumption['u'] = malawi_consumption['u'].astype('str')
+malawi_consumption = malawi_consumption[(malawi_consumption['u'] == '50kg bag') | (malawi_consumption['u'] == '90kg bag') | (malawi_consumption['u'] == 'Bunch') | (malawi_consumption['u'] == 'Gram') | (malawi_consumption['u'] == 'Kg') | (malawi_consumption['u'] == 'Litre') | (malawi_consumption['u'] == 'Millilitre') | (malawi_consumption['u'] == 'Piece') | (malawi_consumption['u'] == 'Satchet/Tube/Packet')]
+malawi_consumption = malawi_consumption.set_index(['t', 'j'])
+malawi_consumption.to_csv("~/malawi_consumption.csv")
+print(malawi_consumption.head())
+#+END_SRC
+
+#+RESULTS:
+: i                          u  Apple  ...  Yoghurt  nan
+: t    j                               ...              
+: 2004 10101002025        Gram    NaN  ...      NaN  NaN
+:      10101002025          Kg    NaN  ...      NaN  NaN
+:      10101002025  Millilitre    NaN  ...      NaN  NaN
+:      10101002025       Piece    NaN  ...      NaN  NaN
+:      10101002051        Gram    NaN  ...      NaN  NaN
+: 
+: [5 rows x 130 columns]
+
+*** Export to Google Sheets
+Note, unable to include consumption.csv as doing so would bring the
+sheet over 5 million cells.
+
+#+NAME: malawi-gsheets
+| Worksheet Name     | File                         |
+|--------------------+------------------------------|
+| Expenditures       | ~/malawi_expenditures.csv    |
+| HH Characteristics | ~/malawi_characteristics.csv |
+
+
+#+NAME: malawi-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=malawi-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Malawi", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: malawi-gs
+
+***
+
+
+** Example: Uganda LSMS
+*** Constructing Household Characteristics
+#+name: VARS_Uganda
+|    t | Output  | File                            | Grouping  | Mapping                                                             |
+|------+---------+---------------------------------+-----------+---------------------------------------------------------------------|
+| 2005 | M 0-3   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 0) & (x.h2q9 < 4) & (x.h2q4 =='MALE')      |
+| 2005 | M 4-8   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 4) & (x.h2q9 < 9) & (x.h2q4 =='MALE')      |
+| 2005 | M 9-13  | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 9) & (x.h2q9 < 14) & (x.h2q4 =='MALE')     |
+| 2005 | M 14-18 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 14) & (x.h2q9 < 19) & (x.h2q4 =='MALE')    |
+| 2005 | M 19-30 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 19)  & (x.h2q9 < 31) & (x.h2q4 =='MALE')   |
+| 2005 | M 31-50 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 31) & (x.h2q9 < 51) & (x.h2q4 =='MALE')    |
+| 2005 | M 51+   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 51) & (x.h2q4 =='MALE')                    |
+| 2005 | F 0-3   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 0) & (x.h2q9 < 4) & (x.h2q4 =='FEMALE')    |
+| 2005 | F 4-8   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 4) & (x.h2q9 < 9) & (x.h2q4 =='FEMALE')    |
+| 2005 | F 9-13  | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 9) & (x.h2q9 < 14) & (x.h2q4 =='FEMALE')   |
+| 2005 | F 14-18 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 14) & (x.h2q9 < 19) & (x.h2q4 =='FEMALE')  |
+| 2005 | F 19-30 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 19)  & (x.h2q9 < 31) & (x.h2q4 =='FEMALE') |
+| 2005 | F 31-50 | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 31) & (x.h2q9 < 51) & (x.h2q4 =='FEMALE')  |
+| 2005 | F 51+   | ~/LSMS/Uganda/2005-06/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q9 >= 51) & (x.h2q4 =='FEMALE')                  |
+| 2009 | M 0-3   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='MALE')      |
+| 2009 | M 4-8   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='MALE')      |
+| 2009 | M 9-13  | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='MALE')     |
+| 2009 | M 14-18 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='MALE')    |
+| 2009 | M 19-30 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='MALE')   |
+| 2009 | M 31-50 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='MALE')    |
+| 2009 | M 51+   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='MALE')                    |
+| 2009 | F 0-3   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='FEMALE')    |
+| 2009 | F 4-8   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='FEMALE')    |
+| 2009 | F 9-13  | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='FEMALE')   |
+| 2009 | F 14-18 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='FEMALE')  |
+| 2009 | F 19-30 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='FEMALE') |
+| 2009 | F 31-50 | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='FEMALE')  |
+| 2009 | F 51+   | ~/LSMS/Uganda/2009-10/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='FEMALE')                  |
+| 2010 | M 0-3   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='Male')      |
+| 2010 | M 4-8   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='Male')      |
+| 2010 | M 9-13  | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='Male')     |
+| 2010 | M 14-18 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='Male')    |
+| 2010 | M 19-30 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='Male')   |
+| 2010 | M 31-50 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='Male')    |
+| 2010 | M 51+   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='Male')                    |
+| 2010 | F 0-3   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='Female')    |
+| 2010 | F 4-8   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='Female')    |
+| 2010 | F 9-13  | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='Female')   |
+| 2010 | F 14-18 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='Female')  |
+| 2010 | F 19-30 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='Female') |
+| 2010 | F 31-50 | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='Female')  |
+| 2010 | F 51+   | ~/LSMS/Uganda/2010-11/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='Female')                  |
+| 2011 | M 0-3   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='Male')      |
+| 2011 | M 4-8   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='Male')      |
+| 2011 | M 9-13  | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='Male')     |
+| 2011 | M 14-18 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='Male')    |
+| 2011 | M 19-30 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='Male')   |
+| 2011 | M 31-50 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='Male')    |
+| 2011 | M 51+   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='Male')                    |
+| 2011 | F 0-3   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 0) & (x.h2q8 < 4) & (x.h2q3 =='Female')    |
+| 2011 | F 4-8   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 4) & (x.h2q8 < 9) & (x.h2q3 =='Female')    |
+| 2011 | F 9-13  | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 9) & (x.h2q8 < 14) & (x.h2q3 =='Female')   |
+| 2011 | F 14-18 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 14) & (x.h2q8 < 19) & (x.h2q3 =='Female')  |
+| 2011 | F 19-30 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 19)  & (x.h2q8 < 31) & (x.h2q3 =='Female') |
+| 2011 | F 31-50 | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 31) & (x.h2q8 < 51) & (x.h2q3 =='Female')  |
+| 2011 | F 51+   | ~/LSMS/Uganda/2011-12/GSEC2.dta | ('j',sum) | lambda x: 0 + (x.h2q8 >= 51) & (x.h2q3 =='Female')                  |
+
+
+
+#+name: INDICES_Uganda
+| File                            | j    |    t |
+|---------------------------------+------+------|
+| ~/LSMS/Uganda/2005-06/GSEC2.dta | HHID | 2005 |
+| ~/LSMS/Uganda/2009-10/GSEC2.dta | HHID | 2009 |
+| ~/LSMS/Uganda/2010-11/GSEC2.dta | HHID | 2010 |
+| ~/LSMS/Uganda/2011-12/GSEC2.dta | HHID | 2011 |
+
+
+#+begin_src python :var VARS=VARS_Uganda INDICES=INDICES_Uganda :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+df.to_csv('~/uganda_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
+print(df.head())
+#+end_src
+
+#+results:
+:                  M 0-3  M 4-8  M 9-13  ...  F 19-30  F 31-50  F 51+
+: j          t                           ...                         
+: 1013000201 2005      0      0       0  ...        0        1      0
+: 1013000202 2005      1      0       0  ...        0        1      0
+: 1013000204 2005      0      0       0  ...        0        0      0
+: 1013000206 2005      0      0       0  ...        0        0      0
+: 1013000209 2005      0      0       0  ...        0        0      0
+: 
+: [5 rows x 14 columns]
+
+*** Constructing Household Expenditures
+#+name: xVARS_Uganda
+|    t | Output | File                              | Grouping | Mapping |
+|------+--------+-----------------------------------+----------+---------|
+| 2005 | value  | ~/LSMS/Uganda/2005-06/GSEC14A.dta | None     | h14aq5  |
+| 2009 | value  | ~/LSMS/Uganda/2009-10/GSEC15b.dta | None     | h15bq5  |
+| 2010 | value  | ~/LSMS/Uganda/2010-11/GSEC15b.dta | None     | h15bq5  |
+| 2011 | value  | ~/LSMS/Uganda/2011-12/GSEC15B.dta | None     | h15bq5  |
+
+
+#+name: xINDICES_Uganda
+| File                              | i      | j    |    t |
+|-----------------------------------+--------+------+------|
+| ~/LSMS/Uganda/2005-06/GSEC14A.dta | h14aq2 | HHID | 2005 |
+| ~/LSMS/Uganda/2009-10/GSEC15b.dta | itmcd  | hh   | 2009 |
+| ~/LSMS/Uganda/2010-11/GSEC15b.dta | itmcd  | hh   | 2010 |
+| ~/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 |
+
+
+
+#+call: build_expenditures(VARS=xVARS_Uganda, INDICES=xINDICES_Uganda)
+
+#+results:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+uganda_expenditures = pd.read_pickle("/tmp/y.pickle")
+uganda_expenditures.to_csv("~/uganda_expenditures.csv")
+print(uganda_expenditures.head())
+
+#+END_SRC
+
+#+RESULTS:
+: i                Matooke(cluster)  Matooke(others)  ...  tomatoes  watermelon
+: t    j                                              ...                      
+: 2005 1013000201               NaN              NaN  ...     700.0         NaN
+:      1013000202               NaN              NaN  ...       NaN         NaN
+:      1013000204               NaN              NaN  ...       NaN         NaN
+:      1013000206               NaN              NaN  ...       NaN         NaN
+:      1013000209               NaN              NaN  ...     200.0         NaN
+: 
+: [5 rows x 74 columns]
+
+*** Constructing Household Consumption
+#+name: yVARS_Uganda
+|    t | Output | File                              | Grouping | Mapping |
+|------+--------+-----------------------------------+----------+---------|
+| 2005 | value  | ~/LSMS/Uganda/2005-06/GSEC14A.dta | None     | h14aq4  |
+| 2009 | value  | ~/LSMS/Uganda/2009-10/GSEC15b.dta | None     | h15bq4  |
+| 2010 | value  | ~/LSMS/Uganda/2010-11/GSEC15b.dta | None     | h15bq4  |
+| 2011 | value  | ~/LSMS/Uganda/2011-12/GSEC15B.dta | None     | h15bq4  |
+
+
+#+name: yINDICES_Uganda
+| File                              | i      | j    |    t | u      |
+|-----------------------------------+--------+------+------+--------|
+| ~/LSMS/Uganda/2005-06/GSEC14A.dta | h14aq2 | HHID | 2005 | h14aq3 |
+| ~/LSMS/Uganda/2009-10/GSEC15b.dta | itmcd  | hh   | 2009 | untcd  |
+| ~/LSMS/Uganda/2010-11/GSEC15b.dta | itmcd  | hh   | 2010 | untcd  |
+| ~/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 | untcd  |
+
+#+call: build_consumption(VARS=yVARS_Uganda, INDICES=yINDICES_Uganda)
+
+#+RESULTS:
+
+consumption.csv generated in cell below is filtered after the fact in
+order to bring cell count <5M. Removed all rows where units were not
+descriptive in terms of weight (g, kg, l, ml, etc.)
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+uganda_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+uganda_consumption['u'] = uganda_consumption['u'].astype('str')
+uganda_consumption = uganda_consumption.set_index(['t', 'j'])
+uganda_consumption.to_csv("~/uganda_consumption.csv")
+print(uganda_consumption.head())
+#+END_SRC
+
+#+RESULTS:
+: i                                      u  ...  watermelon
+: t    j                                    ...            
+: 2005 1013000201          Bottle (300 ml)  ...         NaN
+:      1013000201          Bottle (500 ml)  ...         NaN
+:      1013000201           Bunch (Medium)  ...         NaN
+:      1013000201     Bundle (Unspecified)  ...         NaN
+:      1013000201  Fish - Whole (1   2 kg)  ...         NaN
+: 
+: [5 rows x 75 columns]
+
+*** Export to Google Sheets
+Note, unable to include consumption.csv as doing so would bring the
+sheet over 5 million cells.
+
+#+NAME: uganda-gsheets
+| Worksheet Name     | File                         |
+|--------------------+------------------------------|
+| Expenditures       | ~/uganda_expenditures.csv    |
+| HH Characteristics | ~/uganda_characteristics.csv |
+
+#+NAME: uganda-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=uganda-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Uganda", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: uganda-gs
+
+ [[https://bcourses.berkeley.edu/courses/1487903/files/76983962/download?wrap=1]] 
+
+** Example: Ethiopia LSMS
+*** Constructing Household Characteristics
+#+name: VARS_Ethiopia
+|    t | Output  | File                                           | Grouping  | Mapping                                                                             |
+|------+---------+------------------------------------------------+-----------+-------------------------------------------------------------------------------------|
+| 2011 | M 0-3   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 0) & (x.hh_s1q04_a < 4) & (x.hh_s1q03 =='Male')      |
+| 2011 | M 4-8   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 4) & (x.hh_s1q04_a < 9) & (x.hh_s1q03 =='Male')      |
+| 2011 | M 9-13  | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 9) & (x.hh_s1q04_a < 14) & (x.hh_s1q03 =='Male')     |
+| 2011 | M 14-18 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 14) & (x.hh_s1q04_a < 19) & (x.hh_s1q03 =='Male')    |
+| 2011 | M 19-30 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 19)  & (x.hh_s1q04_a < 31) & (x.hh_s1q03 =='Male')   |
+| 2011 | M 31-50 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 31) & (x.hh_s1q04_a < 51) & (x.hh_s1q03 =='Male')    |
+| 2011 | M 51+   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 51) & (x.hh_s1q03 =='Male')                          |
+| 2011 | F 0-3   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 0) & (x.hh_s1q04_a < 4) & (x.hh_s1q03 =='Female')    |
+| 2011 | F 4-8   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 4) & (x.hh_s1q04_a < 9) & (x.hh_s1q03 =='Female')    |
+| 2011 | F 9-13  | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 9) & (x.hh_s1q04_a < 14) & (x.hh_s1q03 =='Female')   |
+| 2011 | F 14-18 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 14) & (x.hh_s1q04_a < 19) & (x.hh_s1q03 =='Female')  |
+| 2011 | F 19-30 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 19)  & (x.hh_s1q04_a < 31) & (x.hh_s1q03 =='Female') |
+| 2011 | F 31-50 | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 31) & (x.hh_s1q04_a < 51) & (x.hh_s1q03 =='Female')  |
+| 2011 | F 51+   | ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 51) & (x.hh_s1q03 =='Female')                        |
+| 2013 | M 0-3   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 0) & (x.hh_s1q04_a < 4) & (x.hh_s1q03 =='Male')      |
+| 2013 | M 4-8   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 4) & (x.hh_s1q04_a < 9) & (x.hh_s1q03 =='Male')      |
+| 2013 | M 9-13  | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 9) & (x.hh_s1q04_a < 14) & (x.hh_s1q03 =='Male')     |
+| 2013 | M 14-18 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 14) & (x.hh_s1q04_a < 19) & (x.hh_s1q03 =='Male')    |
+| 2013 | M 19-30 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 19)  & (x.hh_s1q04_a < 31) & (x.hh_s1q03 =='Male')   |
+| 2013 | M 31-50 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 31) & (x.hh_s1q04_a < 51) & (x.hh_s1q03 =='Male')    |
+| 2013 | M 51+   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 51) & (x.hh_s1q03 =='Male')                          |
+| 2013 | F 0-3   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 0) & (x.hh_s1q04_a < 4) & (x.hh_s1q03 =='Female')    |
+| 2013 | F 4-8   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 4) & (x.hh_s1q04_a < 9) & (x.hh_s1q03 =='Female')    |
+| 2013 | F 9-13  | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 9) & (x.hh_s1q04_a < 14) & (x.hh_s1q03 =='Female')   |
+| 2013 | F 14-18 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 14) & (x.hh_s1q04_a < 19) & (x.hh_s1q03 =='Female')  |
+| 2013 | F 19-30 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 19)  & (x.hh_s1q04_a < 31) & (x.hh_s1q03 =='Female') |
+| 2013 | F 31-50 | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 31) & (x.hh_s1q04_a < 51) & (x.hh_s1q03 =='Female')  |
+| 2013 | F 51+   | ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | ('j',sum) | lambda x: 0 + (x.hh_s1q04_a >= 51) & (x.hh_s1q03 =='Female')                        |
+| 2015 | M 0-3   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 0) & (x.hh_s1q04a < 4) & (x.hh_s1q03 =='Male')        |
+| 2015 | M 4-8   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 4) & (x.hh_s1q04a < 9) & (x.hh_s1q03 =='Male')        |
+| 2015 | M 9-13  | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 9) & (x.hh_s1q04a < 14) & (x.hh_s1q03 =='Male')       |
+| 2015 | M 14-18 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 14) & (x.hh_s1q04a < 19) & (x.hh_s1q03 =='Male')      |
+| 2015 | M 19-30 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 19)  & (x.hh_s1q04a < 31) & (x.hh_s1q03 =='Male')     |
+| 2015 | M 31-50 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 31) & (x.hh_s1q04a < 51) & (x.hh_s1q03 =='Male')      |
+| 2015 | M 51+   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 51) & (x.hh_s1q03 =='Male')                           |
+| 2015 | F 0-3   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 0) & (x.hh_s1q04a < 4) & (x.hh_s1q03 =='Female')      |
+| 2015 | F 4-8   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 4) & (x.hh_s1q04a < 9) & (x.hh_s1q03 =='Female')      |
+| 2015 | F 9-13  | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 9) & (x.hh_s1q04a < 14) & (x.hh_s1q03 =='Female')     |
+| 2015 | F 14-18 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 14) & (x.hh_s1q04a < 19) & (x.hh_s1q03 =='Female')    |
+| 2015 | F 19-30 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 19)  & (x.hh_s1q04a < 31) & (x.hh_s1q03 =='Female')   |
+| 2015 | F 31-50 | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 31) & (x.hh_s1q04a < 51) & (x.hh_s1q03 =='Female')    |
+| 2015 | F 51+   | ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | ('j',sum) | lambda x: 0 + (x.hh_s1q04a >= 51) & (x.hh_s1q03 =='Female')                         |
+
+
+
+#+name: INDICES_Ethiopia
+| File                                           | j            |    t |
+|------------------------------------------------+--------------+------|
+| ~/LSMS/Ethiopia/2011/sect1_hh_w1.dta           | household_id | 2011 |
+| ~/LSMS/Ethiopia/2013/sect1_hh_w2.dta           | household_id | 2013 |
+| ~/LSMS/Ethiopia/2015/Household/sect1_hh_w3.dta | household_id | 2015 |
+
+
+
+
+#+begin_src python :var VARS=VARS_Ethiopia INDICES=INDICES_Ethiopia :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+df.to_csv('~/ethiopia_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
+print(df.head())
+#+end_src
+
+#+results:
+:                     M 0-3  M 4-8  M 9-13  ...  F 19-30  F 31-50  F 51+
+: j             t                           ...                         
+: 1010101601002 2011      0      1       1  ...        0        1      1
+: 1010101601017 2011      0      0       2  ...        0        1      0
+: 1010101601034 2011      0      0       0  ...        0        0      1
+: 1010101601049 2011      0      0       0  ...        1        0      1
+: 1010101601064 2011      0      0       0  ...        0        1      0
+: 
+: [5 rows x 14 columns]
+
+*** Constructing Household Expenditures
+#+name: xVARS_Ethiopia
+|    t | Output | File                                            | Grouping | Mapping   |
+|------+--------+-------------------------------------------------+----------+-----------|
+| 2011 | value  | ~/LSMS/Ethiopia/2011/sect5a_hh_w1.dta           | None     | hh_s5aq04 |
+| 2013 | value  | ~/LSMS/Ethiopia/2013/sect5a_hh_w2.dta           | None     | hh_s5aq04 |
+| 2015 | value  | ~/LSMS/Ethiopia/2015/Household/sect5a_hh_w3.dta | None     | hh_s5aq04 |
+
+
+#+name: xINDICES_Ethiopia
+| File                                            | i         | j            |    t |
+|-------------------------------------------------+-----------+--------------+------|
+| ~/LSMS/Ethiopia/2011/sect5a_hh_w1.dta           | hh_s5aq00 | household_id | 2011 |
+| ~/LSMS/Ethiopia/2013/sect5a_hh_w2.dta           | hh_s5aq00 | household_id | 2013 |
+| ~/LSMS/Ethiopia/2015/Household/sect5a_hh_w3.dta | item_cd   | household_id | 2015 |
+
+
+
+#+call: build_expenditures(VARS=xVARS_Ethiopia, INDICES=xINDICES_Ethiopia)
+
+#+results:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+ethiopia_expenditures = pd.read_pickle("/tmp/y.pickle")
+ethiopia_expenditures.to_csv("~/ethiopia_expenditures.csv")
+print(ethiopia_expenditures.head())
+
+#+END_SRC
+
+#+RESULTS:
+: i                    Field Pea  Banana  Barley  ...  Tella  Tomato  Wheat
+: t    j                                          ...                      
+: 2011 1010101601002         NaN     0.0     0.0  ...    NaN     NaN    0.0
+:      1010101601017         NaN     0.0     0.0  ...    NaN     NaN    0.0
+:      1010101601034         NaN     0.0     0.0  ...    NaN     NaN    0.0
+:      1010101601049         NaN     0.0     0.0  ...    NaN     NaN    0.0
+:      1010101601064         NaN     0.0     0.0  ...    NaN     NaN    0.0
+: 
+: [5 rows x 57 columns]
+
+*** Constructing Household Consumption
+#+name: yVARS_Ethiopia
+|    t | Output | File                                            | Grouping | Mapping     |
+|------+--------+-------------------------------------------------+----------+-------------|
+| 2011 | value  | ~/LSMS/Ethiopia/2011/sect5a_hh_w1.dta           | None     | hh_s5aq03_a |
+| 2013 | value  | ~/LSMS/Ethiopia/2013/sect5a_hh_w2.dta           | None     | hh_s5aq03_a |
+| 2015 | value  | ~/LSMS/Ethiopia/2015/Household/sect5a_hh_w3.dta | None     | hh_s5aq03_a |
+
+
+#+name: yINDICES_Ethiopia
+| File                                            | i         | j            |    t | u           |
+|-------------------------------------------------+-----------+--------------+------+-------------|
+| ~/LSMS/Ethiopia/2011/sect5a_hh_w1.dta           | hh_s5aq00 | household_id | 2011 | hh_s5aq03_b |
+| ~/LSMS/Ethiopia/2013/sect5a_hh_w2.dta           | hh_s5aq00 | household_id | 2013 | hh_s5aq03_b |
+| ~/LSMS/Ethiopia/2015/Household/sect5a_hh_w3.dta | item_cd   | household_id | 2015 | hh_s5aq03_b |
+
+
+#+call: build_consumption(VARS=yVARS_Ethiopia, INDICES=yINDICES_Ethiopia)
+
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+ethiopia_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+ethiopia_consumption['u'] = ethiopia_consumption['u'].astype('str')
+ethiopia_consumption = ethiopia_consumption.set_index(['t', 'j'])
+ethiopia_consumption.to_csv("~/ethiopia_consumption.csv")
+print(ethiopia_consumption.head())
+#+END_SRC
+
+#+RESULTS:
+: i                      u   Field Pea  Banana  ...  Tella  Tomato  Wheat
+: t    j                                        ...                      
+: 2011 1010101601002  Gram         NaN     NaN  ...    NaN     NaN    NaN
+:      1010101601002    Kg         NaN     NaN  ...    NaN     NaN    NaN
+:      1010101601002   nan         NaN     0.0  ...    NaN     NaN    0.0
+:      1010101601017  Gram         NaN     NaN  ...    NaN     NaN    NaN
+:      1010101601017    Kg         NaN     NaN  ...    NaN     NaN    NaN
+: 
+: [5 rows x 58 columns]
+
+
+*** Export to Google Sheets
+#+NAME: ethiopia-gsheets
+| Worksheet Name     | File                           |
+|--------------------+--------------------------------|
+| Expenditures       | ~/ethiopia_expenditures.csv    |
+| HH Characteristics | ~/ethiopia_characteristics.csv |
+| Consumption        | ~/ethiopia_consumption.csv     |
+
+#+NAME: ethiopia-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=ethiopia-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Ethiopia", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: ethiopia-gs
+
+
+** Example: Niger LSMS
+*** Constructing Household Characteristics
+#+name: VARS_Niger
+|    t | Output  | File                                    | Grouping  | Mapping                                                                          |
+|------+---------+-----------------------------------------+-----------+----------------------------------------------------------------------------------|
+| 2011 | M 0-3   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 0) & (x.age_year < 4) & (x.ms01q01 =='Male')        |
+| 2011 | M 4-8   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 4) & (x.age_year < 9) & (x.ms01q01 =='Male')        |
+| 2011 | M 9-13  | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 9) & (x.age_year < 14) & (x.ms01q01 =='Male')       |
+| 2011 | M 14-18 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 14) & (x.age_year < 19) & (x.ms01q01 =='Male')      |
+| 2011 | M 19-30 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 19)  & (x.age_year < 31) & (x.ms01q01 =='Male')     |
+| 2011 | M 31-50 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 31) & (x.age_year < 51) & (x.ms01q01 =='Male')      |
+| 2011 | M 51+   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 51) & (x.ms01q01 =='Male')                          |
+| 2011 | F 0-3   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 0) & (x.age_year < 4) & (x.ms01q01 =='Female')      |
+| 2011 | F 4-8   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 4) & (x.age_year < 9) & (x.ms01q01 =='Female')      |
+| 2011 | F 9-13  | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 9) & (x.age_year < 14) & (x.ms01q01 =='Female')     |
+| 2011 | F 14-18 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 14) & (x.age_year < 19) & (x.ms01q01 =='Female')    |
+| 2011 | F 19-30 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 19)  & (x.age_year < 31) & (x.ms01q01 =='Female')   |
+| 2011 | F 31-50 | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 31) & (x.age_year < 51) & (x.ms01q01 =='Female')    |
+| 2011 | F 51+   | ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | ('j',sum) | lambda x: 0 + (x.age_year >= 51) & (x.ms01q01 =='Female')                        |
+| 2014 | M 0-3   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 0) & (x.age_year < 4) & (x.MS01Q01 =='Masculin')    |
+| 2014 | M 4-8   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 4) & (x.age_year < 9) & (x.MS01Q01 =='Masculin')    |
+| 2014 | M 9-13  | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 9) & (x.age_year < 14) & (x.MS01Q01 =='Masculin')   |
+| 2014 | M 14-18 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 14) & (x.age_year < 19) & (x.MS01Q01 =='Masculin')  |
+| 2014 | M 19-30 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 19)  & (x.age_year < 31) & (x.MS01Q01 =='Masculin') |
+| 2014 | M 31-50 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 31) & (x.age_year < 51) & (x.MS01Q01 =='Masculin')  |
+| 2014 | M 51+   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 51) & (x.MS01Q01 =='Masculin')                      |
+| 2014 | F 0-3   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 0) & (x.age_year < 4) & (x.MS01Q01 =='Feminin')     |
+| 2014 | F 4-8   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 4) & (x.age_year < 9) & (x.MS01Q01 =='Feminin')     |
+| 2014 | F 9-13  | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 9) & (x.age_year < 14) & (x.MS01Q01 =='Feminin')    |
+| 2014 | F 14-18 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 14) & (x.age_year < 19) & (x.MS01Q01 =='Feminin')   |
+| 2014 | F 19-30 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 19)  & (x.age_year < 31) & (x.MS01Q01 =='Feminin')  |
+| 2014 | F 31-50 | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 31) & (x.age_year < 51) & (x.MS01Q01 =='Feminin')   |
+| 2014 | F 51+   | ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | ('j',sum) | lambda x: 0 + (x.age_year >= 51) & (x.MS01Q01 =='Feminin')                       |
+
+
+#+name: INDICES_Niger
+| File                                    | j   |    t |
+|-----------------------------------------+-----+------|
+| ~/LSMS/Niger/2011/ecvmaind_p1p2_en.dta  | hid | 2011 |
+| ~/LSMS/Niger/2014/ECVMA2_MS01P1_hid.dta | hid | 2014 |
 
 
 
 
 
+#+begin_src python :var VARS=VARS_Niger INDICES=INDICES_Niger :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+df.to_csv('~/niger_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
+print(df.head())
+#+end_src
+
+#+results:
+:           M 0-3  M 4-8  M 9-13  M 14-18  ...  F 14-18  F 19-30  F 31-50  F 51+
+: j   t                                    ...                                  
+: 101 2011      0      0       0        1  ...        1        0        1      0
+: 102 2011      1      0       0        0  ...        0        1        0      0
+: 103 2011      1      0       1        0  ...        0        1        0      0
+: 104 2011      1      0       0        0  ...        0        1        0      0
+: 105 2011      0      0       0        0  ...        0        0        1      0
+: 
+: [5 rows x 14 columns]
+
+
+*** Constructing Household Expenditures
+#+name: xVARS_Niger
+|    t | Output | File                                    | Grouping | Mapping  |
+|------+--------+-----------------------------------------+----------+----------|
+| 2011 | value  | ~/LSMS/Niger/2011/ecvmaali_p1_en.dta    | None     | ms13q03c |
+| 2014 | value  | ~/LSMS/Niger/2014/ECVMA2_MS12P1_hid.dta | None     | MS12Q03C |
+
+
+
+#+name: xINDICES_Niger
+| File                                    | i       | j   |    t |
+|-----------------------------------------+---------+-----+------|
+| ~/LSMS/Niger/2011/ecvmaali_p1_en.dta    | ms13q01 | hid | 2011 |
+| ~/LSMS/Niger/2014/ECVMA2_MS12P1_hid.dta | MS12Q01 | hid | 2014 |
+
+#+call: build_expenditures(VARS=xVARS_Niger, INDICES=xINDICES_Niger)
+
+#+results:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+niger_expenditures = pd.read_pickle("/tmp/y.pickle")
+niger_expenditures.to_csv("~/niger_expenditures.csv")
+print(niger_expenditures.head())
+
+#+END_SRC
+
+#+RESULTS:
+: i         796  Alcoholic beverages  ...  Yodo  Yogurt
+: t    j                              ...              
+: 2011 101  0.0                  0.0  ...   0.0   400.0
+:      102  0.0                  0.0  ...   0.0  1000.0
+:      103  0.0                  0.0  ...   0.0   700.0
+:      104  0.0                  0.0  ...   0.0   500.0
+:      105  0.0                  0.0  ...   0.0   950.0
+: 
+: [5 rows x 129 columns]
+
+*** Constructing Household Consumption
+#+name: yVARS_Niger
+|    t | Output | File                                    | Grouping | Mapping  |
+|------+--------+-----------------------------------------+----------+----------|
+| 2011 | value  | ~/LSMS/Niger/2011/ecvmaali_p1_en.dta    | None     | ms13q03a |
+| 2014 | value  | ~/LSMS/Niger/2014/ECVMA2_MS12P1_hid.dta | None     | MS12Q03A |
+
+#+name: yINDICES_Niger
+| File                                    | i       | j   |    t | u        |
+|-----------------------------------------+---------+-----+------+----------|
+| ~/LSMS/Niger/2011/ecvmaali_p1_en.dta    | ms13q01 | hid | 2011 | ms13q03b |
+| ~/LSMS/Niger/2014/ECVMA2_MS12P1_hid.dta | MS12Q01 | hid | 2014 | MS12Q03B |
+
+#+call: build_consumption(VARS=yVARS_Niger, INDICES=yINDICES_Niger)
+
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+niger_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+niger_consumption['u'] = niger_consumption['u'].astype('str')
+niger_consumption = niger_consumption[(niger_consumption['u'] == 'kg') | (niger_consumption['u'] == 'litre') | (niger_consumption['u'] == 'centilitre') | (niger_consumption['u'] == 'gramme') | (niger_consumption['u'] == 'sac de 100kg') | (niger_consumption['u'] == 'sac de 50 kg')]
+niger_consumption = niger_consumption.set_index(['t', 'j'])
+niger_consumption.to_csv("~/niger_consumption.csv")
+print(niger_consumption.head())
+#+END_SRC
+
+#+RESULTS:
+: i              u  796  Alcoholic beverages  ...  Yam tuber  Yodo  Yogurt
+: t    j                                      ...                         
+: 2011 101      kg  NaN                  NaN  ...        NaN   NaN     NaN
+:      102  gramme  NaN                  NaN  ...        NaN   NaN     NaN
+:      102      kg  NaN                  NaN  ...        NaN   NaN     NaN
+:      102   litre  NaN                  NaN  ...        NaN   NaN     NaN
+:      103      kg  NaN                  NaN  ...        NaN   NaN     NaN
+: 
+: [5 rows x 130 columns]
+
+
+*** Export to Google Sheets
+#+NAME: niger-gsheets
+| Worksheet Name     | File                        |
+|--------------------+-----------------------------|
+| Expenditures       | ~/niger_expenditures.csv    |
+| HH Characteristics | ~/niger_characteristics.csv |
+| Consumption        | ~/niger_consumption.csv     |
+
+#+NAME: niger-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=niger-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Niger", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: niger-gs
+
+
+** Example: Nigeria LSMS
+*** Constructing Household Characteristics
+#+name: VARS_Nigeria
+|    t | Output  | File                                                                  | Grouping  | Mapping                                                                |
+|------+---------+-----------------------------------------------------------------------+-----------+------------------------------------------------------------------------|
+| 2010 | M 0-3   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='male')         |
+| 2010 | M 4-8   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='male')         |
+| 2010 | M 9-13  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='male')        |
+| 2010 | M 14-18 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='male')       |
+| 2010 | M 19-30 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='male')      |
+| 2010 | M 31-50 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='male')       |
+| 2010 | M 51+   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='male')                       |
+| 2010 | F 0-3   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='female')       |
+| 2010 | F 4-8   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='female')       |
+| 2010 | F 9-13  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='female')      |
+| 2010 | F 14-18 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='female')     |
+| 2010 | F 19-30 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='female')    |
+| 2010 | F 31-50 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='female')     |
+| 2010 | F 51+   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='female')                     |
+| 2012 | M 0-3   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='MALE')         |
+| 2012 | M 4-8   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='MALE')         |
+| 2012 | M 9-13  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='MALE')        |
+| 2012 | M 14-18 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='MALE')       |
+| 2012 | M 19-30 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='MALE')      |
+| 2012 | M 31-50 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='MALE')       |
+| 2012 | M 51+   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='MALE')                       |
+| 2012 | F 0-3   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='FEMALE')       |
+| 2012 | F 4-8   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='FEMALE')       |
+| 2012 | F 9-13  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='FEMALE')      |
+| 2012 | F 14-18 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='FEMALE')     |
+| 2012 | F 19-30 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='FEMALE')    |
+| 2012 | F 31-50 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='FEMALE')     |
+| 2012 | F 51+   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='FEMALE')                     |
+| 2015 | M 0-3   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='1. MALE')      |
+| 2015 | M 4-8   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='1. MALE')      |
+| 2015 | M 9-13  | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='1. MALE')     |
+| 2015 | M 14-18 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='1. MALE')    |
+| 2015 | M 19-30 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='1. MALE')   |
+| 2015 | M 31-50 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='1. MALE')    |
+| 2015 | M 51+   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='1. MALE')                    |
+| 2015 | F 0-3   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='2. FEMALE')    |
+| 2015 | F 4-8   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='2. FEMALE')    |
+| 2015 | F 9-13  | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='2. FEMALE')   |
+| 2015 | F 14-18 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='2. FEMALE')  |
+| 2015 | F 19-30 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='2. FEMALE') |
+| 2015 | F 31-50 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='2. FEMALE')  |
+| 2015 | F 51+   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='2. FEMALE')                  |
+| 2018 | M 0-3   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='1. MALE')      |
+| 2018 | M 4-8   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='1. MALE')      |
+| 2018 | M 9-13  | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='1. MALE')     |
+| 2018 | M 14-18 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='1. MALE')    |
+| 2018 | M 19-30 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='1. MALE')   |
+| 2018 | M 31-50 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='1. MALE')    |
+| 2018 | M 51+   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='1. MALE')                    |
+| 2018 | F 0-3   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='2. FEMALE')    |
+| 2018 | F 4-8   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='2. FEMALE')    |
+| 2018 | F 9-13  | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='2. FEMALE')   |
+| 2018 | F 14-18 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='2. FEMALE')  |
+| 2018 | F 19-30 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='2. FEMALE') |
+| 2018 | F 31-50 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='2. FEMALE')  |
+| 2018 | F 51+   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='2. FEMALE')                  |
+
+#+name: INDICES_Nigeria
+| File                                                                  | j    |    t |
+|-----------------------------------------------------------------------+------+------|
+| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | hhid | 2010 |
+| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | hhid | 2012 |
+| ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | hhid | 2015 |
+| ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | hhid | 2018 |
+
+
+
+
+
+#+begin_src python :var VARS=VARS_Nigeria INDICES=INDICES_Nigeria :colnames no 
+from cfe.df_utils import orgtbl_to_df
+from cfe.input_files import construct_df
+import pandas as pd
+
+VARS = orgtbl_to_df(VARS)
+INDICES = orgtbl_to_df(INDICES).set_index('File')
+
+df=construct_df(VARS,INDICES)
+df.to_csv('~/nigeria_characteristics.csv')
+#print(df.groupby(['t','m']).mean())
+print(df.head())
+print(len(df))
+#+end_src
+
+#+results:
+#+begin_example
+            M 0-3  M 4-8  M 9-13  M 14-18  ...  F 14-18  F 19-30  F 31-50  F 51+
+j     t                                    ...                                  
+10001 2010      0      0       0        0  ...        0        1        2      0
+10002 2010      0      0       1        1  ...        0        2        1      0
+10003 2010      0      1       1        1  ...        0        0        1      0
+10004 2010      0      0       1        0  ...        0        0        0      1
+10006 2010      0      0       0        0  ...        0        1        0      0
+
+[5 rows x 14 columns]
+19249
+#+end_example
+
+
+*** Constructing Household Expenditures
+#+name: xVARS_Nigeria
+|    t | Output | File                                                                    | Grouping | Mapping |
+|------+--------+-------------------------------------------------------------------------+----------+---------|
+| 2010 | value  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | None     | s10bq4  |
+| 2012 | value  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | None     | s10bq4  |
+| 2015 | value  | ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | None     | s10bq4  |
+| 2018 | value  | ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | None     | s10bq10 |
+
+
+
+
+#+name: xINDICES_Nigeria
+| File                                                                    | i       | j    |    t |
+|-------------------------------------------------------------------------+---------+------+------|
+| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | item_cd | hhid | 2010 |
+| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | item_cd | hhid | 2012 |
+| ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | item_cd | hhid | 2015 |
+| ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | item_cd | hhid | 2018 |
+
+
+
+
+#+call: build_expenditures(VARS=xVARS_Nigeria, INDICES=xINDICES_Nigeria)
+
+#+results:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+nigeria_expenditures = pd.read_pickle("/tmp/y.pickle")
+nigeria_expenditures.to_csv("~/nigeria_expenditures.csv")
+print(nigeria_expenditures.head())
+
+#+END_SRC
+
+#+RESULTS:
+: i           (Cocoyam, Spinach, etc)  Agricultural eggs  ...  Yam flour  Yam-roots
+: t    j                                                  ...                      
+: 2010 10001                      NaN              280.0  ...        NaN     1500.0
+:      10002                      NaN              280.0  ...        NaN     1200.0
+:      10003                      NaN              180.0  ...        NaN      400.0
+:      10004                      NaN              180.0  ...        NaN      400.0
+:      10006                      NaN                NaN  ...        NaN      400.0
+: 
+: [5 rows x 124 columns]
+
+*** Constructing Household Consumption
+consumption.csv generated in cell below is filtered after the fact in
+order to bring cell count <5M. Removed all rows where units were not
+descriptive in terms of weight (g, kg, l, ml, etc.)
+
+#+name: yVARS_Nigeria
+|    t | Output | File                                                                    | Grouping | Mapping |
+|------+--------+-------------------------------------------------------------------------+----------+---------|
+| 2010 | value  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | None     | s10bq3a |
+| 2012 | value  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | None     | s10bq3a |
+| 2015 | value  | ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | None     | s10bq3a |
+| 2018 | value  | ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | None     | s10bq9a |
+
+#+name: yINDICES_Nigeria
+| File                                                                    | i       | j    |    t | u       |
+|-------------------------------------------------------------------------+---------+------+------+---------|
+| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | item_cd | hhid | 2010 | s10bq3b |
+| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | item_cd | hhid | 2012 | s10bq3b |
+| ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | item_cd | hhid | 2015 | s10bq3b |
+| ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | item_cd | hhid | 2018 | s10bq9b |
+
+#+call: build_consumption(VARS=yVARS_Nigeria, INDICES=yINDICES_Nigeria)
+
+#+RESULTS:
+
+#+BEGIN_SRC python :noweb no-export :results output
+import pandas as pd
+import numpy as np
+nigeria_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
+nigeria_consumption['u'] = nigeria_consumption['u'].astype('str')
+nigeria_consumption = nigeria_consumption.set_index(['t', 'j'])
+nigeria_consumption.to_csv("~/nigeria_consumption.csv")
+print(nigeria_consumption.head())
+#+END_SRC
+
+#+RESULTS:
+: i                   u  (Cocoyam, Spinach, etc)  ...  Yam flour  Yam-roots
+: t    j                                          ...                      
+: 2010 10001  Kilograms                      NaN  ...        NaN       16.0
+:      10001     Litres                      NaN  ...        NaN        NaN
+:      10002  Kilograms                      NaN  ...        NaN       13.8
+:      10002     Litres                      NaN  ...        NaN        NaN
+:      10003  Kilograms                      NaN  ...        NaN        4.6
+: 
+: [5 rows x 125 columns]
+
+*** Export to Google Sheets
+#+NAME: nigeria-gsheets
+| Worksheet Name     | File                          |
+|--------------------+-------------------------------|
+| Expenditures       | ~/nigeria_expenditures.csv    |
+| HH Characteristics | ~/nigeria_characteristics.csv |
+
+#+NAME: nigeria-gs
+#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=nigeria-gsheets
+import pygsheets
+import pandas as pd
+
+gc = pygsheets.authorize(service_file='client_secret.json')
+spreadsheet = gc.create("Nigeria", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
+
+wksts = []
+for row in gsheets:
+    combine = [row[0], row[1]]
+    wksts.append(combine)
+    combine = []
+
+for sheet in wksts:
+    df = pd.read_csv(sheet[1])
+    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
+    wks.set_dataframe(df,(1,1))
+
+spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
+
+#+END_SRC
+
+#+RESULTS: nigeria-gs
