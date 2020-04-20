@@ -223,8 +223,8 @@ class Result(xr.Dataset):
         if not is_none(self.beta) and not is_none(self.alpha):
             assert(self.alpha.shape == self.beta.shape)
 
-        if is_none(self.attrs['firstround']) and not is_none(self.y):
-            self.attrs['firstround'] = self.y.coords['t'][0].item()
+        if is_none(self.attrs['firstround']) and not is_none(self.coords['t']):
+            self.attrs['firstround'] = self.coords['t'][0].item()
 
 
 
