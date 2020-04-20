@@ -153,7 +153,7 @@ print(df.groupby(['t','m']).mean())
 | ~/Data/Palestine_ECS/Data/2016-17/list1.dta | item | id00 | 2016 |
 
 #+name: build_expenditures
-#+begin_src python :var VARS=xVARS INDICES=xINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
+#+begin_src python :var VARS=xVARS INDICES=xINDICES OUTPUTFN="/tmp/y.pickle" :colnames no 
 from cfe.df_utils import orgtbl_to_df
 from cfe.input_files import construct_df
 import pandas as pd
@@ -306,7 +306,7 @@ print(tanzania_expenditures.head())
 
 *** Constructing Household Consumption
 #+name: build_consumption
-#+begin_src python :var VARS=yVARS INDICES=yINDICES OUTPUTFN="/tmp/y.pickle" :colnames no  :tangle /tmp/test.py
+#+begin_src python :var VARS=yVARS INDICES=yINDICES OUTPUTFN="/tmp/y.pickle" :colnames no 
 from cfe.df_utils import orgtbl_to_df
 from cfe.input_files import construct_df
 import pandas as pd
