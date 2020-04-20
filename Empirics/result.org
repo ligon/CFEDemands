@@ -766,7 +766,7 @@ def _demand_parameters(self,p=None,z=None):
         replace = p.copy()
         p = None
     elif type(p) is tuple and len(p)==2: # Select (t,m) prices
-        p = self.p.sel(t=p[0],m=p[1])
+        p = self.prices.sel(t=p[0],m=p[1])
 
     if is_none(p):
         p = beta*0 # Copy coords, etc from beta
