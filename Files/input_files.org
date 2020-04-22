@@ -799,6 +799,7 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 
  [[https://bcourses.berkeley.edu/courses/1487903/files/76983962/download?wrap=1]] 
 
+
 ** Example: Ethiopia LSMS
 *** Constructing Household Characteristics
 #+name: VARS_Ethiopia
