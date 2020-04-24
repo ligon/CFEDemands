@@ -770,7 +770,7 @@ def _demand_parameters(self,p=None,z=None):
 
     if is_none(p):
         p = beta*0 # Copy coords, etc from beta
-        p.data = [1]*n   
+        p.data = [1.]*n   
         p.name = 'prices'
 
     if replace:
@@ -882,9 +882,7 @@ R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=50)
 
 assert len(R.coords['i']<n), "Failed to drop missing items?"
 
-#+END_SRC
-
-#+RESULTS: test_drop_useless_expenditures
+#+end_src
 
 *** Test get_stderrs()
 #+name: test_get_stderrs
@@ -917,22 +915,27 @@ R.get_stderrs()
 
 assert len(R.se_alpha) == len(R.coords['i'])
 
-#+END_SRC
+#+end_src
+*** Test demands
+#+name: test_demands
+#+begin_src python :results output :tangle ../cfe/test/test_demands.py
+import cfe
+import numpy as np
 
-#+RESULTS: test_get_stderrs
-#+begin_example
-Draws 4, delta=0.0067.  Measure of non-normality 0.22184.
-Draws 6, delta=0.0039.  Measure of non-normality 0.45318.
-Draws 8, delta=0.0003.  Measure of non-normality 0.52243.
-Draws 10, delta=0.0009.  Measure of non-normality 0.55395.
-Draws 12, delta=0.0008.  Measure of non-normality 0.70493.
-Draws 14, delta=0.0007.  Measure of non-normality 0.72970.
-Draws 16, delta=0.0012.  Measure of non-normality 0.65300.
-Draws 18, delta=0.0045.  Measure of non-normality 0.35036.
-Draws 20, delta=0.0007.  Measure of non-normality 0.38254.
-Draws 22, delta=0.0011.  Measure of non-normality 0.31243.
-Draws 24, delta=0.0006.  Measure of non-normality 0.28178.
-Draws 26, delta=0.0005.  Measure of non-normality 0.29586.
-Draws 28, delta=0.0005.  Measure of non-normality 0.25582.
-#+end_example
+N=5
+T=1
+n=3
+
+x,parts = cfe.dgp.expenditures(N,T,1,n,2,np.array([1,1,1]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+z = parts['characteristics']
+
+R = cfe.Result(y=np.log(x),z=np.log(z),min_xproducts=1,verbose='True')
+
+R.get_predicted_expenditures()
+
+R.demands(3,p={0:0.5})
+
+#+end_src
 
