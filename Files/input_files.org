@@ -36,10 +36,12 @@ import pandas as pd
 from collections import defaultdict
 
 def construct_df(VARS,INDICES):
-    """ 
-    Compile data on a collection of variables from one or more Stata =dta= files into a single pandas DataFrame.
+    """
+    Compile data on a collection of variables from one or more Stata
+    =dta= files into a single pandas DataFrame.
 
-    Ethan Ligon                                              February 2020
+    Ethan Ligon                                         February 2020
+
     """
 
     def construct_column(df,Mapping):
@@ -89,6 +91,20 @@ def construct_df(VARS,INDICES):
 
 #+end_src
 
+
+* Code for Comparing Labels Across Rounds
+#+begin_src python
+import pandas as pd
+from pandas.io import stata
+
+def get_labels(dta,var):
+    """Return dictionary of labels for var in Stata file dta.
+    """
+
+    sr = stata.StataReader(dta)
+    return sr.variable_labels()[var]
+
+#+end_src
 * Examples
   
 ** Palestine Expenditure & Consumption Survey (PECS)
@@ -815,21 +831,25 @@ print(df.head())
 
 *** Constructing Household Expenditures
 #+name: xVARS_Uganda
-|    t | Output | File                              | Grouping | Mapping |
-|------+--------+-----------------------------------+----------+---------|
-| 2005 | value  | ~/LSMS/Uganda/2005-06/GSEC14A.dta | None     | h14aq5  |
-| 2009 | value  | ~/LSMS/Uganda/2009-10/GSEC15b.dta | None     | h15bq5  |
-| 2010 | value  | ~/LSMS/Uganda/2010-11/GSEC15b.dta | None     | h15bq5  |
-| 2011 | value  | ~/LSMS/Uganda/2011-12/GSEC15B.dta | None     | h15bq5  |
+|    t | Output | File                                   | Grouping | Mapping |
+|------+--------+----------------------------------------+----------+---------|
+| 2005 | value  | ~/Data/LSMS/Uganda/2005-06/GSEC14A.dta | None     | h14aq5  |
+| 2009 | value  | ~/Data/LSMS/Uganda/2009-10/GSEC15b.dta | None     | h15bq5  |
+| 2010 | value  | ~/Data/LSMS/Uganda/2010-11/GSEC15b.dta | None     | h15bq5  |
+| 2011 | value  | ~/Data/LSMS/Uganda/2011-12/GSEC15B.dta | None     | h15bq5  |
+| 2013 | value  | ~/Data/LSMS/Uganda/2013-14/GSEC15B.dta | None     | h15bq5  |
+| 2015 | value  | ~/Data/LSMS/Uganda/2015-16/GSEC15B.dta | None     | h15bq5  |
 
 
 #+name: xINDICES_Uganda
-| File                              | i      | j    |    t |
-|-----------------------------------+--------+------+------|
-| ~/LSMS/Uganda/2005-06/GSEC14A.dta | h14aq2 | HHID | 2005 |
-| ~/LSMS/Uganda/2009-10/GSEC15b.dta | itmcd  | hh   | 2009 |
-| ~/LSMS/Uganda/2010-11/GSEC15b.dta | itmcd  | hh   | 2010 |
-| ~/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 |
+| File                                   | i      | j    |    t |
+|----------------------------------------+--------+------+------|
+| ~/Data/LSMS/Uganda/2005-06/GSEC14A.dta | h14aq2 | HHID | 2005 |
+| ~/Data/LSMS/Uganda/2009-10/GSEC15b.dta | itmcd  | hh   | 2009 |
+| ~/Data/LSMS/Uganda/2010-11/GSEC15b.dta | itmcd  | hh   | 2010 |
+| ~/Data/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 |
+| ~/Data/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 |
+| ~/Data/LSMS/Uganda/2011-12/GSEC15B.dta | itmcd  | HHID | 2011 |
 
 
 
