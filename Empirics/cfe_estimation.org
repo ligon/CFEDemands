@@ -2137,7 +2137,10 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                 tdf.shape
             except AttributeError:  
                 tdf=df[sedf.columns]/sedf
-        s = '| '+ df.index.name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        if df.index.name is not None:
+            s = '| '+ df.index.name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        else: 
+            s = '|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
         for i in df.index:
             s+='| %s  ' % i
             for j in df.columns: # Point estimates
