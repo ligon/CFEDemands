@@ -243,7 +243,7 @@ class Result(xr.Dataset):
             use_goods=y.coords['i'].data
 
             # Convert to pd.DataFrame
-            y = to_dataframe(y.sel(i=use_goods).rename({'m':'mkt'}),'i')
+            y = to_dataframe(y.sel(i=use_goods),'i')
             J,n = y.shape
 
             # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
@@ -260,14 +260,14 @@ class Result(xr.Dataset):
                 print('drop_columns_wo_covariance test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
                 J,n = y.shape
 
-            # Only keep goods with observations in each (t,mkt)
-            y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+            # Only keep goods with observations in each (t,m)
+            y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0]
 
             if VERBOSE:
                 print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
                 J,n = y.shape
 
-            y = from_dataframe(y).rename({'mkt':'m'}).dropna('i',how='all')
+            y = from_dataframe(y).dropna('i',how='all')
 
             try:
                 self['prices'] = self.prices.sel(i=y.coords['i'])
@@ -281,7 +281,7 @@ class Result(xr.Dataset):
             self = new
 
         if as_df:
-            return to_dataframe(self.y.rename({'m':'mkt'}),'i')
+            return to_dataframe(self.y,'i')
         else:
             return self
 
@@ -294,12 +294,12 @@ class Result(xr.Dataset):
         y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
         y.dropna(how='all',axis=1,inplace=True)
 
-        z = to_dataframe(self.z.rename({'m':'mkt'}),'k')
+        z = to_dataframe(self.z,'k')
 
         a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
         ce.dropna(how='all',inplace=True)
 
-        self['a'] = from_dataframe(a,'i').rename({'mkt':'m'})
+        self['a'] = from_dataframe(a,'i')
         try:
             self['delta'] = from_dataframe(d).to_array('k')
         except AttributeError:
@@ -307,9 +307,9 @@ class Result(xr.Dataset):
             foo = from_dataframe(d)
             self['delta'] = foo
 
-        self['ce'] = from_dataframe(ce).rename({'mkt':'m'})
+        self['ce'] = from_dataframe(ce)
         self['se_delta'] = from_dataframe(sed)
-        self['se_a'] = from_dataframe(sea).rename({'mkt':'m'})
+        self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = V
 
     def get_loglambdas(self,as_df=False):
@@ -323,7 +323,7 @@ class Result(xr.Dataset):
 
             min_obs = self.attrs['min_xproducts']
 
-            ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
+            ce = to_dataframe(self.ce,'i')
 
             bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
 
@@ -333,8 +333,8 @@ class Result(xr.Dataset):
             cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
             cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
 
-            self['cehat'] = from_dataframe(cehat).rename({'mkt':'m'})
-            self['loglambdas'] = logL.to_xarray().rename({'mkt':'m'})
+            self['cehat'] = from_dataframe(cehat)
+            self['loglambdas'] = logL.to_xarray()
             self['beta'] = bphi.to_xarray()
 
         if as_df:
@@ -372,7 +372,7 @@ class Result(xr.Dataset):
             tol = self.attrs['stderr_tol']
             VB = self.attrs['verbose']
 
-            ce = to_dataframe(self.ce.rename({'m':'mkt'}),'i')
+            ce = to_dataframe(self.ce,'i')
 
             se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,VERBOSE=VB)
             self['se_beta'] = from_dataframe(se)
@@ -692,7 +692,7 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
 
     _y = _y[use_goods]
     y = _y.to_dataframe()
-    y.index = y.index.rename(['j', 'mkt', 't'])
+    y.index = y.index.rename(['j', 't', 'm'])
     J, n = y.shape
 
     # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
@@ -709,14 +709,14 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
         print('drop_columns_wo_covariance test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
         J,n = y.shape
 
-    # Only keep goods with observations in each (t,mkt)
-    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0]
+    # Only keep goods with observations in each (t,m)
+    y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0]
 
     if VERBOSE:
         print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
         J,n = y.shape
 
-    _y = y.to_xarray().rename({'mkt':'m'}).to_array('i')
+    _y = y.to_xarray().to_array('i')
     attrs['useless_expenditures'] = False
 
     return _y,attrs

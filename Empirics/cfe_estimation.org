@@ -499,7 +499,7 @@ print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(ceh
     and perhaps some prices.
 
     Data on prices is specified by providing a =pd.DataFrame= =P= with
-    a MultiIndex of (period,market) indicated as =('t','mkt')=.  If
+    a MultiIndex of (period,market) indicated as =('t','m')=.  If
     provided, the dataframe =P= includes data on actual prices
     observed in different period-markets.  These data need not be
     complete, and in particular it's fine to provide prices for only a
@@ -509,7 +509,7 @@ print("Norm of error in approximation of CE: %f; Correlation %f." % (df_norm(ceh
 ix=pd.MultiIndex.from_tuples([(1975,'Aurepalle'),(1975,'Shirapur'),(1975,'Kanzara'),
                               (1976,'Aurepalle'),(1976,'Shirapur'),(1976,'Kanzara'),
                               (1977,'Aurepalle'),(1977,'Shirapur'),(1977,'Kanzara'),
-                              (1978,'Aurepalle'),(1978,'Shirapur'),(1978,'Kanzara')],names=['t','mkt'])
+                              (1978,'Aurepalle'),(1978,'Shirapur'),(1978,'Kanzara')],names=['t','m'])
 P=pd.DataFrame({'Rice':[4,5,4,5,6,5,6,7,6,7,8,7],
                 'Sorghum':[2,3,2,2,3,2,3,4,3,4,5,6]},index=ix)
 
@@ -533,8 +533,8 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   """Estimate reduced-form Frisch expenditure/demand system.
 
   Inputs:
-      - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-            where j indexes the household, t the period, and mkt the market.  
+      - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m), 
+            where j indexes the household, t the period, and m the market.  
             Columns are different expenditure items, indexed by i.
 
       - z : pd.DataFrame of household characteristics; index should match that of y.  
@@ -555,33 +555,33 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   Ethan Ligon                                            February 2017
   """
-  try: # Be a little forgiving if t or mkt index is missing.
-      assert y.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+  try: # Be a little forgiving if t or m index is missing.
+      assert y.index.names==['j','t','m'], "Indices should be (j,t,m)?"
       assert y.columns.name == 'i', "Name of column index should be i?"
   except AssertionError:
       y = y.reset_index()
-      if not 'mkt' in y.columns: y['mkt']=1
+      if not 'm' in y.columns: y['m']=1
       if not 't' in y.columns: y['t']=1
-      y = y.set_index(['j','t','mkt'])
+      y = y.set_index(['j','t','m'])
       y.columns.set_names('i',inplace=True)
 
   try:
-      assert z.index.names==['j','t','mkt'], "Indices should be (j,t,mkt)?"
+      assert z.index.names==['j','t','m'], "Indices should be (j,t,m)?"
       assert z.columns.name == 'k', "Name of column index should be k?"
   except AssertionError:
       z = z.reset_index()
-      if not 'mkt' in z.columns: z['mkt']=1
+      if not 'm' in z.columns: z['m']=1
       if not 't' in z.columns: z['t']=1
-      z = z.set_index(['j','t','mkt'])
+      z = z.set_index(['j','t','m'])
 
       z.columns.set_names('k',inplace=True)
 
   periods = list(set(y.index.get_level_values('t')))
-  mkts = list(set(y.index.get_level_values('mkt')))
+  ms = list(set(y.index.get_level_values('m')))
 
   # Time-market dummies
-  DateLocD = use_indices(y,['t','mkt'])
-  DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['mkt'])))
+  DateLocD = use_indices(y,['t','m'])
+  DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
   DateLocD.index = y.index
 
   sed = pd.DataFrame(columns=y.columns)
@@ -632,7 +632,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
               V[Item]=arellano_robust_cov(z,ce[Item])
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
               
-              stderrs = (mye.groupby(['t','mkt']).std()/np.sqrt(mye.groupby(['t','mkt']).count()))
+              stderrs = (mye.groupby(['t','m']).std()/np.sqrt(mye.groupby(['t','m']).count()))
               if len(useDateLocs) > 0:
                   sea[Item] = stderrs.squeeze()
               else:
@@ -644,7 +644,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
       a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[zvars]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
 
-  b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
+  b = pd.DataFrame(b,index=y.groupby(level=['t','m']).mean().index)
   b = b.T
   sed = sed.T
   sea = sea.T
@@ -689,10 +689,10 @@ except NameError: # :var inputs not set?
 x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
 x = x.where(x>0,np.nan)  # Zeros to missing
 
-x = x.rename({'m':'mkt'}).to_dataframe('x').unstack('i')
+x = x.to_dataframe('x').unstack('i')
 x.columns = x.columns.droplevel(0)
 
-z = parts['characteristics'].rename({'m':'mkt'}).to_dataframe('z').unstack('k')
+z = parts['characteristics'].to_dataframe('z').unstack('k')
 z.columns = z.columns.droplevel(0)
 z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
 
@@ -803,8 +803,8 @@ def some_result(M,T):
     return result
 
 def test_se_a():
-    """Compute reduced_form for cases with singular mkts and t,
-       and multiple mkts and t."""
+    """Compute reduced_form for cases with singular m and t,
+       and multiple m and t."""
 
     result = some_result(1,1)
     assert np.all(result.se_a>0)
@@ -885,12 +885,12 @@ def iqr(x):
     except AttributeError:
         return np.nan
 
-def bootstrap_elasticity_stderrs(e,clusterby=['t','mkt'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
     """Bootstrap estimates of standard errors for \\phi\\beta.
 
     Takes pd.DataFrame of residuals as input.
 
-    Default is to `cluster' by (t,mkt) via a block bootstrap.
+    Default is to `cluster' by (t,m) via a block bootstrap.
 
     If optional parameter TRIM is True, then calculations are
     performed using the interquartile range (IQR) instead of the
@@ -1000,8 +1000,8 @@ X[np.random.random_sample(X.shape)<miss_percent]=np.nan
 X0=pd.DataFrame(X0).T
 X0.index.name='j'
 X0['t']=0
-X0['mkt']=0
-X0=X0.reset_index().set_index(['j','t','mkt'])
+X0['m']=0
+X0=X0.reset_index().set_index(['j','t','m'])
 X=pd.DataFrame(X).T
 X.index=X0.index
 
@@ -1068,13 +1068,13 @@ from cfe.result import to_dataframe
 
 y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
 
-y = to_dataframe(y.rename({'m':'mkt'}),['j','t','mkt']).T
-#y = y.reset_index().set_index(['j','t','mkt'])
+y = to_dataframe(y,['j','t','m']).T
+#y = y.reset_index().set_index(['j','t','m'])
 
 #beta,L,dz,p=truth
-dz = to_dataframe(truth['characteristics'].rename({'m':'mkt'}),['j','t','mkt']).T
+dz = to_dataframe(truth['characteristics'],['j','t','m']).T
 
-#dz=dz.reset_index().set_index(['j','t','mkt'])
+#dz=dz.reset_index().set_index(['j','t','m'])
 dz=np.log(dz)
 
 numeraire=None #'x0'
@@ -1134,7 +1134,7 @@ Correlation of log lambda with estimate (before normalization): nan
 Norm of (bphi,beta): 0.013563
 Correlation of log lambda with estimate (after normalization):
                   loglambda  loglambda0
-t mkt                                  
+t m                                  
 0 1   loglambda    1.000000    0.815898
       loglambda0   0.815898    1.000000
 1 1   loglambda    1.000000    0.822589
@@ -1185,11 +1185,11 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
     """Estimate reduced-form Frisch expenditure/demand system.
 
        Inputs:
-         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,mkt), 
-               where j indexes the household, t the period, and mkt the market.  
+         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m), 
+               where j indexes the household, t the period, and m the market.  
                Columns are different expenditure items.
 
-         - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+         - p : pd.DataFrame of log prices, indexed by (t,m), with
                prices for different goods across columns.
 
          - z : pd.DataFrame of household characteristics; index should match that of y.
@@ -1197,11 +1197,11 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
 
       Ethan Ligon                                            March 2017
     """
-    assert(y.index.names==['j','t','mkt'])
-    assert(z.index.names==['j','t','mkt'])
+    assert(y.index.names==['j','t','m'])
+    assert(z.index.names==['j','t','m'])
 
     periods = list(set(y.index.get_level_values('t')))
-    mkts = list(set(y.index.get_level_values('mkt')))
+    ms = list(set(y.index.get_level_values('m')))
     sed = pd.DataFrame(columns=y.columns)
     sea = pd.DataFrame(columns=y.columns)
     a = pd.Series(index=y.columns)
@@ -1214,7 +1214,7 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
         if VERBOSE: print(Item)
         if np.any(np.isnan(p[Item])): continue # Don't estimate with missing prices
 
-        rhs = z.reset_index('j').join(p[Item]).reset_index().set_index(['j','t','mkt'])
+        rhs = z.reset_index('j').join(p[Item]).reset_index().set_index(['j','t','m'])
         rhs.rename(columns={Item:'log p'},inplace=True)
 
         lhs,rhs=drop_missing([y.iloc[:,[i]],rhs])
@@ -1262,18 +1262,18 @@ def indirect_price_elasticities(a,p,zbar):
 
        Inputs:
          - a : pd.DataFrame of good-time-market effects estimated by =estimate_reduced_form=,
-               indexed by (t,mkt), where t indexes the period, and mkt the market.  
+               indexed by (t,m), where t indexes the period, and m the market.  
                Columns are different expenditure items.
 
-         - p : pd.DataFrame of log prices, indexed by (t,mkt), with
+         - p : pd.DataFrame of log prices, indexed by (t,m), with
                prices for different goods across columns.
 
          - zbar : pd.DataFrame of average household characteristics; index should match that of a.
 
       Ethan Ligon                                            March 2017
     """
-    assert(a.index.names==['t','mkt'])
-    assert(zbar.index.names==['t','mkt'])
+    assert(a.index.names==['t','m'])
+    assert(zbar.index.names==['t','m'])
 
     # Filter p
     X=zbar.copy()
@@ -1330,7 +1330,7 @@ print(x.head())
 * Analysis Omnibus
   This describes a sort of `wrapper' routine which at a minimum takes
   as input a =pd.DataFrame= of log expenditures, indexed by household,
-  period, and  market =("j","t","mkt")=, with  columns corresponding
+  period, and  market =("j","t","m")=, with  columns corresponding
   to different goods.  
 
   In addition, one may provide a dataframe of household
@@ -1365,9 +1365,9 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
     if z is None:
        z = pd.DataFrame(index=y.index)
 
-    if prices is not None: # Check price indices (t,mkt) consistent with indices in y
+    if prices is not None: # Check price indices (t,m) consistent with indices in y
         assert set([tuple(x) for x in prices.index.levels]) == set([tuple(x) for x in y.index.levels[1:]]), \
-               "Must have prices for every (t,mkt) in expenditures y."
+               "Must have prices for every (t,m) in expenditures y."
 
     results={'y':y,'z':z}
     if prices is not None: results['prices'] = prices
@@ -1385,8 +1385,8 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
     using_goods=(y[use_goods].T.count()>=np.floor(len(use_goods) * min_proportion_items))
     y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
     y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
-    # Only keep goods with observations in each (t,mkt)
-    y = y.loc[:,(y.groupby(level=['t','mkt']).count()==0).sum()==0] 
+    # Only keep goods with observations in each (t,m)
+    y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0] 
 
     a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
     ce.dropna(how='all',inplace=True)
@@ -1739,7 +1739,7 @@ def predicted_expenditures(yhat,e):
   The following code defines a function =optimal_index= designed to take
   three inputs, each either supplied as a =pd.dataframe= or an
   =xr.DataArray=.  In the dataframe case with rows corresponding to
-  goods and columns corresponding to $(t,mkt)$ pairs: First, estimated
+  goods and columns corresponding to $(t,m)$ pairs: First, estimated
   =a=, noting that these can be interpreted as log shadow prices.
   Second, predicted log item expenditures =yhat=; and third the
   residuals =e= associated with the prediction.
@@ -2315,7 +2315,7 @@ print(s)
 import xarray as xr
 from scipy.linalg import block_diag
 
-def arellano_robust_cov(X,u,clusterby=['t','mkt'],tol=1e-12):
+def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
     """
     Compute clustered estimates of covariance matrix, per Arellano (1987).
     Estimates of variance of fixed effects use OLS estimator.
@@ -2693,7 +2693,7 @@ idx=[ (u'101005', u'2009Q1', u'BGD'),  (u'101005', u'2011Q1', u'BGD'),
       (1002, u'2015Q2', u'SSD'),       (1006, u'2015Q2', u'SSD'),
       (u'3015', u'2010Q4', u'UGA'),    (u'3016', u'2010Q4', u'UGA')]
 
-foo=pd.DataFrame(foo,index=pd.MultiIndex.from_tuples(idx,names=['j','t','mkt']))
+foo=pd.DataFrame(foo,index=pd.MultiIndex.from_tuples(idx,names=['j','t','m']))
 foo=foo.sort_index()
 
 bar=array([[ 0.24921932,         nan,         nan],
@@ -2712,7 +2712,7 @@ idx=[(u'2009Q1', u'BGD'), (u'2011Q1', u'BGD'), (u'2011Q3', u'UGA'),
        (u'2013Q3', u'GHA'), (u'2014Q3', u'GHA'), (u'2014Q3', u'SSD'),
        (u'2015Q2', u'SSD')]
 
-bar = pd.DataFrame(bar,index=pd.MultiIndex.from_tuples(idx,names=['t','mkt']))
+bar = pd.DataFrame(bar,index=pd.MultiIndex.from_tuples(idx,names=['t','m']))
 
 baz=broadcast_binary_op(foo, lambda x,y: x+y, bar)
 
@@ -2724,7 +2724,7 @@ print(baz)
 #+results: test_broadcast_binary_op
 #+begin_example
                            0   1         2
-j       t      mkt                        
+j       t      m                        
 1002    2014Q3 SSD       NaN NaN       NaN
         2015Q2 SSD       NaN NaN       NaN
 1006    2014Q3 SSD       NaN NaN       NaN
