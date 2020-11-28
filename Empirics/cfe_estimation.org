@@ -638,10 +638,11 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
               else:
                   sea[Item] = stderrs[Item]
 
-      d[Item]=myb[z.columns] # reduced form coefficients on characteristics
+      zvars = [c for c in z.columns if c in myb.columns]
+      d[Item]=myb[zvars] # reduced form coefficients on characteristics
 
       b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
-      a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[z.columns]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
+      a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[zvars]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
 
   b = pd.DataFrame(b,index=y.groupby(level=['t','mkt']).mean().index)
   b = b.T
