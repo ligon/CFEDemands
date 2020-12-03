@@ -692,7 +692,6 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
 
     _y = _y[use_goods]
     y = _y.to_dataframe()
-    y.index = y.index.rename(['j', 't', 'm'])
     J, n = y.shape
 
     # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
