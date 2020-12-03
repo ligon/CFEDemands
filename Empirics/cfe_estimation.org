@@ -586,7 +586,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
   sed = pd.DataFrame(columns=y.columns)
   sea = pd.DataFrame(columns=y.columns)
-  a = pd.Series(index=y.columns)
+  a = pd.Series(index=y.columns,dtype=float)
   b = OrderedDict() 
   d = OrderedDict() 
   ce = pd.DataFrame(index=y.index,columns=y.columns)
@@ -1204,7 +1204,7 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
     ms = list(set(y.index.get_level_values('m')))
     sed = pd.DataFrame(columns=y.columns)
     sea = pd.DataFrame(columns=y.columns)
-    a = pd.Series(index=y.columns)
+    a = pd.Series(index=y.columns,dtype=float)
     b = OrderedDict() #pd.DataFrame(index=y.columns)
     d = OrderedDict() #pd.DataFrame(index=y.columns,columns=z.columns).T
     ce = pd.DataFrame(index=y.index,columns=y.columns)
