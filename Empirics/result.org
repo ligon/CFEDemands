@@ -54,6 +54,12 @@ class Result(xr.Dataset):
     Ethan Ligon                                                 August 2018
     """
 
+    __slots__ = ['y','z','delta','beta','alpha','loglambdas','a','yhat','ce',
+                 'prices','logp','characteristics', 
+                 'cehat','e','delta_covariance','se_delta','se_beta','se_alpha',
+                 'se_a','firstround','min_proportion_items','min_xproducts',
+                 'useless_expenditures','stderr_tol','indices','verbose']
+
 
     def __init__(self, **kwargs):
         """To load data from a netcdf file, use cfe.result.from_dataset().
