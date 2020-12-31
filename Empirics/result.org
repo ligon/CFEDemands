@@ -193,7 +193,7 @@ class Result(xr.Dataset):
                 try:
                     thing = kwargs.pop(k)
                     try:  # thing may be a dataframe?
-                        thing = thing.to_xarray()
+                        thing = xr.Dataset.from_dataframe(thing) #,sparse=True)
                         if k in ['y', 'yhat', 'ce', 'cehat', 'e', 'prices']:
                             thing = thing.to_array('i')
                         elif k in ['z', 'characteristics']:
@@ -380,7 +380,7 @@ class Result(xr.Dataset):
 
             ce = to_dataframe(self.ce,'i')
 
-            se = estimation.bootstrap_elasticity_stderrs(ce,tol=tol,VERBOSE=VB)
+            se = estimation.bootstrap_elasticity_stderrs(ce,return_v=True,tol=tol,VERBOSE=VB)
             self['se_beta'] = from_dataframe(se)
 
         out = self['se_beta']
