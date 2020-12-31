@@ -551,7 +551,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
       - sea : (Optional, if return_se) Estimated standard errors for coefficients a.
 
-      - V : (Optional, if return_V) Estimated covariance matrix of coefficients d.
+      - V : (Optional, if return_v) Estimated covariance matrix of coefficients d.
 
   Ethan Ligon                                            February 2017
   """

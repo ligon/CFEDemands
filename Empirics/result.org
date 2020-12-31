@@ -56,7 +56,7 @@ class Result(xr.Dataset):
 
     __slots__ = ['y','z','delta','beta','alpha','loglambdas','a','yhat','ce',
                  'prices','logp','characteristics', 
-                 'cehat','e','delta_covariance','se_delta','se_beta','se_alpha',
+                 'cehat','e','delta_covariance','beta_covariance','se_delta','se_beta','se_alpha',
                  'se_a','firstround','min_proportion_items','min_xproducts',
                  'useless_expenditures','stderr_tol','indices','verbose']
 
@@ -116,6 +116,10 @@ class Result(xr.Dataset):
             estimates delta; coordinates (i,k,kp).  Estimated by
             get_reduced_form().
 
+          - beta_covariance : Covariance matrix of parameter
+            estimates belta; coordinates (i,ip).  Estimated by
+            get_stderrs() via (expensive) bootstrap.
+
           - se_delta : Standard errors of parameter estimates delta;
             coordinates (i,k).  Estimated by get_reduced_form().
 
@@ -166,6 +170,7 @@ class Result(xr.Dataset):
         arrs = dict(alpha=None, beta=None, delta=None,
                     prices=None, characteristics=None, loglambdas=None, a=None,
                     yhat=None, ce=None, cehat=None, e=None, delta_covariance=None,
+                    beta_covariance=None,
                     se_delta=None, se_beta=None, se_alpha=None, se_a = None,
                     y=None, logp=None, z=None)
 
@@ -370,7 +375,7 @@ class Result(xr.Dataset):
         else:
             return out
 
-    def get_stderrs(self,as_df=True):
+    def get_stderrs(self,as_df=True,return_v=False):
         if is_none(self.se_beta):
             if is_none(self.ce):
                 self.get_reduced_form()
@@ -380,10 +385,14 @@ class Result(xr.Dataset):
 
             ce = to_dataframe(self.ce,'i')
 
-            se = estimation.bootstrap_elasticity_stderrs(ce,return_v=True,tol=tol,VERBOSE=VB)
+            se,V = estimation.bootstrap_elasticity_stderrs(ce,return_v=return_v,tol=tol,VERBOSE=VB)
             self['se_beta'] = from_dataframe(se)
+            self['beta_covariance'] = xr.DataArray(V.values,dims=['i','ip'],coords={'i':self.coords['i'],'ip':self.coords['i']})
 
-        out = self['se_beta']
+        if not return_v:
+            out = self['se_beta']
+        else:
+            out = self['beta_covariance']
 
         if as_df:
             df = out.to_dataframe().squeeze().dropna(how='all')
