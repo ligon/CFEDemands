@@ -885,7 +885,7 @@ def iqr(x):
     except AttributeError:
         return np.nan
 
-def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
+def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return_v=False,return_samples=False,VERBOSE=False,outfn=None,TRIM=True):
     """Bootstrap estimates of standard errors for \\phi\\beta.
 
     Takes pd.DataFrame of residuals as input.
@@ -963,11 +963,20 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
             new=std0
 
     if outfn: outf.close()
+
+    out = [new]
     if return_samples:
         B.dropna(how='all',axis=1,inplace=True) # Drop any goods always missing estimate
-        return new,B
+        out += [B]
+
+    if return_v:
+        B.dropna(how='all',axis=1,inplace=True) # Drop any goods always missing estimate
+        out += [B.cov()]
+
+    if len(out)==1:
+        return out[0]
     else:
-        return new
+        return out
 #+end_src
 
 *** Test of get_loglambdas
