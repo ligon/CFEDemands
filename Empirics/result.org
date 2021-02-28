@@ -387,7 +387,7 @@ class Result(xr.Dataset):
 
             se,V = estimation.bootstrap_elasticity_stderrs(ce,return_v=return_v,tol=tol,VERBOSE=VB)
             self['se_beta'] = from_dataframe(se)
-            self['beta_covariance'] = xr.DataArray(V.values,dims=['i','ip'],coords={'i':self.coords['i'],'ip':self.coords['i']})
+            self['beta_covariance'] = xr.DataArray(V.values,dims=['i','ip'],coords={'i':self.coords['i'].values,'ip':self.coords['i'].values})
 
         if not return_v:
             out = self['se_beta']
@@ -413,14 +413,14 @@ class Result(xr.Dataset):
 
         yhat = self.get_predicted_log_expenditures()
 
-        y = self.drop_useless_expenditures() # A dataframe
+        y = self.drop_useless_expenditures(as_df=True) # A dataframe
 
         miss2nan = self.ce*0 
 
         df = pd.DataFrame({'Prices':to_dataframe(self.a.var(['t','m'],ddof=0)),
                           'Characteristics':to_dataframe(self.z.dot(self.delta.T).var(['j','t','m'],ddof=0)),
                           '$\log\lambda$':to_dataframe((self.cehat + miss2nan).var(['j','t','m'],ddof=0)),
-                          '$R^2':to_dataframe(self.yhat.var(['j','t','m'],ddof=0)/self.y.var(['j','t','m'],ddof=0))})
+                          '$R^2$':to_dataframe(self.yhat.var(['j','t','m'],ddof=0)/self.y.var(['j','t','m'],ddof=0))})
 
         df = df.div(y.var(ddof=0),axis=0)
         df['Total var'] = y.var(ddof=0)

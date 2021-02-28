@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 
-def construct_df(VARS,INDICES):
+def construct_df(VARS,INDICES,convert_categoricals=False):
     """
     Compile data on a collection of variables from one or more Stata
     =dta= files into a single pandas DataFrame.
@@ -51,7 +51,7 @@ def construct_df(VARS,INDICES):
             return df.apply(eval(Mapping),axis=1)
 
     def read_and_index(fn,indices):
-        df = pd.read_stata(fn,convert_categoricals=False).rename(columns=dict(map(reversed, indices.items())))
+        df = pd.read_stata(fn,convert_categoricals=convert_categoricals).rename(columns=dict(map(reversed, indices.items())))
         df['t'] = indices['t']
         for index in indices.keys(): # Cast to simplest type (int or str)
             try:
@@ -90,7 +90,6 @@ def construct_df(VARS,INDICES):
     return df
 
 #+end_src
-
 
 * Code for Comparing Labels Across Rounds
 #+begin_src python

@@ -240,6 +240,10 @@ def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
     m,n=X.shape
     assert m>n, "Fewer rows than columns.  Consider passing the transpose."
 
+    # If good has fewer total observations than min_obs, can't possibly
+    # have more cross-products.  Dropping here is faster than iterative procedure below.
+    #X = X.loc[:,X.sum()>=min_obs]
+
     HasMiss=True
     while HasMiss:
         foo = X.cov(min_periods=min_obs).count()
