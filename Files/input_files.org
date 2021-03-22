@@ -22,7 +22,7 @@ files from survey data into the data structures required for analysis
 by =CFEDemands=.
 
 A common pattern (shared, for example, by many of the LSMS surveys)
-involves data distributed as a set of =dta= files.  Surveys which are
+involves data distributed as a set of =dta= or =csv= files.  Surveys which are
 repeated in different periods may have different sets of files.  Any
 such file will basically describe a rectangular array of data, with
 rows distinguished by some set of index variables, and columns
@@ -34,11 +34,12 @@ describing the corresponding variables.
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+import dvc.api
 
-def construct_df(VARS,INDICES,convert_categoricals=False):
+def construct_df(VARS,INDICES,convert_categoricals=False,dvcstream=False):
     """
     Compile data on a collection of variables from one or more Stata
-    =dta= files into a single pandas DataFrame.
+    =dta= or =csv= files into a single pandas DataFrame.
 
     Ethan Ligon                                         February 2020
 
@@ -50,9 +51,24 @@ def construct_df(VARS,INDICES,convert_categoricals=False):
         except KeyError:
             return df.apply(eval(Mapping),axis=1)
 
-    def read_and_index(fn,indices):
-        df = pd.read_stata(fn,convert_categoricals=convert_categoricals).rename(columns=dict(map(reversed, indices.items())))
+    def read_and_index(fn,indices,dvcstream=dvcstream,encoding=None):
+        if dvcstream:
+            try:
+                with dvc.api.open(fn,mode='rb') as f:
+                    if fn.split('.')[-1]=='dta':
+                        df = pd.read_stata(f,convert_categoricals=convert_categoricals).rename(columns=dict(map(reversed, indices.items())))
+                    elif fn.split('.')[-1]=='csv':
+                        df = pd.read_csv(f,encoding=encoding).rename(columns=dict(map(reversed, indices.items())))
+            except UnicodeDecodeError:
+                return read_and_index(fn,indices,dvcstream=dvcstream,encoding='latin-1')
+        else:
+            if fn.split('.')[-1]=='dta':
+                df = pd.read_stata(fn,convert_categoricals=convert_categoricals).rename(columns=dict(map(reversed, indices.items())))
+            elif fn.split('.')[-1]=='csv':
+                df = pd.read_csv(fn,encoding=None).rename(columns=dict(map(reversed, indices.items())))
+
         df['t'] = indices['t']
+
         for index in indices.keys(): # Cast to simplest type (int or str)
             try:
                 df[index] = df[index].astype(int)
@@ -71,7 +87,7 @@ def construct_df(VARS,INDICES,convert_categoricals=False):
             d[v.Output] = construct_column(mydf,v.Mapping)
             try:
                 idx,op = eval(v.Grouping)
-                groups = d[v.Output].groupby([idx,'t'])
+                groups = d[v.Output].groupby(INDICES.columns) #[idx,'t'])
                 if op == sum:
                     d[v.Output] = groups.sum()
                 else:
@@ -1531,278 +1547,3 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 #+RESULTS: niger-gs-consumption
 
 
-** Nigeria LSMS
-*** Constructing Household Characteristics
-#+name: VARS_Nigeria
-|    t | Output  | File                                                                  | Grouping  | Mapping                                                                |
-|------+---------+-----------------------------------------------------------------------+-----------+------------------------------------------------------------------------|
-| 2010 | M 0-3   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='male')         |
-| 2010 | M 4-8   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='male')         |
-| 2010 | M 9-13  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='male')        |
-| 2010 | M 14-18 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='male')       |
-| 2010 | M 19-30 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='male')      |
-| 2010 | M 31-50 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='male')       |
-| 2010 | M 51+   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='male')                       |
-| 2010 | F 0-3   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='female')       |
-| 2010 | F 4-8   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='female')       |
-| 2010 | F 9-13  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='female')      |
-| 2010 | F 14-18 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='female')     |
-| 2010 | F 19-30 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='female')    |
-| 2010 | F 31-50 | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='female')     |
-| 2010 | F 51+   | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='female')                     |
-| 2012 | M 0-3   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='MALE')         |
-| 2012 | M 4-8   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='MALE')         |
-| 2012 | M 9-13  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='MALE')        |
-| 2012 | M 14-18 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='MALE')       |
-| 2012 | M 19-30 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='MALE')      |
-| 2012 | M 31-50 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='MALE')       |
-| 2012 | M 51+   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='MALE')                       |
-| 2012 | F 0-3   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='FEMALE')       |
-| 2012 | F 4-8   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='FEMALE')       |
-| 2012 | F 9-13  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='FEMALE')      |
-| 2012 | F 14-18 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='FEMALE')     |
-| 2012 | F 19-30 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='FEMALE')    |
-| 2012 | F 31-50 | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='FEMALE')     |
-| 2012 | F 51+   | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='FEMALE')                     |
-| 2015 | M 0-3   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='1. MALE')      |
-| 2015 | M 4-8   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='1. MALE')      |
-| 2015 | M 9-13  | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='1. MALE')     |
-| 2015 | M 14-18 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='1. MALE')    |
-| 2015 | M 19-30 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='1. MALE')   |
-| 2015 | M 31-50 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='1. MALE')    |
-| 2015 | M 51+   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='1. MALE')                    |
-| 2015 | F 0-3   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='2. FEMALE')    |
-| 2015 | F 4-8   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='2. FEMALE')    |
-| 2015 | F 9-13  | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='2. FEMALE')   |
-| 2015 | F 14-18 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='2. FEMALE')  |
-| 2015 | F 19-30 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='2. FEMALE') |
-| 2015 | F 31-50 | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='2. FEMALE')  |
-| 2015 | F 51+   | ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='2. FEMALE')                  |
-| 2018 | M 0-3   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='1. MALE')      |
-| 2018 | M 4-8   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='1. MALE')      |
-| 2018 | M 9-13  | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='1. MALE')     |
-| 2018 | M 14-18 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='1. MALE')    |
-| 2018 | M 19-30 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='1. MALE')   |
-| 2018 | M 31-50 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='1. MALE')    |
-| 2018 | M 51+   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='1. MALE')                    |
-| 2018 | F 0-3   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 0) & (x.s1q4 < 4) & (x.s1q2 =='2. FEMALE')    |
-| 2018 | F 4-8   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 4) & (x.s1q4 < 9) & (x.s1q2 =='2. FEMALE')    |
-| 2018 | F 9-13  | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 9) & (x.s1q4 < 14) & (x.s1q2 =='2. FEMALE')   |
-| 2018 | F 14-18 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 14) & (x.s1q4 < 19) & (x.s1q2 =='2. FEMALE')  |
-| 2018 | F 19-30 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 19)  & (x.s1q4 < 31) & (x.s1q2 =='2. FEMALE') |
-| 2018 | F 31-50 | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 31) & (x.s1q4 < 51) & (x.s1q2 =='2. FEMALE')  |
-| 2018 | F 51+   | ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | ('j',sum) | lambda x: 0 + (x.s1q4 >= 51) & (x.s1q2 =='2. FEMALE')                  |
-
-#+name: INDICES_Nigeria
-| File                                                                  | j    |    t |
-|-----------------------------------------------------------------------+------+------|
-| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect1_harvestw1.dta | hhid | 2010 |
-| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect1_harvestw2.dta | hhid | 2012 |
-| ~/LSMS/Nigeria/2015/sect1_harvestw3.dta                               | hhid | 2015 |
-| ~/LSMS/Nigeria/2018/sect1_harvestw4.dta                               | hhid | 2018 |
-
-
-
-
-
-#+begin_src python :var VARS=VARS_Nigeria INDICES=INDICES_Nigeria :colnames no 
-from cfe.df_utils import orgtbl_to_df
-from cfe.input_files import construct_df
-import pandas as pd
-
-VARS = orgtbl_to_df(VARS)
-INDICES = orgtbl_to_df(INDICES).set_index('File')
-
-df=construct_df(VARS,INDICES)
-df.to_csv('~/nigeria_characteristics.csv')
-#print(df.groupby(['t','m']).mean())
-print(df.head())
-print(len(df))
-#+end_src
-
-#+results:
-#+begin_example
-            M 0-3  M 4-8  M 9-13  M 14-18  ...  F 14-18  F 19-30  F 31-50  F 51+
-j     t                                    ...                                  
-10001 2010      0      0       0        0  ...        0        1        2      0
-10002 2010      0      0       1        1  ...        0        2        1      0
-10003 2010      0      1       1        1  ...        0        0        1      0
-10004 2010      0      0       1        0  ...        0        0        0      1
-10006 2010      0      0       0        0  ...        0        1        0      0
-
-[5 rows x 14 columns]
-19249
-#+end_example
-
-
-*** Constructing Household Expenditures
-#+name: xVARS_Nigeria
-|    t | Output | File                                                                    | Grouping | Mapping |
-|------+--------+-------------------------------------------------------------------------+----------+---------|
-| 2010 | value  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | None     | s10bq4  |
-| 2012 | value  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | None     | s10bq4  |
-| 2015 | value  | ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | None     | s10bq4  |
-| 2018 | value  | ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | None     | s10bq10 |
-
-
-
-
-#+name: xINDICES_Nigeria
-| File                                                                    | i       | j    |    t |
-|-------------------------------------------------------------------------+---------+------+------|
-| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | item_cd | hhid | 2010 |
-| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | item_cd | hhid | 2012 |
-| ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | item_cd | hhid | 2015 |
-| ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | item_cd | hhid | 2018 |
-
-
-
-
-#+call: build_expenditures(VARS=xVARS_Nigeria, INDICES=xINDICES_Nigeria)
-
-#+results:
-
-#+BEGIN_SRC python :noweb no-export :results output
-import pandas as pd
-nigeria_expenditures = pd.read_pickle("/tmp/y.pickle")
-nigeria_expenditures.to_csv("~/nigeria_expenditures.csv")
-print(nigeria_expenditures.head())
-
-#+END_SRC
-
-#+RESULTS:
-: i           (Cocoyam, Spinach, etc)  Agricultural eggs  ...  Yam flour  Yam-roots
-: t    j                                                  ...                      
-: 2010 10001                      NaN              280.0  ...        NaN     1500.0
-:      10002                      NaN              280.0  ...        NaN     1200.0
-:      10003                      NaN              180.0  ...        NaN      400.0
-:      10004                      NaN              180.0  ...        NaN      400.0
-:      10006                      NaN                NaN  ...        NaN      400.0
-: 
-: [5 rows x 124 columns]
-
-*** Constructing Household Consumption
-The file =consumption.csv= generated below is filtered after the fact
-in order to bring cell count below five million. Removed all rows
-where units were not descriptive in terms of weight (g, kg, l, ml,
-etc.)
-
-#+name: yVARS_Nigeria
-|    t | Output | File                                                                    | Grouping | Mapping |
-|------+--------+-------------------------------------------------------------------------+----------+---------|
-| 2010 | value  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | None     | s10bq3a |
-| 2012 | value  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | None     | s10bq3a |
-| 2015 | value  | ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | None     | s10bq3a |
-| 2018 | value  | ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | None     | s10bq9a |
-
-#+name: yINDICES_Nigeria
-| File                                                                    | i       | j    |    t | u       |
-|-------------------------------------------------------------------------+---------+------+------+---------|
-| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | item_cd | hhid | 2010 | s10bq3b |
-| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | item_cd | hhid | 2012 | s10bq3b |
-| ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | item_cd | hhid | 2015 | s10bq3b |
-| ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | item_cd | hhid | 2018 | s10bq9b |
-
-#+call: build_consumption(VARS=yVARS_Nigeria, INDICES=yINDICES_Nigeria)
-
-#+RESULTS:
-
-#+BEGIN_SRC python :noweb no-export :results output
-import pandas as pd
-import numpy as np
-nigeria_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
-nigeria_consumption['u'] = nigeria_consumption['u'].astype('str')
-nigeria_consumption = nigeria_consumption.set_index(['t', 'j'])
-nigeria_consumption.to_csv("~/nigeria_consumption.csv")
-print(nigeria_consumption.head())
-#+END_SRC
-
-#+RESULTS:
-: i                   u  (Cocoyam, Spinach, etc)  ...  Yam flour  Yam-roots
-: t    j                                          ...                      
-: 2010 10001  Kilograms                      NaN  ...        NaN       16.0
-:      10001     Litres                      NaN  ...        NaN        NaN
-:      10002  Kilograms                      NaN  ...        NaN       13.8
-:      10002     Litres                      NaN  ...        NaN        NaN
-:      10003  Kilograms                      NaN  ...        NaN        4.6
-: 
-: [5 rows x 125 columns]
-
-*** Constructing Household Consumption from Own Production
-The file =consumption.csv= generated below is filtered after the fact
-in order to bring cell count below five million. Removed all rows
-where units were not descriptive in terms of weight (g, kg, l, ml,
-etc.)
-
-#+name: zVARS_Nigeria
-|    t | Output | File                                                                    | Grouping | Mapping |
-|------+--------+-------------------------------------------------------------------------+----------+---------|
-| 2010 | value  | ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | None     | s10bq5a |
-| 2012 | value  | ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | None     | s10bq5a |
-| 2015 | value  | ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | None     | s10bq5a |
-| 2018 | value  | ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | None     | s10bq6a |
-
-#+name: zINDICES_Nigeria
-| File                                                                    | i       | j    |    t | u       |
-|-------------------------------------------------------------------------+---------+------+------+---------|
-| ~/LSMS/Nigeria/2010/Post Harvest Wave 1/Household/sect10b_harvestw1.dta | item_cd | hhid | 2010 | s10bq5b |
-| ~/LSMS/Nigeria/2012/Post Harvest Wave 2/Household/sect10b_harvestw2.dta | item_cd | hhid | 2012 | s10bq5b |
-| ~/LSMS/Nigeria/2015/sect10b_harvestw3.dta                               | item_cd | hhid | 2015 | s10bq5b |
-| ~/LSMS/Nigeria/2018/sect10b_harvestw4.dta                               | item_cd | hhid | 2018 | s10bq2b |
-
-#+call: build_consumption(VARS=zVARS_Nigeria, INDICES=zINDICES_Nigeria)
-
-#+RESULTS:
-
-#+BEGIN_SRC python :noweb no-export :results output
-import pandas as pd
-import numpy as np
-nigeria_consumption = pd.read_pickle("/tmp/y.pickle").reset_index()
-nigeria_consumption['u'] = nigeria_consumption['u'].astype('str')
-nigeria_consumption = nigeria_consumption.set_index(['t', 'j'])
-nigeria_consumption.to_csv("~/nigeria_consumption_ownproduction.csv")
-print(nigeria_consumption.head())
-#+END_SRC
-
-#+RESULTS:
-: i             u (Cocoyam, Spinach, etc)  ... Yam flour Yam-roots
-: t    j                                   ...                    
-: 2010 10001  nan                     NaN  ...       NaN         0
-:      10002  nan                     NaN  ...       NaN         0
-:      10003  nan                     NaN  ...       NaN         0
-:      10004  nan                     NaN  ...       NaN         0
-:      10006  nan                     NaN  ...       NaN         0
-: 
-: [5 rows x 125 columns]
-
-*** Export to Google Sheets
-#+NAME: nigeria-gsheets
-| Worksheet Name     | File                          |
-|--------------------+-------------------------------|
-| Expenditures       | ~/nigeria_expenditures.csv    |
-| HH Characteristics | ~/nigeria_characteristics.csv |
-
-#+NAME: nigeria-gs
-#+BEGIN_SRC python :noweb no-export :results output table :var gsheets=nigeria-gsheets
-import pygsheets
-import pandas as pd
-
-gc = pygsheets.authorize(service_file='client_secret.json')
-spreadsheet = gc.create("Nigeria", folder="1GyTb2tGIBb4nbqdWyYvVIYvZvFgl0ocM")
-
-wksts = []
-for row in gsheets:
-    combine = [row[0], row[1]]
-    wksts.append(combine)
-    combine = []
-
-for sheet in wksts:
-    df = pd.read_csv(sheet[1])
-    wks = spreadsheet.add_worksheet(sheet[0], rows=len(df), cols=(len(df.columns)))
-    wks.set_dataframe(df,(1,1))
-
-spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
-
-#+END_SRC
-
-#+RESULTS: nigeria-gs
