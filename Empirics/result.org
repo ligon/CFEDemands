@@ -385,7 +385,7 @@ class Result(xr.Dataset):
 
             ce = to_dataframe(self.ce,'i')
 
-            se,V = estimation.bootstrap_elasticity_stderrs(ce,return_v=return_v,tol=tol,VERBOSE=VB)
+            se,V = estimation.bootstrap_elasticity_stderrs(ce,return_v=True,tol=tol,VERBOSE=VB)
             self['se_beta'] = from_dataframe(se)
             self['beta_covariance'] = xr.DataArray(V.values,dims=['i','ip'],coords={'i':self.coords['i'].values,'ip':self.coords['i'].values})
 
