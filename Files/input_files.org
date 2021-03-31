@@ -36,7 +36,7 @@ import pandas as pd
 from collections import defaultdict
 import dvc.api
 
-def construct_df(VARS,INDICES,convert_categoricals=False,dvcstream=False):
+def construct_df(VARS,INDICES,convert_categoricals=False,dvcstream=False,label_mappings=None):
     """
     Compile data on a collection of variables from one or more Stata
     =dta= or =csv= files into a single pandas DataFrame.
@@ -100,6 +100,8 @@ def construct_df(VARS,INDICES,convert_categoricals=False,dvcstream=False):
     for t in DFs.keys():
         df_for_year = pd.concat(DFs[t],join='inner',axis=1)
         assert not any(df_for_year.columns.duplicated()), "Duplicate output columns not allowed; t=%s." % t
+        if label_mappings is not None:
+            df_for_year = df_for_year.rename(index={int(k):v for k,v in label_mappings[t].items()},level='i')
         by_year.append(df_for_year)
     
     df = pd.concat(by_year,axis=0)
