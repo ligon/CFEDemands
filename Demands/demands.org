@@ -251,10 +251,10 @@ def relative_risk_aversion(p,alpha,beta,phi,NegativeDemands=True):
 #+name: demand_utils
 #+BEGIN_SRC python :tangle ../cfe/_utils.py
 from scipy import optimize 
-from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all, max
+from numpy import array, ones, zeros, sum, log, Inf, dot, nan, all, max, abs
 import warnings
 
-def check_args(p=None,alpha=None,beta=None,phi=None):
+def check_args(p=None,alpha=None,beta=None,phi=None,tol=1e-12):
     """
     Perform sanity check on inputs.  Supply default values if these are missing.
     """
@@ -297,7 +297,9 @@ def check_args(p=None,alpha=None,beta=None,phi=None):
         if not beta.all():
             raise ValueError("Problem with beta?")
         if not all(beta>0):
-            raise ValueError("Non-positive beta?")
+            beta = abs(beta*(beta>0)) + (beta<=0)*tol
+            warnings.warn('Setting negative values of beta to zero.')
+            #raise ValueError("Non-positive beta?")
     
     if len(phi)==1<n:
         phi=ones(n)*phi
