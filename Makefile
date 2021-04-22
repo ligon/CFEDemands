@@ -1,6 +1,7 @@
 ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
              Demands/demands.org Demands/engel_curves.org    \
-             Demands/monotone_function_solver.org
+             Demands/monotone_function_solver.org\
+	     Files/input_files.org
 
 .PHONY: tangle wheel upload localinstall devinstall clean test
 

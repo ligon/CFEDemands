@@ -3,7 +3,7 @@ import sys
 
 setup(
     name='CFEDemands',
-    version='0.2.7',
+    version='0.2.9',
     author='Ethan Ligon',
     author_email='ligon@berkeley.edu',
     packages=['cfe',],

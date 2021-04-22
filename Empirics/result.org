@@ -460,24 +460,31 @@ class Result(xr.Dataset):
         out = estimation.predicted_expenditures(yhat,e)
 
         if as_df:
-            df = out.to_dataframe().squeeze().unstack('i').dropna(how='all')
+            df = out.to_dataframe().squeeze().unstack('i').dropna(how='all'),  
             return df
         else:
             return out
 
-    def get_alpha(self,as_df=False):
+    def get_alpha(self,as_df=False,common=True):
         """Return alpha parameters.  
 
         These are the averages of the first round of data on log
-        expenditures, and assumed equal across markets and periods.
+        expenditures, and assumed equal across markets if optional
+        parameter =common= is true.  
+
+        Conversely, if common is false, then each market gets its own separate alpha.
         """
 
         if is_none(self['alpha']):
             if is_none(self.loglambdas):
                 self.get_loglambdas()
 
-            self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
-            self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
+            if common:
+                self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
+                self['se_alpha'] = np.sqrt((self.se_a.sel(t=self.firstround,drop=True)**2).sum('m'))/len(self.se_a.coords['m'])
+            else:
+                self['alpha'] = self.a.sel(t=self.firstround,drop=True)
+                self['se_alpha'] = self.se_a.sel(t=self.firstround,drop=True)
 
         out = self.alpha
 
@@ -499,22 +506,22 @@ class Result(xr.Dataset):
         """ 
 
         self.get_loglambdas() 
-        alpha = self.get_alpha()
+        alpha = self.get_alpha(common=True)
 
-        Pbar=[0]
-        Lbar=[0]
-        SE=[np.zeros(2)]
-        V=[np.zeros((2,2))]
-        P=[np.zeros(self.a.shape[0])]
+        Pbar=[]
+        Lbar=[]
+        SE=[]
+        V=[]
+        P=[]
         b = self.beta - self.beta.mean('i')
 
-        rhs = xr.concat([(1 - self.beta*0),-b],'l').T
-        rhs = rhs.to_dataframe().unstack('l')
-        rhs.columns = rhs.columns.droplevel(0)
-        for t in self.coords['t'].values[1:]:
+        RHS = xr.concat([(1 - self.beta*0),-b],'l').T
+        RHS = RHS.to_dataframe().unstack('l')
+        RHS.columns = RHS.columns.droplevel(0)
+        for t in self.coords['t'].values:
             for m in self.coords['m'].values:
                 lhs = ((self.a - alpha)/self.se_a).sel(t=t,m=m,drop=True).to_dataframe('')
-                rhs = rhs.div(self.se_a.sel(t=t,m=m,drop=True).to_dataframe().squeeze(),axis=0)  
+                rhs = RHS.div(self.se_a.sel(t=t,m=m,drop=True).to_dataframe().squeeze(),axis=0)  
                 b,se,v,p = ols(rhs,lhs,return_se=True,return_v=True,return_e=True)
                 p = (p.to_xarray()*self.se_a.sel(t=t,m=m,drop=True)).to_array()
                 Pbar.append(b[0].values[0])
@@ -523,13 +530,16 @@ class Result(xr.Dataset):
                 SE.append(se.values.T[0])
                 V.append(v)
 
-        Pbar = xr.DataArray([Pbar],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar')
-        Lbar = xr.DataArray([Lbar],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar')
-        Pse = xr.DataArray([np.array(SE)[:,0]],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar_se')
-        Lse = xr.DataArray([np.array(SE)[:,1]],dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar_se')
-        P = xr.DataArray(np.array([[x.squeeze() for x in P]]),dims=['m','t','i'],coords=self.a.coords).transpose('i','t','m')
+        Pbar = np.array(Pbar).reshape((-1,len(self.coords['m']))).T
+        Lbar = np.array(Lbar).reshape((-1,len(self.coords['m']))).T
 
-        return xr.Dataset({'pbar':Pbar,'lbar':Lbar,'pbar_se':Pse,'lbar_se':Lse,'p_resid':P})
+        Pbar = xr.DataArray(Pbar,dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar')
+        Lbar = xr.DataArray(Lbar,dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar')
+        Pse = xr.DataArray(np.array(SE)[:,0].reshape((-1,len(self.coords['m']))).T,dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='pbar_se')
+        Lse = xr.DataArray(np.array(SE)[:,1].reshape((-1,len(self.coords['m']))).T,dims=['m','t'],coords={'t':self.coords['t'],'m':self.coords['m']},name='lbar_se')
+        #P = xr.DataArray(np.array([[x.squeeze() for x in P]]),dims=['m','t','i'],coords=self.a.coords).transpose('i','t','m')
+
+        return xr.Dataset({'pbar':Pbar,'lbar':Lbar,'pbar_se':Pse,'lbar_se':Lse}) #,'p_resid':P})
 
     def optimal_index(self):
         """Household-specific exact price index.

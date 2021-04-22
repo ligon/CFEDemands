@@ -1354,19 +1354,10 @@ INDICES = orgtbl_to_df(INDICES).set_index('File')
 df=construct_df(VARS,INDICES)
 df.to_csv('~/niger_characteristics.csv')
 #print(df.groupby(['t','m']).mean())
-print(df.head())
+print(df.tail())
 #+end_src
 
 #+results:
-:           M 0-3  M 4-8  M 9-13  M 14-18  ...  F 14-18  F 19-30  F 31-50  F 51+
-: j   t                                    ...                                  
-: 101 2011      0      0       0        1  ...        1        0        1      0
-: 102 2011      1      0       0        0  ...        0        1        0      0
-: 103 2011      1      0       1        0  ...        0        1        0      0
-: 104 2011      1      0       0        0  ...        0        1        0      0
-: 105 2011      0      0       0        0  ...        0        0        1      0
-: 
-: [5 rows x 14 columns]
 
 
 *** Constructing Household Expenditures
@@ -1547,5 +1538,6 @@ spreadsheet.del_worksheet(spreadsheet.worksheet_by_title("Sheet1"))
 #+END_SRC
 
 #+RESULTS: niger-gs-consumption
+
 
 
