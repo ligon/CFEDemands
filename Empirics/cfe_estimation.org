@@ -580,6 +580,8 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
 
       z.columns.set_names('k',inplace=True)
 
+  assert len(z.index.intersection(y.index))>0, "Indices of z & y don't match."
+
   periods = list(set(y.index.get_level_values('t')))
   ms = list(set(y.index.get_level_values('m')))
 
@@ -2275,13 +2277,22 @@ def balance_panel(df):
 
     return df
 
-def drop_missing(X):
+def drop_missing(X,infinities=False):
     """
     Return tuple of pd.DataFrames in X with any 
     missing observations dropped.  Assumes common index.
+
+    If infinities is false values of plus or minus infinity are 
+    treated as missing values.
     """
 
-    foo=pd.concat(X,axis=1).dropna(how='any')
+    foo=pd.concat(X,axis=1)
+    if not infinities:
+        foo.replace(np.inf,np.nan)
+        foo.replace(-np.inf,np.nan)
+
+    foo = foo.dropna(how='any')
+
     assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
 
     Y=[]
