@@ -2148,7 +2148,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
 
         return s
 
-    s = column_heading
+    s = column_heading(df)
 
     if (tdf is None) and (sedf is None) and (conf_ints is None):
         lastidx = ['']*levels
@@ -2222,7 +2222,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                         s += '| %s ' % i[k]
                     else:
                         s += '| '
-            lastidx =i 
+            lastidx = i 
 
             for j in df.columns: # Point estimates
                 if tdf is not False:
@@ -2272,7 +2272,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                         s += '| %s ' % i[k]
                     else:
                         s += '| ' 
-           lastidx =i 
+            lastidx = i 
 
             for j in df.columns: # Point estimates
                 if tdf is not False and tdf is not None:
