@@ -2097,23 +2097,72 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
 
     If tdf is False and sedf is supplied then stars will decorate significant point estimates.
     If tdf is a df of t-statistics stars will decorate significant point estimates.
+
+    BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables.
     """
+    if len(df.shape)==1: # We have a series?
+        df = pd.DataFrame(df) 
 
     # Test for duplicates in index
     if df.index.duplicated().sum()>0:
         warn('Dataframe index contains duplicates.')
 
-    if len(df.shape)==1: # We have a series?
-       df=pd.DataFrame(df)
+    # Test for duplicates in columns
+    if df.columns.duplicated().sum()>0:
+        warn('Dataframe columns contain duplicates.')
 
-    if df.index.name is not None:
-        name = df.index.name
-    else: name = ''
+    try: # Look for a multiindex
+        levels = len(df.index.levels)
+        names = ['' if v is None else v for v in df.index.names]
+    except AttributeError: # Single index
+        levels = 1
+        names = [df.index.name if (df.index.name is not None) else '']
+
+    def column_heading(df):
+        try: # Look for multiindex columns
+            collevels = len(df.columns.levels)
+            colnames = ['' if v is None else v for v in df.columns.names]
+        except AttributeError: # Single index
+            collevels = 1
+            colnames = [df.columns.name if (df.columns.name is not None) else '']
+
+        if collevels == 1:
+            s = '| ' + ' | '.join(names) + ' | ' + '|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        else:
+            colhead = np.array(df.columns.tolist()).T
+            lastcol = ['']*collevels
+            for l,j in enumerate(colhead.T.copy()):
+                for k in range(collevels):
+                    if lastcol[k] == j[k]: colhead[k,l] = ''
+                lastcol = j
+
+            colhead = colhead.tolist()
+            s = ''
+            for k in range(collevels):
+                if k < collevels - 1:
+                    s += '| '*levels + ' | '
+                else:
+                    s += '| ' + ' | '.join(names) + ' | '
+                s += ' | '.join(colhead[k]) + '  |\n'
+            s += '|-\n'
+
+        return s
+
+    s = column_heading
 
     if (tdf is None) and (sedf is None) and (conf_ints is None):
-        s = '| '+ name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        lastidx = ['']*levels
         for i in df.index:
-            s+='| %s  ' % i
+            if levels == 1: # Normal index
+                s += '| %s  ' % i
+            else:
+                for k in range(levels):
+                    if lastidx[k] != i[k]:
+                        s += '| %s ' % i[k]
+                    else:
+                        s += '| '
+            lastidx =i 
+    
             for j in df.columns: # Point estimates
                 try:
                     entry='| '+float_fmt+' '
@@ -2126,9 +2175,18 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
             s+='|\n'
         return s
     elif not (tdf is None) and (sedf is None) and (conf_ints is None):
-        s = '| '+ name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        lastidx = ['']*levels
         for i in df.index:
-            s+='| %s  ' % i
+            if levels == 1: # Normal index
+                s += '| %s  ' % i
+            else:
+                for k in range(levels):
+                    if lastidx[k] != i[k]:
+                        s += '| %s ' % i[k]
+                    else:
+                        s += '| '
+            lastidx = i 
+
             for j in df.columns:
                 try:
                     stars=(np.abs(tdf[j][i])>1.65) + 0.
@@ -2153,11 +2211,19 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                 tdf.shape
             except AttributeError:  
                 tdf=df[sedf.columns]/sedf
-        if df.index.name is None:
-            df.index.name = ''
-        s = '| '+ df.index.name + ' |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+
+        lastidx = ['']*levels
         for i in df.index:
-            s+='| %s  ' % i
+            if levels == 1: # Normal index
+                s += '| %s  ' % i
+            else:
+                for k in range(levels):
+                    if lastidx[k] != i[k]:
+                        s += '| %s ' % i[k]
+                    else:
+                        s += '| '
+            lastidx =i 
+
             for j in df.columns: # Point estimates
                 if tdf is not False:
                     try:
@@ -2175,7 +2241,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                     s+='| --- '
                 else:
                     s+=entry % df[j][i]
-            s+='|\n|'
+            s+='|\n' + '|'*levels
             for j in df.columns: # Now standard errors
                 s+='  '
                 try:
@@ -2196,9 +2262,18 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                 tdf.shape
             except AttributeError:  
                 tdf=df[sedf.columns]/sedf
-        s = '|  |'+'|   '.join([str(s) for s in df.columns])+'  |\n|-\n'
+        lastidx = ['']*levels
         for i in df.index:
-            s+='| %s  ' % i
+            if levels == 1: # Normal index
+                s += '| %s  ' % i
+            else:
+                for k in range(levels):
+                    if lastidx[k] != i[k]:
+                        s += '| %s ' % i[k]
+                    else:
+                        s += '| ' 
+           lastidx =i 
+
             for j in df.columns: # Point estimates
                 if tdf is not False and tdf is not None:
                     try:
@@ -2216,7 +2291,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                     s+='| --- '
                 else:
                     s+=entry % df[j][i]
-            s+='|\n|'
+            s+='|\n' + '|'*levels
             for j in df.columns: # Now confidence intervals
                 s+='  '
                 try:
