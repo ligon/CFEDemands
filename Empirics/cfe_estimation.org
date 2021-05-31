@@ -2084,7 +2084,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bonus_stats=None):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2098,7 +2098,10 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
     If tdf is False and sedf is supplied then stars will decorate significant point estimates.
     If tdf is a df of t-statistics stars will decorate significant point estimates.
 
-    BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables.
+    if sedf is supplied, this creates some space for =bonus_stats= to be reported on each row.
+
+    BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables, 
+    but we do our best.
     """
     if len(df.shape)==1: # We have a series?
         df = pd.DataFrame(df) 
@@ -2147,6 +2150,16 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
             s += '|-\n'
 
         return s
+
+    def se_linestart(stats,i):
+        if stats is None: 
+            return '|'*levels
+        else:
+            stats = stats.loc[i]
+            assert levels >= len(stats), "Too many columns of bonus stats"
+            line = ['']*(levels-len(stats)+1)
+            line += stats.tolist()
+            return ' | '.join(line) 
 
     s = column_heading(df)
 
@@ -2241,7 +2254,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                     s+='| --- '
                 else:
                     s+=entry % df[j][i]
-            s+='|\n' + '|'*levels
+            s+='|\n' + se_linestart(bonus_stats,i)
             for j in df.columns: # Now standard errors
                 s+='  '
                 try:
@@ -2291,7 +2304,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)'):
                     s+='| --- '
                 else:
                     s+=entry % df[j][i]
-            s+='|\n' + '|'*levels
+            s+='|\n' + se_linestart(bonus_stats,i)
+
             for j in df.columns: # Now confidence intervals
                 s+='  '
                 try:
