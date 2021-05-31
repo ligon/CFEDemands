@@ -2496,19 +2496,16 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 
     b=pd.DataFrame(b,index=x.columns,columns=y.columns)
 
-    out=[b.T]
+    out=[b]
     if return_se or return_v or return_e:
 
         u=y-x.dot(b)
-
-        # Use SUR structure if multiple equations; otherwise OLS.
-        # Only using diagonal of this, for reasons related to memory.  
-        S=sparse.dia_matrix((sparse.kron(u.T.dot(u),sparse.eye(N)).diagonal(),[0]),shape=(N*n,)*2) 
+        assert u.shape == (N,n), "Dimensions of disturbance not as expected"      
 
         if return_se or return_v:
-            # This can be a very large matrix!  Use sparse types
-            V=sparse.kron(sparse.eye(n),(x.T.dot(x).dot(x.T)).values.view(type=np.matrix).I).T
-            V=V.dot(S).dot(V.T)
+            Sigma = u.T@u/N
+            XXinv = np.linalg.inv(x.T@x)
+            V = np.kron(Sigma,XXinv)
 
         if return_se:
             se=np.sqrt(V.diagonal()).reshape((x.shape[1],y.shape[1]))
@@ -2516,7 +2513,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 
             out.append(se)
         if return_v:
-            # Extract blocks along diagonal; return an k x kp x n array
+            # Extract blocks along diagonal; return a k x kp x n array
             col0 = x.columns
             col1 = col0.rename(name='kp')
             v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
@@ -2529,6 +2526,27 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 #+END_SRC
 
 *** Tests
+Start with super basic test of OLS standard errors:
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
+import cfe
+import numpy as np
+import pandas as pd
+
+N = 10000
+
+u = pd.DataFrame({'Constant':1,'u':np.random.normal(size=(N,))})
+
+# Just regress u on constant
+b,se,e = cfe.df_utils.ols(u[['Constant']],u[['u']],return_se=True,return_e=True)
+
+np.testing.assert_allclose(0,b,atol=2/np.sqrt(N),err_msg='Point estimate wrong') # Outside two se
+np.testing.assert_allclose(1/np.sqrt(N),se,atol=2*np.sqrt(3)/np.sqrt(N),err_msg='SE estimate wrong')
+np.testing.assert_allclose(u[['u']],e,atol=1/np.sqrt(N),err_msg='Residuals wrong')
+#+end_src
+
+#+results:
+
+Next try just constructing multiple equation covariance matrix
 #+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
 import cfe
 import pylab as pl
@@ -2550,6 +2568,7 @@ X['Constant'] = 1
 
 b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
 #+end_src
+
 
 
 ** Implementation of iterative Frisch-Waugh-Lovell least squares estimator
