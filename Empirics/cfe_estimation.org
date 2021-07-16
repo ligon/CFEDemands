@@ -324,6 +324,8 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
     x=x.copy()
     m,n=x.shape
 
+    if min_obs is None: min_obs = 1
+
     if n<m:  # If matrix 'thin', make it 'short'
         x=x.T
         TRANSPOSE=True
@@ -645,7 +647,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
                   sea[Item] = stderrs[Item]
 
       zvars = z.columns.intersection(myb.index) 
-      d[Item]= myb.loc[zvars] # reduced form coefficients on characteristics
+      d[Item]= myb.loc[zvars].squeeze() # reduced form coefficients on characteristics
 
       b[Item] = myb.loc[useDateLocs].squeeze()  # Terms involving prices
       a[Item] = lhsbar.mean() - d[Item].squeeze().dot(rhsbar[zvars]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
@@ -659,7 +661,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
     assert np.all(np.isnan(b)), "Only one good-time effect should mean b not identified"
     b[:]=0
 
-  d = pd.concat(list(d.values()))
+  d = pd.DataFrame(d).T
 
   out = [b.add(a,axis=0),ce,d]
   if return_se:
@@ -2516,7 +2518,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
             # Extract blocks along diagonal; return a k x kp x n array
             col0 = x.columns
             col1 = col0.rename(name='kp')
-            v = {y.columns[i]:pd.DataFrame(V.tolil()[i*k:(i+1)*k,i*k:(i+1)*k].todense(),index=col0,columns=col1) for i in range(n)}
+            v = {y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=col0,columns=col1) for i in range(n)}
             V = xr.Dataset(v).to_array()
             out.append(V)
 
@@ -2937,7 +2939,8 @@ def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
 
     if name is None:
         dims = arr.dims
-        df = arr.to_dataset().to_dataframe(dims).squeeze()
+        df = arr.to_dataset(name='').to_dataframe(dims).squeeze()
+        df.name = None
         df.index.names = dims # Deal with xarray bug in to_dataframe that drops index names?
     else:
         df = arr.to_dataframe(name)
