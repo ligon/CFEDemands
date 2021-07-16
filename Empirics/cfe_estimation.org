@@ -644,11 +644,11 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
               else:
                   sea[Item] = stderrs[Item]
 
-      zvars = [c for c in z.columns if c in myb.columns]
-      d[Item]=myb[zvars] # reduced form coefficients on characteristics
+      zvars = z.columns.intersection(myb.index) 
+      d[Item]= myb.loc[zvars] # reduced form coefficients on characteristics
 
-      b[Item] = myb[useDateLocs].squeeze()  # Terms involving prices
-      a[Item] = lhsbar.mean() - d[Item].dot(rhsbar[zvars]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
+      b[Item] = myb.loc[useDateLocs].squeeze()  # Terms involving prices
+      a[Item] = lhsbar.mean() - d[Item].squeeze().dot(rhsbar[zvars]) - np.array(b[Item]).dot(rhsbar[useDateLocs])
 
   b = pd.DataFrame(b,index=y.groupby(level=['t','m']).mean().index)
   b = b.T
@@ -2300,7 +2300,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     except KeyError: stars=''
                 else: stars=''
                 entry='| '+float_fmt+stars+' '
-                if np.isnan(df[j][i]):
+                if type(df[j][i]) is not str and np.isnan(df[j][i]):
                     s+='| --- '
                 else:
                     s+=entry % df[j][i]
@@ -2936,7 +2936,9 @@ def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
     """
 
     if name is None:
-        df = arr.to_dataframe('foo').squeeze()
+        dims = arr.dims
+        df = arr.to_dataset().to_dataframe(dims).squeeze()
+        df.index.names = dims # Deal with xarray bug in to_dataframe that drops index names?
     else:
         df = arr.to_dataframe(name)
 
