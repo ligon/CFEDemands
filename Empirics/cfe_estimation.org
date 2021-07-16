@@ -242,7 +242,7 @@ def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
 
     # If good has fewer total observations than min_obs, can't possibly
     # have more cross-products.  Dropping here is faster than iterative procedure below.
-    #X = X.loc[:,X.sum()>=min_obs]
+    X = X.loc[:,X.count()>=min_obs]
 
     HasMiss=True
     while HasMiss:
@@ -250,7 +250,7 @@ def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
         if np.sum(foo<X.shape[1]):
             badcol=foo.idxmin()
             del X[badcol] # Drop  good with  most missing covariances
-            if VERBOSE: print("Dropping %s." % badcol)
+            if VERBOSE: print("Dropping %s, with only %d covariances." % (badcol,foo[badcol]))
         else:
             HasMiss=False
 
@@ -843,7 +843,7 @@ except ImportError:
 
 PARALLEL = False # Not yet working.
 
-def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
+def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None,VERBOSE=False):
     """
     Use singular-value decomposition to compute loglambdas and price elasticities,
     up to an unknown factor of proportionality phi.
@@ -855,7 +855,7 @@ def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None):
 
     assert e.shape[0]>e.shape[1], "More goods than observations."
 
-    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=False,max_rank=max_rank,min_obs=min_obs)
+    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=VERBOSE,max_rank=max_rank,min_obs=min_obs)
 
     R2 = chat.var()/e.var()
 
