@@ -34,7 +34,11 @@ describing the corresponding variables.
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-import dvc.api
+
+try:  # If we can't load dvc, take a pass and fail only if we call.
+    import dvc.api
+except ModuleNotFoundError:
+    pass
 
 def construct_df(VARS,INDICES,convert_categoricals=False,dvcstream=False,label_mappings=None):
     """
