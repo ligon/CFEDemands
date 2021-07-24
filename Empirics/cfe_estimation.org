@@ -662,6 +662,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
     b[:]=0
 
   d = pd.DataFrame(d).T
+  d.index.name = 'i'
 
   out = [b.add(a,axis=0),ce,d]
   if return_se:
@@ -2543,7 +2544,7 @@ b,se,e = cfe.df_utils.ols(u[['Constant']],u[['u']],return_se=True,return_e=True)
 
 np.testing.assert_allclose(0,b,atol=2/np.sqrt(N),err_msg='Point estimate wrong') # Outside two se
 np.testing.assert_allclose(1/np.sqrt(N),se,atol=2*np.sqrt(3)/np.sqrt(N),err_msg='SE estimate wrong')
-np.testing.assert_allclose(u[['u']],e,atol=1/np.sqrt(N),err_msg='Residuals wrong')
+np.testing.assert_allclose(u[['u']] - u['u'].mean(),e,atol=1/np.sqrt(N),err_msg='Residuals wrong')
 #+end_src
 
 #+results:
