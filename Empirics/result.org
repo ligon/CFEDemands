@@ -802,7 +802,6 @@ def _demand_parameters(self,p=None,z=None):
         for k,v in replace.items():
             p[k] = v
 
-    
     # The following hijinks deal with missing values (e.g., in prices)
     foo = xr.Dataset({'beta':beta,'alpha':alpha,'prices':p}).to_dataframe().dropna(how='any')
 
@@ -815,7 +814,7 @@ def _demand_parameters(self,p=None,z=None):
 
     phi = 0 # phi not (yet?) an attribute of Result.
 
-    return (p,alpha,beta,phi)
+    return p,{'alpha':alpha,'beta':beta,'phi':phi}
     
 def _demands(self,x,p=None,z=None,type="Marshallian"):
     """Quantities demanded at prices p for household with observable
@@ -832,13 +831,13 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
     Ethan Ligon                                    April 2019
     """
 
-    pparms = _demand_parameters(self,p,z)
+    p,pparms = _demand_parameters(self,p,z)
 
     Qs = {'Marshallian':demands.marshallian.demands,
           'Hicksian':demands.hicksian.demands,
           'Frischian':demands.frischian.demands}
 
-    q = pd.Series(Qs[type](x,*pparms),index=pparms[1].index,name='quantities')
+    q = pd.Series(Qs[type](x,p,pparms),index=pparms['alpha'].index,name='quantities')
 
     return q
 
@@ -853,9 +852,9 @@ def _utility(self,x,p=None,z=None):
     Ethan Ligon                                    April 2019
     """
 
-    pparms = _demand_parameters(self,p,z)
+    p,pparms = _demand_parameters(self,p,z)
 
-    return demands.marshallian.indirect_utility(x,*pparms)
+    return demands.marshallian.indirect_utility(x,p,pparms)
 
 def _expenditurefunction(self,U,p=None,z=None):
     """Total Expenditures
@@ -868,9 +867,9 @@ def _expenditurefunction(self,U,p=None,z=None):
     Ethan Ligon                                    April 2019
     """
 
-    pparms = _demand_parameters(self,p,z)
+    p,pparms = _demand_parameters(self,p,z)
 
-    return demands.hicksian.expenditurefunction(U,*pparms)
+    return demands.hicksian.expenditurefunction(U,p,pparms)
 
 Result.demands = _demands
 Result.indirect_utility = _utility
