@@ -941,7 +941,7 @@ assert len(R.se_alpha) == len(R.coords['i'])
 #+end_src
 *** Test demands
 #+name: test_demands
-#+begin_src python :results output :tangle ../cfe/test/test_demands.py
+#+begin_src python :results output :tangle ../cfe/test/test_demand_interface.py
 import cfe
 import numpy as np
 
