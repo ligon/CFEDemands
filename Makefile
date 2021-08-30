@@ -3,7 +3,7 @@ ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
              Demands/monotone_function_solver.org\
 	     Files/input_files.org
 
-.PHONY: tangle wheel upload localinstall devinstall clean test
+.PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt
 
 all: tangle test devinstall wheel
 
