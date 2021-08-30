@@ -259,7 +259,7 @@ class Result(xr.Dataset):
 
             # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
             using_goods=(y.T.count()>=np.floor(len(use_goods) * min_proportion_items))
-            y=y.loc[using_goods] # Drop households with too few expenditure observations, keep selected goods
+            y = y.loc[using_goods,:] # Drop households with too few expenditure observations, keep selected goods
 
             if VERBOSE:
                 print('min_proportion_items test drops %d households.' % (J-y.shape[0]))
@@ -610,12 +610,12 @@ netcdf file, using the =xarray= package.
 
 #+name: result_to_file
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/result.py
-    def to_dataset(self,fn=None):
+    def to_dataset(self,fn=None,**kwargs):
         """Convert Result instance to xarray.Dataset."""
         D = xr.Dataset(self)
 
         if fn is not None:
-            D.to_netcdf(fn,engine='h5netcdf',invalid_netcdf=True)
+            D.to_netcdf(fn,**kwargs)
 
         return D
 
@@ -629,12 +629,12 @@ netcdf file, using the =xarray= package.
 
         return d
 
-def from_dataset(fn):
+def from_dataset(fn,**kwargs):
     """
     Read persistent netcdf (xarray.Dataset) file to Result.
     """
 
-    D = xr.open_dataset(fn,engine='h5netcdf')
+    D = xr.open_dataset(fn,**kwargs)
 
     R = Result(data=D)
 
