@@ -2947,7 +2947,7 @@ def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
         df = arr.to_dataframe(name)
 
     if column_index is not None:
-        df = df.unstack(column_index)
+        df = df.dropna(how='all').unstack(column_index)
 
     if dropna_all:
         df.dropna(how='all',inplace=True)
