@@ -27,7 +27,7 @@ from . import estimation
 import xarray as xr
 import warnings
 from collections import namedtuple
-from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols
+from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols, df_norm, use_indices
 
 Indices = namedtuple('Indices',['j','t','m','i','k'])
 
@@ -58,7 +58,7 @@ class Result(xr.Dataset):
                  'prices','logp','characteristics', 
                  'cehat','e','delta_covariance','beta_covariance','se_delta','se_beta','se_alpha',
                  'se_a','firstround','min_proportion_items','min_xproducts',
-                 'useless_expenditures','stderr_tol','indices','verbose']
+                 'useless_expenditures','stderr_tol','indices','iterate','verbose','all_tm']
 
 
     def __init__(self, **kwargs):
@@ -150,6 +150,12 @@ class Result(xr.Dataset):
             covariance matrix of residuals from the reduced form then
             the good will be dropped.  Default is 30.
 
+          - all_tm : A boolean flag.  If true, only keep goods with obs. 
+            in every (t,m).
+
+          - iterate : A boolean flag. If true, iterate estimation
+            until residual is orthogonal to \log\lambda.
+
           - useless_expenditures : A boolean flag.  Set to true at
             point of instantiation if you want to /keep/ expenditures
             with few observations.  The definition of "useless"
@@ -176,9 +182,11 @@ class Result(xr.Dataset):
 
         attrs = dict(firstround=None,
                      min_proportion_items=1./8, min_xproducts=30,
+                     all_tm=True,
                      useless_expenditures=None,
                      stderr_tol=0.01,
                      indices = Indices('j', 't', 'm', 'i', 'k'),
+                     iterate=False,
                      verbose=False)
 
         try: # Maybe input is already an xarray.Dataset?
@@ -245,6 +253,19 @@ class Result(xr.Dataset):
         "Too few" depends on the attributes min_proportion_items and min_xproducts.  
         Once called this method sets the attribute 'useless_expenditures' to False.
         """
+
+        y0,attrs = _drop_useless_expenditures(self.y,self.attrs,VERBOSE=VERBOSE)
+        
+        self['y'] = y0
+        self.attrs = attrs
+
+        assert self.y.dims==('i','j','t','m')
+
+        if as_df:
+            return to_dataframe(self.y,'i')
+        else:
+            return self
+
     
         if self.attrs['useless_expenditures']:
             y = self.y
@@ -322,6 +343,78 @@ class Result(xr.Dataset):
         self['se_delta'] = from_dataframe(sed)
         self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = V
+
+    def iterated_estimation(self,VERBOSE=False,tol=1e-3):
+        """Estimate (delta,beta,loglambda).
+
+        Sets beta, loglambdas, and cehat.
+        """
+        if is_none(self.loglambdas):
+            if is_none(self.ce):
+                self.get_reduced_form()
+
+            min_obs = self.attrs['min_xproducts']
+
+            y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
+            y.dropna(how='all',axis=1,inplace=True)
+
+            DateLocD = use_indices(y,['t','m'])
+            DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
+            DateLocD.index = y.index
+            DateLocD.columns = pd.MultiIndex.from_tuples(DateLocD.columns)
+
+            z = to_dataframe(self.z,'k')
+
+            ce = to_dataframe(self.ce,'i')
+            logL = 0
+            d_last = 0
+            d = to_dataframe(self.delta,'k')
+            d['logL'] = 0
+            while np.abs(d_last - d).max().max() > tol:
+                
+                if VERBOSE: 
+                    print("Norm: %f" % np.linalg.norm(d_last-d))
+                d_last = d
+                bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
+                #logL = logL + dlogL
+                rhs = to_dataframe(self.z,'k')
+                rhs['logL'] = logL.astype(float)
+
+                a,ce,d = estimation.estimate_reduced_form(y,rhs,return_se=False,return_v=False,VERBOSE=False)
+                if VERBOSE: 
+                    print(d)
+                #ce.dropna(how='all',inplace=True)
+                ce = y  - DateLocD@a.T - z@d.drop('logL',axis=1).T
+
+        a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,rhs,return_se=True,return_v=True,VERBOSE=False)
+
+        bphi = -d['logL']
+        del d['logL']
+
+        seb = sed['logL']
+        del sed['logL']
+
+        self['a'] = from_dataframe(a,'i')
+        try:
+            self['delta'] = from_dataframe(d).to_array('k')
+        except AttributeError:
+            d.columns.name = 'k'
+            foo = from_dataframe(d)
+            self['delta'] = foo
+
+        self['ce'] = from_dataframe(ce)
+        self['se_delta'] = from_dataframe(sed)
+        self['se_a'] = from_dataframe(sea)
+        self['delta_covariance'] = V
+
+        cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
+        cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+
+        self['cehat'] = from_dataframe(cehat)
+        self['loglambdas'] = logL.astype(float).to_xarray()
+        self['beta'] = bphi.to_xarray()
+        self['se_beta'] = from_dataframe(seb)
+
 
     def get_loglambdas(self,as_df=False):
         """Estimate (beta,loglambda).
@@ -413,7 +506,7 @@ class Result(xr.Dataset):
 
         yhat = self.get_predicted_log_expenditures()
 
-        y = self.drop_useless_expenditures(as_df=True) # A dataframe
+        y = self.y drop_useless_expenditures(as_df=True) # A dataframe
 
         miss2nan = self.ce*0 
 
@@ -444,6 +537,7 @@ class Result(xr.Dataset):
 
         if as_df:
             df = out.to_dataframe().squeeze().unstack('i').dropna(how='all')
+            df.index.names = ['j','t','m']
             return df
         else:
             return out
@@ -461,6 +555,7 @@ class Result(xr.Dataset):
 
         if as_df:
             df = out.to_dataframe().squeeze().unstack('i').dropna(how='all'),  
+            df.index.names = ['j','t','m']
             return df
         else:
             return out
@@ -708,15 +803,16 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
     if attrs['useless_expenditures'] is False:
         return y0, attrs
     
-    _y = y0.to_dataset('i')
+    _y = to_dataframe(y0,'i')
 
     min_proportion_items = attrs['min_proportion_items']
     min_xproducts = attrs['min_xproducts']
+    all_tm = attrs['all_tm']
 
     use_goods = [v for v in _y]
 
     _y = _y[use_goods]
-    y = _y.to_dataframe()
+    y = _y
     J, n = y.shape
 
     # The criterion below (hh must have observations for at least min_proportion_items of goods) ad hoc
@@ -734,11 +830,12 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
         J,n = y.shape
 
     # Only keep goods with observations in each (t,m)
-    y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0]
+    if all_tm:
+        y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0]
 
-    if VERBOSE:
-        print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
-        J,n = y.shape
+        if VERBOSE:
+            print('good in every (t,m) test drops %d households and %d goods.' % (J-y.shape[0],n-y.shape[1]))
+            J,n = y.shape
 
     _y = y.to_xarray().to_array('i')
     attrs['useless_expenditures'] = False
@@ -878,6 +975,25 @@ Result.expenditure = _expenditurefunction
 
 
 ** Tests
+*** Test iterated_estimation()
+#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 :tangle ../cfe/test/test_iterated_estimation.py
+import cfe
+import numpy as np
+#import warnings
+
+#warnings.filterwarnings('error')
+
+beta = np.linspace(.2,5,n)
+
+x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta)
+
+r = cfe.Result(y=np.log(x),z=truth.characteristics)
+
+r.iterated_estimation(VERBOSE=True)
+
+r0 = cfe.Result(y=np.log(x),z=truth.characteristics)
+r0.get_predicted_expenditures()
+#+end_src
 *** Test drop_useless_expenditures()
 #+name: test_drop_useless_expenditures
 #+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
