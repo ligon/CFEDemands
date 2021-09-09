@@ -386,7 +386,7 @@ class Result(xr.Dataset):
                 #ce.dropna(how='all',inplace=True)
                 ce = y  - DateLocD@a.T - z@d.drop('logL',axis=1).T
 
-        a,ce,d,sed,sea,V = estimation.estimate_reduced_form(y,rhs,return_se=True,return_v=True,VERBOSE=False)
+        a,e,d,sed,sea,V = estimation.estimate_reduced_form(y,rhs,return_se=True,return_v=True,VERBOSE=False)
 
         bphi = -d['logL']
         del d['logL']
@@ -403,6 +403,7 @@ class Result(xr.Dataset):
             self['delta'] = foo
 
         self['ce'] = from_dataframe(ce)
+        self['e'] = from_dataframe(e)
         self['se_delta'] = from_dataframe(sed)
         self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = V
@@ -502,21 +503,22 @@ class Result(xr.Dataset):
         variance of log expenditures.
         """
 
-        self.get_reduced_form()
-
         yhat = self.get_predicted_log_expenditures()
 
-        y = self.y drop_useless_expenditures(as_df=True) # A dataframe
+        y = to_dataframe(self.y,'i') # drop_useless_expenditures(as_df=True) # A dataframe
 
         miss2nan = self.ce*0 
 
         df = pd.DataFrame({'Prices':to_dataframe(self.a.var(['t','m'],ddof=0)),
                           'Characteristics':to_dataframe(self.z.dot(self.delta.T).var(['j','t','m'],ddof=0)),
-                          r'$\log\lambda$':to_dataframe((self.cehat + miss2nan).var(['j','t','m'],ddof=0)),
-                          '$R^2$':to_dataframe(self.yhat.var(['j','t','m'],ddof=0)/self.y.var(['j','t','m'],ddof=0))})
+                          r'$\log\lambda$':to_dataframe((self.cehat + miss2nan).var(['j','t','m'],ddof=0))})
 
         df = df.div(y.var(ddof=0),axis=0)
         df['Total var'] = y.var(ddof=0)
+
+        r2 = 1 - self.e.var()/(self.y+(self.e*0)).var()  # Make sure both e & y sharing missing elements.
+
+        df['$R^2$'] = to_dataframe(r2)
 
         df.sort_values(by=r'$\log\lambda$',inplace=True,ascending=False)
 
