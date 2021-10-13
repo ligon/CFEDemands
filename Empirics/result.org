@@ -392,7 +392,6 @@ class Result(xr.Dataset):
         del d['logL']
 
         seb = sed['logL']
-        del sed['logL']
 
         self['a'] = from_dataframe(a,'i')
         try:
