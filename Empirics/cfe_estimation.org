@@ -1190,7 +1190,12 @@ gamma=B.iloc[:4000].unstack('i')
 
 u,s,vt = np.linalg.svd(gamma)
 print('Singular values:',s)
-print('All close?',np.allclose(np.outer(u[:,0]*s[0],vt[0,:]),gamma))
+
+# gamma embeds beta?
+plt.scatter(s[0]*vt[0,:],truth['beta'])
+
+# gamma embeds loglambdas?
+plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 
 #+end_src
 
