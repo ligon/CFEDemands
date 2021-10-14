@@ -323,6 +323,18 @@ class Result(xr.Dataset):
         Computes a, ce, delta, se_delta, delta_covariance.          
         """
 
+        if self.attrs['iterate']:
+            if VERBOSE: print("Iterating...")
+            self.iterated_estimation()
+        else:
+            self._get_reduced_form(VERBOSE=VERBOSE)
+
+    def _get_reduced_form(self,VERBOSE=False):
+        """Estimate reduced form expression for system of log expenditures.
+
+        Computes a, ce, delta, se_delta, delta_covariance.          
+        """
+
         y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
         y.dropna(how='all',axis=1,inplace=True)
 
@@ -351,7 +363,7 @@ class Result(xr.Dataset):
         """
         if is_none(self.loglambdas):
             if is_none(self.ce):
-                self.get_reduced_form()
+                self._get_reduced_form(VERBOSE=VERBOSE)
 
             min_obs = self.attrs['min_xproducts']
 
@@ -392,7 +404,6 @@ class Result(xr.Dataset):
         del d['logL']
 
         seb = sed['logL']
-        del sed['logL']
 
         self['a'] = from_dataframe(a,'i')
         try:
@@ -621,9 +632,9 @@ class Result(xr.Dataset):
                 rhs = RHS.div(self.se_a.sel(t=t,m=m,drop=True).to_dataframe().squeeze(),axis=0)  
                 b,se,v,p = ols(rhs,lhs,return_se=True,return_v=True,return_e=True)
                 p = (p.to_xarray()*self.se_a.sel(t=t,m=m,drop=True)).to_array()
-                Pbar.append(b[0].values[0])
+                Pbar.append(b.loc[0].values[0])
                 P.append(p.values)
-                Lbar.append(b[1].values[0])
+                Lbar.append(b.loc[1].values[0])
                 SE.append(se.values.T[0])
                 V.append(v)
 

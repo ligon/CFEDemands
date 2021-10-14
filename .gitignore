@@ -34,3 +34,4 @@ dist/
 .cache/
 /.tangle
 /.test
+/CFEDemands.egg-info/
