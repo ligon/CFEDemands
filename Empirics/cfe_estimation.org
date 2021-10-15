@@ -116,7 +116,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         if  len(mratio)>=12:
             i=0
             for i in range(len(mratio)):
-                name=mratio.ix[i].name # label of expenditure item
+                name=mratio.index[i] # label of expenditure item
 
                 if mratio.iloc[i,0]>0.2:
                     #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
