@@ -116,7 +116,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         if  len(mratio)>=12:
             i=0
             for i in range(len(mratio)):
-                name=mratio.ix[i].name # label of expenditure item
+                name=mratio.index[i] # label of expenditure item
 
                 if mratio.iloc[i,0]>0.2:
                     #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
@@ -1190,7 +1190,12 @@ gamma=B.iloc[:4000].unstack('i')
 
 u,s,vt = np.linalg.svd(gamma)
 print('Singular values:',s)
-print('All close?',np.allclose(np.outer(u[:,0]*s[0],vt[0,:]),gamma))
+
+# gamma embeds beta?
+plt.scatter(s[0]*vt[0,:],truth['beta'])
+
+# gamma embeds loglambdas?
+plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 
 #+end_src
 
