@@ -382,10 +382,12 @@ class Result(xr.Dataset):
             d_last = 0
             d = to_dataframe(self.delta,'k')
             d['logL'] = 0
-            while np.abs(d_last - d).max().max() > tol:
+
+            its = 0
+            while (np.abs(d_last - d).max().max() > tol) or (its < 2):
                 
                 if VERBOSE: 
-                    print("Norm: %f" % np.linalg.norm(d_last-d))
+                    print("Iteration %d, Norm: %f" % (its,np.linalg.norm(d_last-d)))
                 d_last = d
                 bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
                 #logL = logL + dlogL
@@ -397,6 +399,7 @@ class Result(xr.Dataset):
                     print(d)
                 #ce.dropna(how='all',inplace=True)
                 ce = y  - DateLocD@a.T - z@d.drop('logL',axis=1).T
+                its += 1
 
         a,e,d,sed,sea,V = estimation.estimate_reduced_form(y,rhs,return_se=True,return_v=True,VERBOSE=False)
 
