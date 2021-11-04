@@ -992,10 +992,17 @@ Result.expenditure = _expenditurefunction
 
 ** Tests
 *** Test iterated_estimation()
-#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 :tangle ../cfe/test/test_iterated_estimation.py
+#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 n=10 :tangle ../cfe/test/test_iterated_estimation.py
 import cfe
 import numpy as np
 #import warnings
+
+N=500 
+T=3 
+M=1 
+n=12 
+k=3 
+n=10
 
 #warnings.filterwarnings('error')
 

@@ -1129,6 +1129,7 @@ directly estimates using interactive fixed effects.
 <<artificial_data>>
 from cfe.df_utils import use_indices, drop_missing
 import numpy as np
+import matplotlib.pyplot as plt
 
 n = 40
 N = 100
