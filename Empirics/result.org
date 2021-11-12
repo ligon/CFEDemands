@@ -26,8 +26,8 @@ import pandas as pd
 from . import estimation 
 import xarray as xr
 import warnings
-from collections import namedtuple
-from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols, df_norm, use_indices
+from collections import namedtuple, OrderedDict
+from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols, df_norm, use_indices, drop_missing, arellano_robust_cov
 
 Indices = namedtuple('Indices',['j','t','m','i','k'])
 
@@ -363,26 +363,24 @@ class Result(xr.Dataset):
 
         Sets beta, loglambdas, and cehat.
         """
-        def my_ols(y,DateLocD,z,logL=None,return_se=False,return_v=False,VERBOSE=False):
+        def my_ols(y,DateLocD,z,loglambda=None,return_se=False,return_v=False,VERBOSE=False):
             """Like cfe.estimation.estimate_reduced_form, but estimates
             (time,market) effects directly instead of via within
             transformation.
             """
             
-            sed = pd.DataFrame(columns=y.columns)
-            sea = pd.DataFrame(columns=y.columns)
-            a = pd.Series(index=y.columns,dtype=float)
-            d = OrderedDict() 
+            se = pd.DataFrame(columns=y.columns)
+            b = OrderedDict()
             ce = pd.DataFrame(index=y.index,columns=y.columns)
             V = OrderedDict()
 
             for i,Item in enumerate(y.columns):
                 if VERBOSE: print(Item)
 
-                if logL is None:
+                if loglambda is None:
                     lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
                 else:
-                    lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD,logL],axis=1)])
+                    lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD,loglambda],axis=1)])
 
                 stdev = rhs.std()
                 for constant in stdev[stdev==0].index.tolist():
@@ -391,39 +389,27 @@ class Result(xr.Dataset):
                 rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
                 useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
-            X = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
+                X = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
 
-            # Estimate d & a
-            myb,mye = ols(X,lhs,return_se=False,return_v=False,return_e=True) 
-            ce[Item] = mye
+                # Estimate d & a
+                myb,mye = ols(X,lhs,return_se=False,return_v=False,return_e=True) 
+                b[Item] = myb.squeeze()
+                ce[Item] = mye
 
-            if return_v or return_se:
-                if z.shape[1]:
-                    V[Item]=arellano_robust_cov(z,ce[Item])
-                    sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
+                if return_v or return_se:
+                    V[Item]=arellano_robust_cov(X,ce[Item],clusterby=['t','m'])
+                    se[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
 
-                    stderrs = (mye.groupby(['t','m']).std()/np.sqrt(mye.groupby(['t','m']).count()))
-                    if len(useDateLocs) > 0:
-                        sea[Item] = stderrs.squeeze()
-                    else:
-                        sea[Item] = stderrs[Item]
 
-            zvars = z.columns.intersection(myb.index) 
-            d[Item]= myb.loc[zvars].squeeze() # reduced form coefficients on characteristics
+            se = se.T
 
-            a[Item] = myb.loc[useDateLocs].squeeze()  # Terms involving prices
+            b = pd.DataFrame(b).T
+            b.index.name = 'i'
 
-            sed = sed.T
-            sea = sea.T
+            out = [b,ce]
 
-            d = pd.DataFrame(d).T
-            d.index.name = 'i'
-
-            out = [a,d]
-            if return_e:
-                out += [ce]
             if return_se:
-                out += [sed,sea]
+                out += [se]
             if return_v:
                 V = xr.Dataset(V).to_array(dim='i')
                 out += [V]
@@ -447,10 +433,9 @@ class Result(xr.Dataset):
             z = to_dataframe(self.z,'k')
 
             ce = to_dataframe(self.ce,'i')
-            logL = 0
+            loglambda = 0
             coeffs_last = 0
             d = to_dataframe(self.delta,'k')
-            d['logL'] = 0
 
             a = to_dataframe(self.a,'i').T
 
@@ -462,31 +447,41 @@ class Result(xr.Dataset):
                 if VERBOSE: 
                     print("Iteration %d, Norm: %f" % (its,np.linalg.norm(coeffs_last-coeffs)))
                 coeffs_last = coeffs
-                bphi,logL = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
+                bphi,loglambda = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
 
                 z = to_dataframe(self.z,'k')
-                logL = logL.astype(float)
+                loglambda = loglambda.astype(float)
 
                 #a,ce,d = estimation.estimate_reduced_form(y,rhs,return_se=False,return_v=False,VERBOSE=False)
-                coeffs, e = my_ols(y,DateLocD,z,logL,return_se=False,return_v=False,VERBOSE=VERBOSE)
+                coeffs, e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
 
-                coeffs = coeffs.drop('logL',axis=1)
+                beta = coeffs[['loglambda']]
+                coeffs = coeffs.drop('loglambda',axis=1)
                 
                 if VERBOSE: 
                     print(coeffs)
                 #ce.dropna(how='all',inplace=True)
-                ce = e + logL@coeffs['logL'].T  
+                ce = e + pd.DataFrame(loglambda)@beta.T  
 
                 its += 1
 
-        coeffs,e,sed,sea,V = my_ols(y,DateLocD,z,logL,return_se=True,return_v=True,VERBOSE=False)
+        coeffs,e,se,V = my_ols(y,DateLocD,z,loglambda,return_se=True,return_v=True,VERBOSE=False)
 
-        a = coeffs.loc[DateLocD.columns]
-        d = coeffs.loc[z.columns]
-        bphi = coeffs['logL']
+        a = coeffs[DateLocD.columns]
 
-        seb = sed['logL']
-        sed = sed.drop('logL',axis=0)
+        a.columns = pd.MultiIndex.from_tuples(a.columns)
+        a.columns.names = ['t','m']
+
+        d = coeffs[z.columns]
+        bphi = coeffs['loglambda']
+
+        seb = se['loglambda']
+        sea = se[DateLocD.columns]
+        sea.columns = pd.MultiIndex.from_tuples(sea.columns)
+        sea.columns.names = ['t','m']
+
+        sed = se[z.columns]
+        sed.columns.name = 'k'
 
         self['a'] = from_dataframe(a,'i')
         try:
@@ -502,11 +497,11 @@ class Result(xr.Dataset):
         self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = V
 
-        cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-logL).T).T
-        cehat=pd.DataFrame(cehat,columns=bphi.index,index=logL.index)
+        cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-loglambda).T).T
+        cehat=pd.DataFrame(cehat,columns=bphi.index,index=loglambda.index)
 
         self['cehat'] = from_dataframe(cehat)
-        self['loglambdas'] = logL.astype(float).to_xarray()
+        self['loglambdas'] = loglambda.astype(float).to_xarray()
         self['beta'] = bphi.to_xarray()
         self['se_beta'] = from_dataframe(seb)
 
@@ -1088,15 +1083,15 @@ n=10
 
 beta = np.linspace(.2,5,n)
 
-x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta)
+x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2))
 
-r = cfe.Result(y=np.log(x),z=truth.characteristics)
-
-r.iterated_estimation(VERBOSE=True)
+r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True)
+r.get_predicted_expenditures()
 
 r0 = cfe.Result(y=np.log(x),z=truth.characteristics)
 r0.get_predicted_expenditures()
 #+end_src
+
 *** Test drop_useless_expenditures()
 #+name: test_drop_useless_expenditures
 #+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
