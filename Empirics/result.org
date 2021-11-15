@@ -456,12 +456,15 @@ class Result(xr.Dataset):
                 coeffs, e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
 
                 beta = coeffs[['loglambda']]
+                delta = coeffs[z.columns]
+                delta.columns.name = 'k'
                 coeffs = coeffs.drop('loglambda',axis=1)
                 
                 if VERBOSE: 
                     print(coeffs)
                 #ce.dropna(how='all',inplace=True)
-                ce = e + pd.DataFrame(loglambda)@beta.T  
+                ce = y - z@delta.T
+                ce = ce - ce.mean()
 
                 its += 1
 
