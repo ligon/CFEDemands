@@ -60,7 +60,6 @@ class Result(xr.Dataset):
                  'se_a','firstround','min_proportion_items','min_xproducts',
                  'useless_expenditures','stderr_tol','indices','iterate','verbose','all_tm']
 
-
     def __init__(self, **kwargs):
         """To load data from a netcdf file, use cfe.result.from_dataset().
 
@@ -363,12 +362,18 @@ class Result(xr.Dataset):
 
         Sets beta, loglambdas, and cehat.
         """
-        def my_ols(y,DateLocD,z,loglambda=None,return_se=False,return_v=False,VERBOSE=False):
+        def my_ols(y,z,loglambda=None,return_se=False,return_v=False,VERBOSE=False):
             """Like cfe.estimation.estimate_reduced_form, but estimates
             (time,market) effects directly instead of via within
             transformation.
             """
-            
+
+            # Create location-time dummies
+            DateLocD = use_indices(y,['t','m'])
+            DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
+            DateLocD.index = y.index
+            DateLocD.columns = pd.MultiIndex.from_tuples(DateLocD.columns)
+
             se = pd.DataFrame(columns=y.columns)
             b = OrderedDict()
             ce = pd.DataFrame(index=y.index,columns=y.columns)
@@ -386,20 +391,18 @@ class Result(xr.Dataset):
                 for constant in stdev[stdev==0].index.tolist():
                     warnings.warn("No variation in: %s" % str(constant))
 
-                rhs=rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
-                useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
+                rhs = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
 
-                X = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
+                X = X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
-                # Estimate d & a
+                # Estimate d & b
                 myb,mye = ols(X,lhs,return_se=False,return_v=False,return_e=True) 
                 b[Item] = myb.squeeze()
-                ce[Item] = mye
-
+                ce[Item] = mye # Drop constraint that sums time-effects to zero
+                
                 if return_v or return_se:
-                    V[Item]=arellano_robust_cov(X,ce[Item],clusterby=['t','m'])
-                    se[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
-
+                    V[Item] = arellano_robust_cov(X,ce[Item],clusterby=['t','m'])
+                    se[Item] = pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
 
             se = se.T
 
@@ -422,39 +425,31 @@ class Result(xr.Dataset):
 
             min_obs = self.attrs['min_xproducts']
 
-            y = self.drop_useless_expenditures(as_df=True) # Returns a dataframe
-            y.dropna(how='all',axis=1,inplace=True)
+            y = self.drop_useless_expenditures() # as_df=True) # Returns a dataframe
+            y = y.dropna('i',how='all')
 
-            DateLocD = use_indices(y,['t','m'])
-            DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
-            DateLocD.index = y.index
-            DateLocD.columns = pd.MultiIndex.from_tuples(DateLocD.columns)
+            ce = y - self.z@self.delta - self.a.mean('i')
+
+            ce = to_dataframe(self.ce,'i')
+
+            coeffs_last = 0
+            coeffs = pd.concat([a,d],axis=1)
 
             z = to_dataframe(self.z,'k')
 
-            ce = to_dataframe(self.ce,'i')
-            loglambda = 0
-            coeffs_last = 0
-            d = to_dataframe(self.delta,'k')
-
-            a = to_dataframe(self.a,'i').T
-
-            coeffs = pd.concat([a,d],axis=1)
-
             its = 0
-            while (np.abs(coeffs_last - coeffs).max().max() > tol) or (its < 3):
+            while (its<3) or (np.abs(coeffs_last - coeffs).max().max() > tol):
                 
                 if VERBOSE: 
                     print("Iteration %d, Norm: %f" % (its,np.linalg.norm(coeffs_last-coeffs)))
                 coeffs_last = coeffs
                 bphi,loglambda = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
 
-                z = to_dataframe(self.z,'k')
                 loglambda = loglambda.astype(float)
 
-                #a,ce,d = estimation.estimate_reduced_form(y,rhs,return_se=False,return_v=False,VERBOSE=False)
-                coeffs, e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
+                coeffs, e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
 
+                a = coeffs[DateLocD.columns]
                 beta = coeffs[['loglambda']]
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
@@ -463,12 +458,11 @@ class Result(xr.Dataset):
                 if VERBOSE: 
                     print(coeffs)
                 #ce.dropna(how='all',inplace=True)
-                ce = y - z@delta.T
-                ce = ce - ce.mean()
+                ce = y - z@delta.T - a.groupby(['t','m']).mean()
 
                 its += 1
 
-        coeffs,e,se,V = my_ols(y,DateLocD,z,loglambda,return_se=True,return_v=True,VERBOSE=False)
+        coeffs,e,se,V = my_ols(y,z,loglambda,return_se=True,return_v=True,VERBOSE=False)
 
         a = coeffs[DateLocD.columns]
 
@@ -507,6 +501,10 @@ class Result(xr.Dataset):
         self['loglambdas'] = loglambda.astype(float).to_xarray()
         self['beta'] = bphi.to_xarray()
         self['se_beta'] = from_dataframe(seb)
+
+        self['alpha'] = self.a.sel(t=s.firstround,drop=True)
+        self['se_alpha'] = self.se_a.sel(t=s.firstround,drop=True)
+
 
 
     def get_loglambdas(self,as_df=False):
