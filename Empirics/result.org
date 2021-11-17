@@ -391,9 +391,7 @@ class Result(xr.Dataset):
                 for constant in stdev[stdev==0].index.tolist():
                     warnings.warn("No variation in: %s" % str(constant))
 
-                rhs = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
-
-                X = X.loc[:,X.std()>0] # Drop  any X cols with no variation
+                X = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
 
                 # Estimate d & b
                 myb,mye = ols(X,lhs,return_se=False,return_v=False,return_e=True) 
@@ -425,17 +423,21 @@ class Result(xr.Dataset):
 
             min_obs = self.attrs['min_xproducts']
 
-            y = self.drop_useless_expenditures() # as_df=True) # Returns a dataframe
-            y = y.dropna('i',how='all')
+            self.drop_useless_expenditures() # as_df=True) # Returns a dataframe
+            y = self.y.dropna('i',how='all')
 
             ce = y - self.z@self.delta - self.a.mean('i')
 
             ce = to_dataframe(self.ce,'i')
 
-            coeffs_last = 0
-            coeffs = pd.concat([a,d],axis=1)
+            coeffs_last = np.inf
+            coeffs = 0
 
+            y = to_dataframe(y,'i')
             z = to_dataframe(self.z,'k')
+
+            dm = use_indices(y,['t','m'])
+            dm = sorted(set(zip(dm['t'],dm['m'])))
 
             its = 0
             while (its<3) or (np.abs(coeffs_last - coeffs).max().max() > tol):
@@ -449,8 +451,7 @@ class Result(xr.Dataset):
 
                 coeffs, e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
 
-                a = coeffs[DateLocD.columns]
-                beta = coeffs[['loglambda']]
+                a = coeffs[dm]
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
                 coeffs = coeffs.drop('loglambda',axis=1)
@@ -464,16 +465,16 @@ class Result(xr.Dataset):
 
         coeffs,e,se,V = my_ols(y,z,loglambda,return_se=True,return_v=True,VERBOSE=False)
 
-        a = coeffs[DateLocD.columns]
+        a = coeffs[dm]
 
-        a.columns = pd.MultiIndex.from_tuples(a.columns)
+        a.columns = pd.MultiIndex.from_tuples(dm)
         a.columns.names = ['t','m']
 
         d = coeffs[z.columns]
         bphi = coeffs['loglambda']
 
         seb = se['loglambda']
-        sea = se[DateLocD.columns]
+        sea = se[dm]
         sea.columns = pd.MultiIndex.from_tuples(sea.columns)
         sea.columns.names = ['t','m']
 
@@ -504,7 +505,6 @@ class Result(xr.Dataset):
 
         self['alpha'] = self.a.sel(t=s.firstround,drop=True)
         self['se_alpha'] = self.se_a.sel(t=s.firstround,drop=True)
-
 
 
     def get_loglambdas(self,as_df=False):
