@@ -452,6 +452,9 @@ class Result(xr.Dataset):
                 coeffs, e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
 
                 a = coeffs[dm]
+                a.columns = pd.MultiIndex.from_tuples(dm)
+                a.columns.names = ['t','m']
+
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
                 coeffs = coeffs.drop('loglambda',axis=1)
