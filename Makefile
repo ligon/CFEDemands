@@ -15,7 +15,7 @@ tangle: .tangle
 
 test: .test 
 
-.test: $(ORG_INPUTS)
+.test: .tangle
 	pytest cfe/test/
 	touch .test
 
