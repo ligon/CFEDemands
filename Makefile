@@ -43,3 +43,4 @@ clean:
 	-rm -f CHANGES.txt
 	-rm -f .test
 	-rm -f .tangle
+        -rm -f cfe/test/*
