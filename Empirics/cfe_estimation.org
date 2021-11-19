@@ -457,7 +457,7 @@ print(X)
 print(Xhat)
 print((X0-Xhat)/X0)
 
-assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf) < 1e-2
+assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf)//np.sqrt(np.prod(X0.shape)) < 1e-2
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
