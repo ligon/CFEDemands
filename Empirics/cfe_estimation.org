@@ -419,7 +419,7 @@ import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
 
-(n,m)=(5,3)
+(n,m)=(1000,500)
 a=np.random.normal(size=(n,1))
 b=np.random.normal(size=(1,m))
 e=np.random.normal(size=(n,m))*1e-5*0
@@ -429,13 +429,13 @@ X0=np.array([[-0.22,  0.32, -0.43],
              [-0.22,  0.31, -0.42],
              [0.01, -0.03,  0.04],
              [-0.21, 0.31, -0.38]])
-#X0 = np.outer(a,b) + e
+X0 = np.outer(a,b) + e
 
-#X0=X0-X0.mean(axis=1).reshape((-1,1))
+X0=X0-X0.mean(axis=1).reshape((-1,1))
 
 X=X0.copy()
-#X[0,0]=np.nan
-#X[0,1]=np.nan
+X[0,0]=np.nan
+X[0,1]=np.nan
 
 X0=pd.DataFrame(X0).T
 X=pd.DataFrame(X).T
@@ -456,6 +456,8 @@ print(X0)
 print(X)
 print(Xhat)
 print((X0-Xhat)/X0)
+
+assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf) < 1e-2
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
@@ -528,7 +530,7 @@ else: print()
 
 
 ** Test of construction of approximation to CE
-#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
+#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/NOtest_approximation.py
 import numpy as np
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -537,7 +539,7 @@ import numpy as np
 
 y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
 #y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
-beta,L,dz,p=truth
+beta,L,dz,p=(truth.beta,truth.lambdas,truth.characteristics,truth.prices)
 
 numeraire='x0'
 
