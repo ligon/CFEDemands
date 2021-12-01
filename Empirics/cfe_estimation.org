@@ -419,7 +419,7 @@ import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
 
-(n,m)=(5,3)
+(n,m)=(1000,500)
 a=np.random.normal(size=(n,1))
 b=np.random.normal(size=(1,m))
 e=np.random.normal(size=(n,m))*1e-5*0
@@ -429,13 +429,13 @@ X0=np.array([[-0.22,  0.32, -0.43],
              [-0.22,  0.31, -0.42],
              [0.01, -0.03,  0.04],
              [-0.21, 0.31, -0.38]])
-#X0 = np.outer(a,b) + e
+X0 = np.outer(a,b) + e
 
-#X0=X0-X0.mean(axis=1).reshape((-1,1))
+X0=X0-X0.mean(axis=1).reshape((-1,1))
 
 X=X0.copy()
-#X[0,0]=np.nan
-#X[0,1]=np.nan
+X[0,0]=np.nan
+X[0,1]=np.nan
 
 X0=pd.DataFrame(X0).T
 X=pd.DataFrame(X).T
@@ -456,6 +456,8 @@ print(X0)
 print(X)
 print(Xhat)
 print((X0-Xhat)/X0)
+
+assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf)//np.sqrt(np.prod(X0.shape)) < 1e-2
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data_example
@@ -528,7 +530,7 @@ else: print()
 
 
 ** Test of construction of approximation to CE
-#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/test.py
+#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/NOtest_approximation.py
 import numpy as np
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -537,7 +539,7 @@ import numpy as np
 
 y,truth=artificial_data(T=1,N=1000,n=12,sigma_e=1e-1)
 #y,truth=artificial_data(T=2,N=20,n=6,sigma_e=1e-8)
-beta,L,dz,p=truth
+beta,L,dz,p=(truth.beta,truth.lambdas,truth.characteristics,truth.prices)
 
 numeraire='x0'
 
@@ -853,7 +855,7 @@ n = 20
 k = 2
 
 def some_result(M,T):
-    x, stuff = cfe.dgp.expenditures(J,T,M,n,k,np.linspace(0,1,n))
+    x, stuff = cfe.dgp.expenditures(J,T,M,n,k,np.linspace(0,1,n),rho_lz=0)
 
     y = np.log(x)
 
@@ -2119,7 +2121,7 @@ def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
 <<measurement_error_dgp>>
 
-def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None):
+def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None,rho_lz=0):
     """Generate artificial expenditures for $N$ households in $M$ markets
     over $T$ periods on $n$ items.  Return dataframe of expenditures
     and a dictionary of "true" underlying variables, the latter as
@@ -2138,6 +2140,9 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
 
     An optional xarray of prices =p= can also be provided.
 
+    A parameter rho_lz (with default of zero) can be specified to
+    induce a correlation between characteristics z and log lambdas.
+
     Ethan Ligon                                                     January 2018
     """
 
@@ -2152,7 +2157,9 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
     
     foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
 
-    dz = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
+    z = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
+
+    l = l*(z**rho_lz).prod('k') 
 
     L = np.reshape(l,(N,T,M)) 
     
@@ -2163,13 +2170,13 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
     #x = np.kron(np.log(L),-beta)
     x = np.log(L)*(-beta)
     x = x + np.log(p) - (Theta*np.log(p)).sum('ip') 
-    x = x + np.log(dz).sum('k')
+    x = x + np.log(z).sum('k')
 
     x = np.exp(x)
 
     phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
 
-    truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':dz,'prices':p,'x0':x})
+    truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':z,'prices':p,'x0':x})
 
     x = (x + p*phi) # Additive error
     x = x*e # Multiplicative error
