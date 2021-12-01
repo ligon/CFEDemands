@@ -342,7 +342,7 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
             
         u,s = heteropca(P,r=r,max_its=max_its,tol=tol)
     
-    us=u@np.diag(s) # Use new @ operator for matrix multiplication
+    us=u@np.diag(s)
 
     v=np.zeros((len(s),A.shape[1]))
     for j in range(A.shape[1]):
