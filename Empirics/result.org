@@ -365,7 +365,7 @@ class Result(xr.Dataset):
         self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = V
 
-    def iterated_estimation(self,VERBOSE=False,tol=1e-12):
+    def iterated_estimation(self,VERBOSE=False,tol=1e-13):
         """Estimate (delta,beta,loglambda).
 
         Sets beta, loglambdas, and cehat.
@@ -382,7 +382,9 @@ class Result(xr.Dataset):
             V = OrderedDict()
 
             for i,Item in enumerate(y.columns):
-                if VERBOSE: print(Item)
+                if VERBOSE: 
+                    print(Item,end='')
+                    print()
 
                 if loglambda is None:
                     lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
@@ -443,17 +445,17 @@ class Result(xr.Dataset):
 
             coeffs = 0 # pd.concat([a,d],axis=1)
             its = 0
-            while  (its < 3) or (np.linalg.norm(coeffs_last - coeffs) > tol):
+            while  (its < 5) or (np.linalg.norm(coeffs_last - coeffs) > tol):
                 
                 if (its>1) and VERBOSE: 
-                    print("Iteration %d, Norm: %f" % (its,np.linalg.norm(coeffs_last-coeffs)))
+                    print("Iteration %d, Norm: %g" % (its,np.linalg.norm(coeffs_last-coeffs)))
                 coeffs_last = coeffs
                 bphi,loglambda = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
 
                 z = to_dataframe(self.z,'k')
                 loglambda = loglambda.astype(float)
 
-                coeffs,e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
+                coeffs,e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=False)
 
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
@@ -462,6 +464,7 @@ class Result(xr.Dataset):
                     print(coeffs)
                 #ce.dropna(how='all',inplace=True)
                 ce = y - z@delta.T
+                ce = ce - ce.mean()
                 
                 its += 1
 
@@ -627,7 +630,7 @@ class Result(xr.Dataset):
         """
         if is_none(self.yhat):
             cehat = self.get_cehat()
-            self['yhat'] = cehat + self.z.dot(self.delta) + self.a
+            self['yhat'] = cehat + self.z@self.delta + self.a
 
             self['e'] = self.y - self.yhat
 
@@ -1093,8 +1096,8 @@ beta = np.linspace(.2,5,n)
 
 x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2))
 
-#r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
-#r.get_predicted_expenditures()
+r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
+r.get_predicted_expenditures()
 
 r0 = cfe.Result(y=np.log(x),z=truth.characteristics)
 r0.get_predicted_expenditures()
