@@ -1083,18 +1083,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 #import warnings
 
-N=500 
+N=1000 
 T=3 
 M=1 
-n=12 
+n=20
 k=3 
-n=10
+
 
 #warnings.filterwarnings('error')
 
-beta = np.linspace(.2,5,n)
+beta = np.linspace(.2,2,n)
 
-x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2))
+x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2),rho_lz=0.3)
 
 r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
 r.get_predicted_expenditures()
