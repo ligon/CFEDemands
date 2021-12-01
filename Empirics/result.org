@@ -432,16 +432,23 @@ class Result(xr.Dataset):
 
             min_obs = self.attrs['min_xproducts']
 
-            self.drop_useless_expenditures() # as_df=True) # Returns a dataframe
+            self.drop_useless_expenditures() 
             y = self.y.dropna('i',how='all')
 
             ce = y - self.z@self.delta - self.a.mean('i')
 
             ce = to_dataframe(self.ce,'i')
 
-            coeffs = 0 # pd.concat([a,d],axis=1)
-            its = 0
+            coeffs_last = np.inf
+            coeffs = 0
 
+            y = to_dataframe(y,'i')
+            z = to_dataframe(self.z,'k')
+
+            dm = use_indices(y,['t','m'])
+            dm = sorted(list(set(zip(dm['t'],dm['m']))))
+
+            its = 0
             while  (its < 5) or (np.linalg.norm(coeffs_last - coeffs) > tol):
                 
                 if (its>1) and VERBOSE: 
@@ -451,7 +458,7 @@ class Result(xr.Dataset):
 
                 loglambda = loglambda.astype(float)
 
-                coeffs,e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=False)
+                coeffs,e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=False)
 
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
@@ -461,7 +468,6 @@ class Result(xr.Dataset):
 
                 ce = y - z@delta.T
                 ce = ce - ce.mean()
-                
 
                 its += 1
 
@@ -612,7 +618,7 @@ class Result(xr.Dataset):
         df = df.div(y.var(ddof=0),axis=0)
         df['Total var'] = y.var(ddof=0)
 
-        r2 = 1 - self.e.var()/(self.y+(self.e*0)).var()  # Make sure both e & y sharing missing elements.
+        r2 = 1 - self.e.var(['j','t','m'])/(self.y+(self.e*0)).var(['j','t','m'])  # Make sure both e & y sharing missing elements.
 
         df['$R^2$'] = to_dataframe(r2)
 
