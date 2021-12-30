@@ -356,8 +356,7 @@ class Result(xr.Dataset):
             self['delta'] = from_dataframe(d).to_array('k')
         except AttributeError:
             d.columns.name = 'k'
-            foo = from_dataframe(d)
-            self['delta'] = foo
+            self['delta'] = from_dataframe(d)
 
         self['ce'] = from_dataframe(ce).transpose(*self.y.dims)
         self['se_delta'] = from_dataframe(sed)
@@ -1011,6 +1010,46 @@ print('Time for PC estimation: %g' % (end-start,))
 
 c = np.corrcoef(r0.yhat.values.reshape(-1),r.yhat.values.reshape(-1))[0,1]
 assert c>0.99, "Correlation between predictions of iterated & pc estimator only %f." % c
+#+end_src
+
+*** Test parallel iterated_estimation()
+#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 n=10 :tangle ../cfe/test/test_parallel_estimation.py
+import cfe
+import numpy as np
+import matplotlib.pyplot as plt
+from timeit import default_timer as timer
+from ray.util.multiprocessing import Pool
+
+#import warnings
+
+N=1000 
+T=3 
+M=1 
+n=60
+k=3 
+
+
+#warnings.filterwarnings('error')
+
+beta = np.linspace(.2,2,n)
+
+x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2),rho_lz=0.3)
+
+start = timer()
+r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
+with Pool(6) as rc:
+    r.iterated_estimation(cores=rc)
+    r.get_predicted_expenditures()
+end = timer()
+print('Time for parallel estimation: %g' % (end-start,))
+
+start = timer()
+r0 = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True)
+r.iterated_estimation(cores=None)
+r0.get_predicted_expenditures()
+end = timer()
+print('Time for serial estimation: %g' % (end-start,))
+
 #+end_src
 
 *** Test drop_useless_expenditures()
