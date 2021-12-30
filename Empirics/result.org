@@ -980,6 +980,7 @@ Result.expenditure = _expenditurefunction
 import cfe
 import numpy as np
 import matplotlib.pyplot as plt
+from timeit import default_timer as timer
 #import warnings
 
 N=1000 
@@ -995,14 +996,21 @@ beta = np.linspace(.2,2,n)
 
 x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2),rho_lz=0.3)
 
+start = timer()
 r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
 r.iterated_estimation(cores=None)
 r.get_predicted_expenditures()
+end = timer()
+print('Time for iterated estimation: %g' % (end-start,))
 
+start = timer()
 r0 = cfe.Result(y=np.log(x),z=truth.characteristics)
 r0.get_predicted_expenditures()
+end = timer()
+print('Time for PC estimation: %g' % (end-start,))
 
-
+c = np.corrcoef(r0.yhat.values.reshape(-1),r.yhat.values.reshape(-1))[0,1]
+assert c>0.99, "Correlation between predictions of iterated & pc estimator only %f." % c
 #+end_src
 
 *** Test drop_useless_expenditures()
