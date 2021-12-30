@@ -398,7 +398,7 @@ class Result(xr.Dataset):
         self['se_a'] = from_dataframe(sea)
         self['delta_covariance'] = xr.Dataset(V).to_array(dim='i')
 
-        cehat=np.outer(pd.DataFrame(b),pd.DataFrame(-loglambda).T).T
+        cehat=np.outer(pd.DataFrame(b),pd.DataFrame(loglambda).T).T
         cehat=pd.DataFrame(cehat,columns=b.index,index=loglambda.index)
 
         self['cehat'] = from_dataframe(cehat).transpose(*self.y.dims)
