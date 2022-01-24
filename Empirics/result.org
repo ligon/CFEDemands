@@ -451,7 +451,9 @@ class Result(xr.Dataset):
 
                 loglambda = loglambda.astype(float)
 
-                coeffs,e = my_ols(y,DateLocD,z,loglambda,return_se=False,return_v=False,VERBOSE=False)
+                coeffs, e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
+
+                a = coeffs[dm]
 
                 delta = coeffs[z.columns]
                 delta.columns.name = 'k'
