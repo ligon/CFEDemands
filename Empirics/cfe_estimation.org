@@ -2557,15 +2557,6 @@ def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None, dtype=N
 
   return df
 
-def balance_panel(df):
-    """Drop households that aren't observed in all rounds."""
-    pnl=df.to_panel()
-    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
-    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
-    df.index.names=pd.core.base.FrozenList(['Year','HH'])
-
-    return df
-
 def drop_missing(X,infinities=False):
     """
     Return tuple of pd.DataFrames in X with any 
