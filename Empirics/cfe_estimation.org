@@ -342,7 +342,7 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
             
         u,s = heteropca(P,r=r,max_its=max_its,tol=tol)
     
-    us=u@np.diag(s) # Use new @ operator for matrix multiplication
+    us=u@np.diag(s)
 
     v=np.zeros((len(s),A.shape[1]))
     for j in range(A.shape[1]):
@@ -1538,6 +1538,109 @@ print(x.head())
 
 #+RESULTS:
 
+* Iterated Regression
+
+#+begin_src python :tangle ../cfe/estimation.py
+def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-3,max_its=30,cores=None):
+    """Estimate (delta,beta,loglambda).
+    """
+
+    # Create location-time dummies
+    dm = use_indices(y,['t','m'])
+    DateLocD = pd.get_dummies(zip(dm['t'],dm['m']))
+    dm = sorted(list(set(zip(dm['t'],dm['m']))))
+
+    DateLocD.index = y.index
+    DateLocD.columns = pd.MultiIndex.from_tuples(dm)
+
+    loglambda = pd.Series(np.random.randn(z.shape[0]),index=z.index,name='loglambda')
+    X = pd.concat([z,DateLocD],axis=1)
+    X['loglambda'] = loglambda
+
+    stdev = X.std()
+    for constant in stdev[stdev==0].index.tolist():
+        warnings.warn("No variation in: %s" % str(constant))
+
+    X = X.loc[:,stdev>0] # Drop  any X cols with no variation
+
+    coeffs_last = np.inf
+    coeffs = 0
+
+    its = 0
+    while  (its < 5) or (np.linalg.norm(coeffs_last - coeffs) > tol) and (its < max_its):
+
+        if (its>1) and VERBOSE: 
+            print("Iteration %d, Norm: %g" % (its,np.linalg.norm(coeffs_last-coeffs)))
+            print(coeffs - coeffs_last)
+
+        coeffs_last = coeffs
+
+        def _regress(ycol): # Inherits recently defined X and y
+
+            x,_y = drop_missing([X,y[ycol]])
+            _y = _y.squeeze()
+
+            stdev = x.std()
+            for constant in stdev[stdev==0].index.tolist():
+                warnings.warn("No variation in: %s" % str(constant))
+
+            x = x.loc[:,stdev>0] # Drop  any X cols with no variation
+
+            b = pd.Series(np.linalg.lstsq(x,_y,rcond=None)[0],index=x.columns,name=_y.name)
+
+            e = y[ycol] - x@b  # Include missings in e
+
+            return b,e
+
+        if cores is not None:
+            ests = cores.map(_regress,[i for i in y.columns])
+        else:
+            ests = map(_regress,[i for i in y.columns])
+
+        b,e = zip(*ests)
+        coeffs = pd.DataFrame(b,index=y.columns)
+        e = pd.DataFrame(e,index=y.columns).T
+
+        delta = coeffs[z.columns]
+        delta.columns.name = 'k'
+
+        ce = y - z@delta.T
+        ce = ce - ce.mean()
+
+        X['loglambda'] = get_loglambdas(ce)[1]
+
+        its += 1
+
+    if VERBOSE and its >= max_its: print("Exceeded max_its")
+
+    a = coeffs[dm]
+    a.columns = pd.MultiIndex.from_tuples(dm)
+    a.columns.names = ['t','m']
+    b = coeffs['loglambda']
+
+    d = coeffs[z.columns]
+
+    out = [a,b,d,e,X['loglambda']]
+
+    V = {}
+    SE = {}
+    if return_se or return_v:
+        usecols = z.columns.tolist() + ['loglambda']
+        for Item in e.columns:
+            v = arellano_robust_cov(X[usecols],e[Item])
+            V[Item] = v
+            se = dict(zip(usecols,np.sqrt(np.diag(V[Item])))) # reduced form se on characteristics
+              
+            stderrs = (e[Item].groupby(['t','m']).std()/np.sqrt(e[Item].groupby(['t','m']).count())).tolist()
+            se.update(dict(zip(dm,stderrs)))
+            SE[Item] = pd.Series(se)
+
+        SE = pd.DataFrame(SE).T
+        out = out + [SE,V]
+
+    return tuple(out)
+
+#+end_src
 * Analysis Omnibus
   This describes a sort of `wrapper' routine which at a minimum takes
   as input a =pd.DataFrame= of log expenditures, indexed by household,
@@ -2692,6 +2795,7 @@ def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
         Xbar = X.mean()
 
     ut = (u - ubar).squeeze()
+    assert len(ut.shape)==1, "Errors should be a vector or series"
     Xt = X - Xbar
 
     # Pull out columns spanned by cluster vars to get var of FEs
