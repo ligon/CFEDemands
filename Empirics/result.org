@@ -855,7 +855,7 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
 
 #+name: result_demand_interface
 #+begin_src python :noweb no-export :results output :tangle ../cfe/result.py
-from cfe import demands
+import demands
 import pandas as pd
 
 def _demand_parameters(self,p=None,z=None):
