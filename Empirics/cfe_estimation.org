@@ -1613,8 +1613,9 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
 
     if VERBOSE and its >= max_its: print("Exceeded max_its")
 
-    a = coeffs[dm]
-    a.columns = pd.MultiIndex.from_tuples(dm)
+    my_dm = coeffs.columns.intersection(dm)
+    a = coeffs[my_dm]
+    a.columns = pd.MultiIndex.from_tuples(my_dm)
     a.columns.names = ['t','m']
     b = coeffs['loglambda']
 
@@ -1632,7 +1633,7 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
             se = dict(zip(usecols,np.sqrt(np.diag(V[Item])))) # reduced form se on characteristics
               
             stderrs = (e[Item].groupby(['t','m']).std()/np.sqrt(e[Item].groupby(['t','m']).count())).tolist()
-            se.update(dict(zip(dm,stderrs)))
+            se.update(dict(zip(my_dm,stderrs)))
             SE[Item] = pd.Series(se)
 
         SE = pd.DataFrame(SE).T
