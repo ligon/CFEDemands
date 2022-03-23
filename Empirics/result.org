@@ -394,7 +394,7 @@ class Result(xr.Dataset):
 
         self['e'] = from_dataframe(e.stack()).transpose(*self.y.dims)
         self['se_delta'] = from_dataframe(sed)
-        self['se_a'] = from_dataframe(sea)
+        self['se_a'] = from_dataframe(sea,'i')
         self['delta_covariance'] = xr.Dataset(V).to_array(dim='i')
 
         cehat=np.outer(pd.DataFrame(b),pd.DataFrame(loglambda).T).T
@@ -404,7 +404,7 @@ class Result(xr.Dataset):
         self['ce'] = self['cehat'] + self['e']
         self['loglambdas'] = loglambda.astype(float).to_xarray()
         self['beta'] = -b.to_xarray()
-        self['se_beta'] = from_dataframe(seb)
+        self['se_beta'] = from_dataframe(seb,'i')
 
         if self.attrs['common_alpha']:
             self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
