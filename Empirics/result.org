@@ -393,7 +393,7 @@ class Result(xr.Dataset):
             self['delta'] = from_dataframe(d)
 
         self['e'] = from_dataframe(e.stack()).transpose(*self.y.dims)
-        self['se_delta'] = from_dataframe(sed)
+        self['se_delta'] = from_dataframe(sed,'i')
         self['se_a'] = from_dataframe(sea,'i')
         self['delta_covariance'] = xr.Dataset(V).to_array(dim='i')
 
