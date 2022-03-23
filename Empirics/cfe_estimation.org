@@ -2935,95 +2935,98 @@ from cfe.dgp import expenditures
 from cfe.result import to_dataframe
 
 # r packages 
-from rpy2.robjects import r, pandas2ri
-from rpy2.robjects.packages import importr
-from rpy2.robjects.conversion import localconverter
-import rpy2.robjects as ro
+try:
+    from rpy2.robjects import r, pandas2ri
+    from rpy2.robjects.packages import importr
+    from rpy2.robjects.conversion import localconverter
+    import rpy2.robjects as ro
 
-def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
-    x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
-    y=np.log(x+0.001)
-    return y,truth
+    def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
+        x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
+        y=np.log(x+0.001)
+        return y,truth
 
-def test_arellano():
-    # make data that is a panel type (i, m, t) so that the clusters/FE can be over (m, t)
-    y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
+    def test_arellano():
+        # make data that is a panel type (i, m, t) so that the clusters/FE can be over (m, t)
+        y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
 
-    y = to_dataframe(y,['j','t','m']).T
-    dz = to_dataframe(truth['characteristics'],['j','t','m']).T
-    dz=np.log(dz+0.01)
+        y = to_dataframe(y,['j','t','m']).T
+        dz = to_dataframe(truth['characteristics'],['j','t','m']).T
+        dz=np.log(dz+0.01)
 
-    DateLocD = use_indices(y,['t','m'])
-    DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
-    DateLocD.index = y.index
+        DateLocD = use_indices(y,['t','m'])
+        DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
+        DateLocD.index = y.index
 
-    for i,Item in enumerate(y.columns):
-        lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([dz,DateLocD],axis=1)])
-        useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
+        for i,Item in enumerate(y.columns):
+            lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([dz,DateLocD],axis=1)])
+            useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
 
-        # demean
-        lhsbar=lhs.mean(axis=0)
-        lhs=lhs-lhsbar
-        lhs=lhs-lhs.mean(axis=0)
+            # demean
+            lhsbar=lhs.mean(axis=0)
+            lhs=lhs-lhsbar
+            lhs=lhs-lhs.mean(axis=0)
 
-        rhsbar=rhs.mean(axis=0)
-        rhs=rhs-rhsbar
-        rhs=rhs-rhs.mean(axis=0)
+            rhsbar=rhs.mean(axis=0)
+            rhs=rhs-rhsbar
+            rhs=rhs-rhs.mean(axis=0)
 
-        ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
-        znil=pd.DataFrame([[0]*dz.shape[1]],index=[(-1,0,0)],columns=dz.columns)
-        timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
+            ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
+            znil=pd.DataFrame([[0]*dz.shape[1]],index=[(-1,0,0)],columns=dz.columns)
+            timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
-        X=rhs.append(znil.join(timednil))
-        X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
-        lhs = lhs.append(ynil)
+            X=rhs.append(znil.join(timednil))
+            X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
+            lhs = lhs.append(ynil)
 
-        df = lhs.join(X)
-        df.columns = ['y', 'a', 'b', 'fe1', 'fe2']
+            df = lhs.join(X)
+            df.columns = ['y', 'a', 'b', 'fe1', 'fe2']
 
-        # # # # # 
-        # my ols
-        cannedols = sm.ols(formula = "y ~ a + b + fe1 + fe2 -1", data = df).fit(cov_type='cluster',
-            cov_kwds={'groups': np.array(df[['fe1', 'fe2']])},
-            use_t=True)
+            # # # # # 
+            # my ols
+            cannedols = sm.ols(formula = "y ~ a + b + fe1 + fe2 -1", data = df).fit(cov_type='cluster',
+                cov_kwds={'groups': np.array(df[['fe1', 'fe2']])},
+                use_t=True)
 
-        canned_b = cannedols.params
-        # # # # #
-        # try variances in R
-        base = importr('base')
-        utils = importr('utils')
-        sandwich = importr('sandwich')
+            canned_b = cannedols.params
+            # # # # #
+            # try variances in R
+            base = importr('base')
+            utils = importr('utils')
+            sandwich = importr('sandwich')
 
-        with localconverter(ro.default_converter + pandas2ri.converter):
-          r_from_pd_df = ro.conversion.py2rpy(df.reset_index())
+            with localconverter(ro.default_converter + pandas2ri.converter):
+              r_from_pd_df = ro.conversion.py2rpy(df.reset_index())
 
-        # define a fn in R that estimates the model and calculate  2-way arellano SEs
-        # this is taken from https://www.jstatsoft.org/article/view/v082i03
-        ro.r('''
-        # create a function for estimating the model and arellano SE
-        estimateArellano <- function(df){
-                mod <- lm(y ~ a + b + m + t, data = df)
-                Vcx <- vcovHC(mod, cluster = "group", method = "arellano")
-                Vct <- vcovHC(mod, cluster = "time", method = "arellano")
-                Vw <- vcovHC(mod, method = "white1")
+            # define a fn in R that estimates the model and calculate  2-way arellano SEs
+            # this is taken from https://www.jstatsoft.org/article/view/v082i03
+            ro.r('''
+            # create a function for estimating the model and arellano SE
+            estimateArellano <- function(df){
+                    mod <- lm(y ~ a + b + m + t, data = df)
+                    Vcx <- vcovHC(mod, cluster = "group", method = "arellano")
+                    Vct <- vcovHC(mod, cluster = "time", method = "arellano")
+                    Vw <- vcovHC(mod, method = "white1")
 
-                covmat <- Vcx + Vct - Vw
-                covmat <- covmat[2:3, 2:3]
-                return(covmat)
-        }
-        ''')
-        # call the function
-        myV = ro.r['estimateArellano'](r_from_pd_df)   
+                    covmat <- Vcx + Vct - Vw
+                    covmat <- covmat[2:3, 2:3]
+                    return(covmat)
+            }
+            ''')
+            # call the function
+            myV = ro.r['estimateArellano'](r_from_pd_df)   
 
-        # CFE ols
-        myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True)
-        V = arellano_robust_cov(dz,mye.iloc[:-1,:])
+            # CFE ols
+            myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True)
+            V = arellano_robust_cov(dz,mye.iloc[:-1,:])
 
-        myb.index = canned_b.index
-        # set tolerance 
-        tol = 0.01
-        assert np.sum(np.abs(myb.sub(canned_b, axis= 0).div(myb, axis = 1))).squeeze() < tol, "Betas differ substantially!"
-        assert np.all(np.sum(np.abs((V - myV)/V) < tol)), "Variances differ substatially"
+            myb.index = canned_b.index
+            # set tolerance 
+            tol = 0.01
+            assert np.sum(np.abs(myb.sub(canned_b, axis= 0).div(myb, axis = 1))).squeeze() < tol, "Betas differ substantially!"
+            assert np.all(np.sum(np.abs((V - myV)/V) < tol)), "Variances differ substantially"
+except ModuleNotFoundError:
+    pass # Can't run test, as R stuff not available.
 #+end_src
 
 ** Implementation of iterative Frisch-Waugh-Lovell least squares estimator
