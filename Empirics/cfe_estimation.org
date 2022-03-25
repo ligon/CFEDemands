@@ -1574,6 +1574,7 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
             SE[Item] = pd.Series(se)
 
         SE = pd.DataFrame(SE).T
+        SE.index.name = 'i'
         out = out + [SE,V]
 
     return tuple(out)
