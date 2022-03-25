@@ -358,6 +358,68 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
 
 #+results: svd_missing
 
+Unit test drop_columns_wo_cov function using alternative implementation.
+
+#+name: test_drop_columns_wo_cov
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_drop_columns_wo_cov.py
+from cfe.estimation import drop_columns_wo_covariance
+import pandas as pd
+import numpy as np
+import pytest 
+
+# generate random data
+N = 5
+M = 3
+squaredf = pd.DataFrame(np.random.normal(size=(N, N)))
+rectandf = pd.DataFrame(np.random.normal(size=(N, M)))
+
+# min_obs values to test: 1, ..., M plus None
+min_obs_list = [i for i in range(M)]
+min_obs_list.append(None)
+
+# create test cases by introducing na values
+line = rectandf.copy()
+line.iloc[1, :] = np.NaN
+
+rand = rectandf.copy()
+rand.iloc[1, 1] = np.NaN
+rand.iloc[3, 2] = np.NaN
+
+single = rectandf.copy()
+single.iloc[2,2] = np.NaN
+
+another = rectandf.copy()
+another.iloc[0,1] = np.NaN 
+another.iloc[1,1] = np.NaN 
+another.iloc[2,1] = np.NaN 
+
+@pytest.mark.parametrize("df", [
+    line,
+    rand,
+    single,
+    another
+])
+def test_equal_to_drop_cols(df):
+    results = 0
+    for m in min_obs_list:
+        foo = drop_columns_wo_covariance(df, min_obs=m)
+        baz = df.loc[:,df.count()>=m]
+
+        print(foo)
+
+        # get difference 
+        diff = foo - baz
+        diff = diff.fillna(0)
+
+        if ~((foo.shape == baz.shape) & ((diff < 1e-5).all(axis=None))):
+            results += 1
+
+    assert results == 0
+
+# end rest_drop_columns_wo_cov.py
+
+#+end_src
+
 ** Rank 1 Approximation
 
 Once we've computed the SVD of a matrix we can construct an optimal rank one
@@ -1551,8 +1613,9 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
 
     if VERBOSE and its >= max_its: print("Exceeded max_its")
 
-    a = coeffs[dm]
-    a.columns = pd.MultiIndex.from_tuples(dm)
+    my_dm = coeffs.columns.intersection(dm)
+    a = coeffs[my_dm]
+    a.columns = pd.MultiIndex.from_tuples(my_dm)
     a.columns.names = ['t','m']
     b = coeffs['loglambda']
 
@@ -1570,7 +1633,7 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
             se = dict(zip(usecols,np.sqrt(np.diag(V[Item])))) # reduced form se on characteristics
               
             stderrs = (e[Item].groupby(['t','m']).std()/np.sqrt(e[Item].groupby(['t','m']).count())).tolist()
-            se.update(dict(zip(dm,stderrs)))
+            se.update(dict(zip(my_dm,stderrs)))
             SE[Item] = pd.Series(se)
 
         SE = pd.DataFrame(SE).T
@@ -2599,15 +2662,6 @@ def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None, dtype=N
 
   return df
 
-def balance_panel(df):
-    """Drop households that aren't observed in all rounds."""
-    pnl=df.to_panel()
-    keep=pnl.loc[list(pnl.items)[0],:,:].dropna(how='any',axis=1).iloc[0,:]
-    df=pnl.loc[:,:,keep.index].to_frame(filter_observations=False)
-    df.index.names=pd.core.base.FrozenList(['Year','HH'])
-
-    return df
-
 def drop_missing(X,infinities=False):
     """
     Return tuple of pd.DataFrames in X with any 
@@ -2634,6 +2688,63 @@ def drop_missing(X,infinities=False):
 
 def use_indices(df,idxnames):
     return df.reset_index()[idxnames].set_index(df.index)
+#+END_SRC
+
+#+name: test_df_norm
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/test_df_norm.py
+
+
+import numpy as np
+import pandas as pd
+from cfe.df_utils import df_norm
+from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error  
+from cfe.result import to_dataframe
+import pytest
+
+def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
+    x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
+    y=np.log(x+0.001)
+    return y,truth
+
+a,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
+a = to_dataframe(a,['j','t','m']).T
+# create another random matrix for subtracting 
+b = pd.DataFrame(np.random.normal(size = a.shape), index = a.index, columns = a.columns)
+
+# introduce NAs for a test case
+a_missing = a.copy()
+b_missing = b.copy()
+for i in range(5000):
+    row_a = np.random.randint(low=0, high = a.shape[0])
+    col_a = np.random.randint(low=0, high = a.shape[1])
+    a_missing.iloc[row_a, col_a] = np.NaN
+
+    row_b = np.random.randint(low=0, high = b.shape[0])
+    col_b = np.random.randint(low=0, high = b.shape[1])
+    b_missing.iloc[row_b, col_b] = np.NaN
+
+tol = 1e-4
+
+@pytest.mark.parametrize("m", [
+    a,
+    a_missing,
+])
+def test_norm_onemat(m):
+    mynorm = (m**2).sum().sum()**.5
+    df_norm_norm = df_norm(m)
+    assert np.abs(mynorm - df_norm_norm) < tol
+
+@pytest.mark.parametrize("m, n", [
+    (a, b),
+    (a_missing, b_missing),
+    (a, b_missing),
+    (a_missing, b)
+])
+def test_norm_twomat(m, n):
+    net = m - n
+    mynorm = (net**2).sum().sum()**.5
+    df_norm_norm = df_norm(m, n)
+    assert np.abs(mynorm - df_norm_norm) < tol
 #+END_SRC
 
 #+name: test_df_to_orgtbl_tbl
@@ -2813,7 +2924,108 @@ X['Constant'] = 1
 b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
 #+end_src
 
+Now I test the Arellano robust standard errors using canned R packages.
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_arellano_robust.py
+import cfe
+import pandas as pd
+import statsmodels.formula.api as sm
+import numpy as np
 
+from cfe.df_utils import arellano_robust_cov, ols, use_indices, drop_missing
+from cfe.dgp import expenditures  
+from cfe.result import to_dataframe
+
+# r packages 
+from rpy2.robjects import r, pandas2ri
+from rpy2.robjects.packages import importr
+from rpy2.robjects.conversion import localconverter
+import rpy2.robjects as ro
+
+def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
+    x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
+    y=np.log(x+0.001)
+    return y,truth
+
+def test_arellano():
+    # make data that is a panel type (i, m, t) so that the clusters/FE can be over (m, t)
+    y,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
+
+    y = to_dataframe(y,['j','t','m']).T
+    dz = to_dataframe(truth['characteristics'],['j','t','m']).T
+    dz=np.log(dz+0.01)
+
+    DateLocD = use_indices(y,['t','m'])
+    DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
+    DateLocD.index = y.index
+
+    for i,Item in enumerate(y.columns):
+        lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([dz,DateLocD],axis=1)])
+        useDateLocs=list(set(DateLocD.columns.tolist()).intersection(rhs.columns.tolist()))
+
+        # demean
+        lhsbar=lhs.mean(axis=0)
+        lhs=lhs-lhsbar
+        lhs=lhs-lhs.mean(axis=0)
+
+        rhsbar=rhs.mean(axis=0)
+        rhs=rhs-rhsbar
+        rhs=rhs-rhs.mean(axis=0)
+
+        ynil=pd.DataFrame([0],index=[(-1,0,0)],columns=lhs.columns)
+        znil=pd.DataFrame([[0]*dz.shape[1]],index=[(-1,0,0)],columns=dz.columns)
+        timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
+
+        X=rhs.append(znil.join(timednil))
+        X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
+        lhs = lhs.append(ynil)
+
+        df = lhs.join(X)
+        df.columns = ['y', 'a', 'b', 'fe1', 'fe2']
+
+        # # # # # 
+        # my ols
+        cannedols = sm.ols(formula = "y ~ a + b + fe1 + fe2 -1", data = df).fit(cov_type='cluster',
+            cov_kwds={'groups': np.array(df[['fe1', 'fe2']])},
+            use_t=True)
+
+        canned_b = cannedols.params
+        # # # # #
+        # try variances in R
+        base = importr('base')
+        utils = importr('utils')
+        sandwich = importr('sandwich')
+
+        with localconverter(ro.default_converter + pandas2ri.converter):
+          r_from_pd_df = ro.conversion.py2rpy(df.reset_index())
+
+        # define a fn in R that estimates the model and calculate  2-way arellano SEs
+        # this is taken from https://www.jstatsoft.org/article/view/v082i03
+        ro.r('''
+        # create a function for estimating the model and arellano SE
+        estimateArellano <- function(df){
+                mod <- lm(y ~ a + b + m + t, data = df)
+                Vcx <- vcovHC(mod, cluster = "group", method = "arellano")
+                Vct <- vcovHC(mod, cluster = "time", method = "arellano")
+                Vw <- vcovHC(mod, method = "white1")
+
+                covmat <- Vcx + Vct - Vw
+                covmat <- covmat[2:3, 2:3]
+                return(covmat)
+        }
+        ''')
+        # call the function
+        myV = ro.r['estimateArellano'](r_from_pd_df)   
+
+        # CFE ols
+        myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True)
+        V = arellano_robust_cov(dz,mye.iloc[:-1,:])
+
+        myb.index = canned_b.index
+        # set tolerance 
+        tol = 0.01
+        assert np.sum(np.abs(myb.sub(canned_b, axis= 0).div(myb, axis = 1))).squeeze() < tol, "Betas differ substantially!"
+        assert np.all(np.sum(np.abs((V - myV)/V) < tol)), "Variances differ substatially"
+#+end_src
 
 ** Implementation of iterative Frisch-Waugh-Lovell least squares estimator
 #+begin_src python :tangle /tmp/fwl_test.py
@@ -3027,6 +3239,50 @@ def broadcast_binary_op(x, op, y):
     newdf = op(x[cols],z[cols])
 
     return newdf
+#+END_SRC
+
+Test the merge_multi() function, comparing it to pandas join().
+
+#+name: test_merge_multi
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/test_merge_multi.py
+
+import numpy as np
+import pandas as pd
+from cfe.df_utils import merge_multi
+from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error  
+from cfe.result import to_dataframe
+import pytest
+
+def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
+    x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
+    y=np.log(x+0.001)
+    return y,truth
+
+N = 5000
+tol = 1e-4
+
+a,truth=artificial_data(T=2,N=N,k=2,n=10,sigma_e=1e-10)
+a = to_dataframe(a,['j','t','m']).T
+
+# make a dataframe with a subset of the index of the previous one 
+b = pd.DataFrame(np.random.normal(size=(N,1)), columns = ['b'])
+b.index.names = ['j']
+
+# make one that has some missing info
+b_subset = b.iloc[1:500, :].copy()
+
+
+@pytest.mark.parametrize("b", [
+    b,
+    b_subset,
+])
+def test_merge_multi(b):
+    mymerge = a.join(b)
+    merge_multi_test = merge_multi(a, b, on='j')
+
+    assert np.sum(np.abs(mymerge - merge_multi_test)).sum() <  tol
+
+
 #+END_SRC
 
 #+name: test_broadcast_binary_op
