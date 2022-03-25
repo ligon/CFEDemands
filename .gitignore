@@ -35,3 +35,7 @@ dist/
 /.tangle
 /.test
 /CFEDemands.egg-info/
+/cfe/dgp.py
+/cfe/input_files.py
+/cfe/result.py
+cfe/test/*.py
