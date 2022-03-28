@@ -6,5 +6,5 @@ from .result import Result, from_dataset
 import demands
 from demands import engel_curves
 
-__version__='0.4.0dev0',
+__version__='0.4.1',
 
