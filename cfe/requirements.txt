@@ -105,3 +105,5 @@ scipy >= 1.7.1
 # cfe/test/test_interactive_fixed_effects.py: 6
 # cfe/test/test_optimal_index.py: 23
 xarray >= 2022.3.0
+
+ConsumerDemands
