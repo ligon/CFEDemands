@@ -24,8 +24,13 @@ package data and results described elsewhere, particularly in
 import numpy as np
 import pandas as pd
 from . import estimation 
-import xarray as xr
 import warnings
+
+# Funky warning re: cfgrib from xarray we can't do anything about
+with warnings.catch_warnings():  
+    warnings.filterwarnings("ignore",category=UserWarning)
+    import xarray as xr
+
 from collections import namedtuple, OrderedDict
 from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols, df_norm, use_indices, drop_missing, arellano_robust_cov
 
@@ -375,7 +380,7 @@ class Result(xr.Dataset):
         dm = use_indices(y,['t','m'])
         dm = sorted(list(set(zip(dm['t'],dm['m']))))
 
-        a,b,d,e,loglambda,se,V = estimation.iterated_regression(y,z,return_se=True,return_v=True,VERBOSE=False,cores=cores)
+        a,b,d,e,loglambda,se,V = estimation.iterated_regression(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE,cores=cores)
 
         seb = se['loglambda']
         sea = se[dm]
