@@ -454,6 +454,15 @@ class Result(xr.Dataset):
         else:
             return self.beta
 
+    def get_delta(self,as_df=False):
+        if is_none(self.delta):
+            self.get_reduced_form()
+
+        if as_df:
+            return self.delta.to_dataframe().squeeze().unstack('k').dropna()
+        else:
+            return self.delta
+
     def get_cehat(self,as_df=False,tol=1e-3):
         if is_none(self.beta):
             self.get_loglambdas(tol=tol)
