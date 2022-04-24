@@ -460,13 +460,16 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
 
     xhat=pd.DataFrame(s*v@u.T,columns=x.index,index=x.columns).T
 
-    if TRANSPOSE: xhat=xhat.T
+    if TRANSPOSE: 
+        out = xhat.T
+    else:
+        out = xhat
 
     if return_usv:
         u = pd.Series(u.squeeze(),index=xhat.columns)
         v = pd.Series(v.squeeze(),index=xhat.index)
-        return xhat,u,s,v
-    else: return xhat
+        return out,u,s,v
+    else: return out
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data
