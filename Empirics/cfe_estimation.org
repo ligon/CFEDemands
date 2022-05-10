@@ -466,8 +466,8 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
         out = xhat
 
     if return_usv:
-        u = pd.Series(u.squeeze(),index=xhat.columns)
-        v = pd.Series(v.squeeze(),index=xhat.index)
+        u = pd.Series(u.squeeze(),index=xhat.index)
+        v = pd.Series(v.squeeze(),index=xhat.columns)
         return out,u,s,v
     else: return out
 #+end_src
