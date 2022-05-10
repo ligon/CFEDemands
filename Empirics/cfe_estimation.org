@@ -466,10 +466,15 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
         out = xhat
 
     if return_usv:
-        u = pd.Series(u.squeeze(),index=xhat.index)
-        v = pd.Series(v.squeeze(),index=xhat.columns)
-        return out,u,s,v
-    else: return out
+        u = u.squeeze()
+        if u.shape[0] == xhat.shape[1]:
+            u = pd.Series(u.squeeze(),index=xhat.columns)
+            v = pd.Series(v.squeeze(),index=xhat.index)
+        elif u.shape[0] == xhat.shape[0]:
+            u = pd.Series(u.squeeze(),index=xhat.index)
+            v = pd.Series(v.squeeze(),index=xhat.columns)
+        return xhat,u,s,v
+    else: return xhat
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data
