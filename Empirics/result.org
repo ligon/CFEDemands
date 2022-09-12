@@ -1068,7 +1068,7 @@ print('Time for serial estimation: %g' % (end-start,))
 
 *** Test drop_useless_expenditures()
 #+name: test_drop_useless_expenditures
-#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
+#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/stochastic_test/test_drop_useless_expenditures.py
 from scipy.stats.distributions import chi2
 import cfe
 import numpy as np

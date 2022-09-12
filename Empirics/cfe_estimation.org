@@ -362,7 +362,7 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
 Unit test drop_columns_wo_cov function using alternative implementation.
 
 #+name: test_drop_columns_wo_cov
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_drop_columns_wo_cov.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_drop_columns_wo_cov.py
 from cfe.estimation import drop_columns_wo_covariance
 import pandas as pd
 import numpy as np
@@ -420,6 +420,8 @@ def test_equal_to_drop_cols(df):
 # end rest_drop_columns_wo_cov.py
 
 #+end_src
+
+#+RESULTS: test_drop_columns_wo_cov
 
 ** Rank 1 Approximation
 
@@ -485,7 +487,7 @@ First, some code to check if approximation works for a simple, small
 scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_example
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_svd_rank1_approximation_with_missing_data_example.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_svd_rank1_approximation_with_missing_data_example.py
 import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
@@ -522,6 +524,7 @@ def test_accuracy_of_svd_rank1_approximation():
     assert np.max(np.max(error)<1e-2)
   
 Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
+XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
 
 print(X0)
 print(X)
@@ -984,7 +987,7 @@ def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None,VERBOSE=F
 
     assert e.shape[0]>e.shape[1], "More goods than observations."
 
-    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=VERBOSE,max_rank=max_rank,min_obs=min_obs)
+    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=VERBOSE,max_rank=max_rank,min_obs=min_obs).T
 
     R2 = chat.var()/e.var()
 
@@ -1116,7 +1119,7 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
 
 *** Test of get_loglambdas
 #+name: test_get_loglambdas
-#+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/test/test_get_loglambdas.py
+#+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/stochastic_test/test_get_loglambdas.py
 import numpy as np
 import pandas as pd
 import warnings
@@ -1184,7 +1187,7 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 
 
 #+name: test_artificial_data
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_artificial_data.py 
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_artificial_data.py
 <<artificial_data>>
 
 def test_artificial_data(T=2,N=50,n=5,k=2):
@@ -1198,7 +1201,7 @@ def test_artificial_data(T=2,N=50,n=5,k=2):
 Rather than using an svd to factor residuals, here's an approach that
 directly estimates using interactive fixed effects.
 #+name: test_interactive_fixed_effects
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_interactive_fixed_effects.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_interactive_fixed_effects.py
 <<artificial_data>>
 from cfe.df_utils import use_indices, drop_missing
 import numpy as np
@@ -1276,9 +1279,10 @@ plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_estimate_with_missing.py :exports none
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_estimate_with_missing.py :exports none
 import numpy as np
 from cfe.result import to_dataframe
+
 
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -1336,7 +1340,7 @@ print("Norm of (bphi,beta): %f" % np.var(bphi/truth['beta'])) # Funny norm deals
 
 C = pd.DataFrame({"L0":to_dataframe(np.log(truth['lambdas'])),"Lhat":logL.squeeze()}).corr()
 print("Correlation of log lambda with estimate (after normalization): %f" % C.values[0][-1])
-assert C.values[0][-1]>0.97, "loglambda correlation with truth too low."
+assert C.values[0][-1]>0.95, "loglambda correlation with truth too low."
 
 print("Mean of errors:")
 print(e.mean(axis=0))
@@ -1946,7 +1950,7 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
 ** Test
 
 #+name: test_elasticities_equal
-#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/test_elasticities_equal.py
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/stochastic_test/test_elasticities_equal.py
 <<elasticities_equal>>
 
 N = 10000
@@ -2709,7 +2713,7 @@ def use_indices(df,idxnames):
 #+END_SRC
 
 #+name: test_df_norm
-#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/test_df_norm.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_df_norm.py
 
 
 import numpy as np
@@ -2904,7 +2908,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 
 *** Tests
 Start with super basic test of OLS standard errors:
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_ols_cov.py
 import cfe
 import numpy as np
 import pandas as pd
@@ -2924,7 +2928,7 @@ np.testing.assert_allclose(u[['u']] - u['u'].mean(),e,atol=1/np.sqrt(N),err_msg=
 #+results:
 
 Next try just constructing multiple equation covariance matrix
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_ols_cov.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_ols_cov.py
 import cfe
 import pylab as pl
 import numpy as np
@@ -3269,7 +3273,7 @@ def broadcast_binary_op(x, op, y):
 Test the merge_multi() function, comparing it to pandas join().
 
 #+name: test_merge_multi
-#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/test_merge_multi.py
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/stochastic_test/test_merge_multi.py
 
 import numpy as np
 import pandas as pd
