@@ -835,7 +835,7 @@ z = parts['characteristics'].to_dataframe('z').unstack('k')
 z.columns = z.columns.droplevel(0)
 z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
 
-b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)[:-1]
+b,ce,d,se,sea,V = estimate_reduced_form(np.log(x),np.log(z),return_se=True,return_v=True)
 
 z2 = ((d-1)/se)**2
 
@@ -847,7 +847,8 @@ print(p)
 #+END_SRC
 
 #+results: test_estimate_reduced_form
-: [[ 0.82896109]]
+: Missing dependencies for OracleDemands.
+: 0.9975482209057683
 
 The preceding creates a random sample with  known parameters =d=;
 estimates of =d= should all be equal to 1 in expectation.  We
@@ -897,7 +898,7 @@ Vee=[]
 for i in range(DRAWS):
     <<test_estimate_reduced_form>>
     Dee.append(d.values.squeeze().tolist())
-    Jay.append(J[0,0])
+    Jay.append(J)
     Vee.append(V.squeeze().values.tolist())
 
 Dee=np.array(Dee)
