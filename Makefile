@@ -44,3 +44,4 @@ clean:
 	-rm -f .test
 	-rm -f .tangle
 	-rm -f cfe/test/*.py
+	-rm -f cfe/stochastic_test/*.py
