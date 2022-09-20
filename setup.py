@@ -1,12 +1,8 @@
 from distutils.core import setup
 import sys
 
-if not sys.version_info[0] == 2:
-    sys.exit("Sorry, Python 3 is not supported (yet)")
-
 setup(
     name='CFEDemands',
-    version='0.1.4.2dev',
     author='Ethan Ligon',
     author_email='ligon@berkeley.edu',
     packages=['cfe',],
@@ -14,4 +10,7 @@ setup(
     description='Tools for estimating and computing Constant Frisch Elasticity (CFE) demands.',
     url='https://bitbucket.org/ligonresearch/cfedemands',
     long_description=open('README.txt').read(),
+    setup_requires = ['pytest_runner'],
+    tests_require = ['pytest']
 )
+

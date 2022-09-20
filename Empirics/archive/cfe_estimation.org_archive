@@ -1,0 +1,202 @@
+#    -*- mode: org -*-
+
+
+Archived entries from file /home/ethanligon/Research/CFEDemands/Empirics/cfe_estimation.org
+
+
+* COMMENT Simple reduced form
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2019-02-15 Fri 10:07
+  :ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/cfe_estimation.org
+  :ARCHIVE_CATEGORY: cfe_estimation
+  :END:
+
+    This code takes as input time-varying household-level data on log
+    expenditures and characteristics, and takes data defining
+    markets.  Estimation proceeds by regressing log expenditures on
+    characteristics and a good-specific constant.
+
+#+name: simple_reduced_form
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
+  import xarray as xr
+  import warnings
+  import sys
+  from collections import OrderedDict
+  from cfe.df_utils import drop_missing, ols, arellano_robust_cov, broadcast_binary_op, use_indices, df_norm, to_dataframe, is_none, from_dataframe
+
+  def simple_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
+    """Estimate reduced-form CFE expenditure system.
+
+    Inputs:
+        - y : xarray of log expenditures with coordinates (i,j,t,m), 
+              where j indexes the household, t the period, and m the market.  
+              Different expenditure items are indexed by i.
+
+        - z : xarray of household characteristics; coordinates are (k,j,t,m),
+              with different characteristics indexed by k.
+
+    Outputs: 
+        - d : Estimated coefficients associated with characteristics z
+              (and good-specific constants).
+
+        - ce : Residuals (can be provided as an input to get_log_lambdas()).
+
+        - V : (Optional, if return_V) Estimated covariance matrix of coefficients.
+
+        - se : (Optional, if return_se) Estimated standard error of coefficients.
+
+    Ethan Ligon                                            July 2018
+    """
+
+    b = OrderedDict()
+    ce = OrderedDict()
+    V = OrderedDict()
+    se = OrderedDict()
+
+    constant = 1+0*z[0]
+    constant.coords['k'] = 'Constant'
+
+    myz = xr.concat([constant,z],'k')
+    rhs = to_dataframe(myz,column_index='k')
+
+    for i,Item in enumerate(y.coords['i'].values):
+        if VERBOSE: print(Item)
+
+        lhs = to_dataframe(y.sel(i=Item,drop=True)).loc[rhs.index].dropna()
+        X = rhs.loc[lhs.index,:]
+
+        # Estimate d & b
+        myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True) 
+
+        b[Item] = myb.T.squeeze().to_xarray()
+
+        ce[Item]=mye.squeeze().to_xarray()
+
+        if return_v or return_se:
+            V[Item]=arellano_robust_cov(X,mye,clusterby=['t','m'])
+            se[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
+
+    b = xr.Dataset(b).to_array(dim='i')
+    ce = xr.concat(ce.values(),dim='i')
+    ce.coords['i'] = b.coords['i']
+
+    out = [b,ce]
+    if return_se:
+        se = xr.Dataset(se).to_array(dim='i')
+        out += [se]
+    if return_v:
+        V = xr.Dataset(V).to_array(dim='i')
+        out += [V]
+    return out
+#+END_SRC
+
+** Test
+   If we use a set of fixed parameters to generate artificial data, we
+   should be able to recover some of these parameters from =estimate_reduced_form=.
+   Below we construct a simple test of this.
+#+name: test_estimate_reduced_form
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/NOtest_estimate_reduced_form.py
+from scipy.stats.distributions import chi2
+
+# Tangling may not include :vars from header
+try: 
+    N
+except NameError: # :var inputs not set?
+    N=5000
+    T=1
+    n=6
+
+<<lambdas_dgp>>
+<<characteristics_dgp>>
+<<prices_dgp>>
+<<expenditures_dgp>>
+<<estimate_reduced_form>>
+
+x,parts = expenditures(N,T,1,n,2,np.array([0.5,1.,1.5,2.,2.5,3.]),sigma_phi=0.0,sigma_eps=0.01)
+x = x.where(x>0,np.nan)  # Zeros to missing
+
+x = x.rename({'m':'mkt'}).to_dataframe('x').unstack('i')
+x.columns = x.columns.droplevel(0)
+
+z = parts['characteristics'].rename({'m':'mkt'}).to_dataframe('z').unstack('k')
+z.columns = z.columns.droplevel(0)
+z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
+
+b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)[:-1]
+
+z2 = ((d-1)/se)**2
+
+J=z2.sum().sum()
+p=(1 - chi2.cdf(J,len(z2)))
+assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1: (d,se)=(%s,%s)" % (d,se)
+
+print(p)
+#+END_SRC
+
+#+results: test_estimate_reduced_form
+: [[ 0.82896109]]
+
+The preceding creates a random sample with  known parameters =d=;
+estimates of =d= should all be equal to 1 in expectation.  We
+construct a statistic =J= which should be asymptotically distributed
+$\chi^2$.  The code below resamples to  determine whether in fact we
+match the correct distribution.  We construct  a =pp_plot= which
+should deliver a line close to 45 degrees if all is well.
+
+#+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
+import pylab as pl
+
+# Tangling may not include :vars from header
+try: 
+    DRAWS
+except NameError: # :var inputs not set?
+    DRAWS = 200
+
+T=1
+N=1000
+n=6
+
+def empirical_cdf(x):
+    """
+    Return the empirical cdf of a univariate vector or series x.
+    """
+    x=np.array(x)
+
+    return lambda p: (x<p).mean()
+
+def pp_plot(F,G,interval=(0,1),npts=100):
+    """
+    Construct p-p plot of cdf F vs CDF G.
+    """
+    Q=np.linspace(interval[0],interval[1],npts)
+    xy=[]
+    for q in Q:
+        xy.append([F(q),G(q)])
+
+    xy=np.array(xy)
+    ax=pl.plot(xy[:,0],xy[:,1])
+
+    return xy
+
+Jay=[]
+Dee=[]
+Vee=[]
+for i in range(DRAWS):
+    <<test_estimate_reduced_form>>
+    Dee.append(d.values.squeeze().tolist())
+    Jay.append(J[0,0])
+    Vee.append(V.squeeze().values.tolist())
+
+Dee=np.array(Dee)
+Jay=np.array(Jay)
+Vee=np.array(Vee)
+
+F=empirical_cdf(Jay)
+G=lambda x: chi2.cdf(x,len(g))
+
+xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
+
+assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
+#+END_SRC
+
+

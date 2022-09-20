@@ -31,3 +31,11 @@ dist/
 /cfe/test/price_elasticities.py
 /cfe/test/svd_rank1_approximation_with_missing_data_example.py
 /cfe/test/svd_rank1_approximation_with_missing_data_test.py
+.cache/
+/.tangle
+/.test
+/CFEDemands.egg-info/
+/cfe/dgp.py
+/cfe/input_files.py
+/cfe/result.py
+cfe/test/*.py
