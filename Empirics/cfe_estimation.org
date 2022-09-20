@@ -34,6 +34,8 @@ corresponding to period-households, indexed by $(t,j)$.
 
 #+name: agg_shares_and_mean_shares
 #+begin_src python :exports none :tangle ../cfe/estimation.py
+#name: agg_shares_and_mean_shares
+
 import pylab as pl 
 import pandas as pd
 import numpy as np
@@ -185,6 +187,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
 
 #+name: group_expenditures
 #+begin_src python :noweb yes :tangle ../cfe/estimation.py
+#name: group_expenditures
 def group_expenditures(df,groups):
     myX=pd.DataFrame(index=df.index)
     for k,v in groups.items():
@@ -213,6 +216,8 @@ that if this is a small integer one is more apt to obtain estimates
 of the covariance matrix which are  not positive definite.
 #+name: svd_missing
 #+BEGIN_SRC python
+#name: svd_missing
+
 import numpy as np
 import warnings
 
@@ -363,6 +368,7 @@ Unit test drop_columns_wo_cov function using alternative implementation.
 
 #+name: test_drop_columns_wo_cov
 #+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_drop_columns_wo_cov.py
+#name: test_drop_columns_wo_cov
 from cfe.estimation import drop_columns_wo_covariance
 import pandas as pd
 import numpy as np
@@ -422,6 +428,7 @@ def test_equal_to_drop_cols(df):
 #+end_src
 
 #+RESULTS: test_drop_columns_wo_cov
+: Missing dependencies for OracleDemands.
 
 ** Rank 1 Approximation
 
@@ -431,6 +438,7 @@ the first eigenvalue, andn the first right eigenvector.
 
 #+name: svd_rank1_approximation_with_missing_data
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
+#name: svd_rank1_approximation_with_missing_data
 import pandas as pd
 <<svd_missing>>
 
@@ -488,6 +496,7 @@ scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_example
 #+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_svd_rank1_approximation_with_missing_data_example.py
+#name: svd_rank1_approximation_with_missing_data_example
 import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
@@ -556,6 +565,7 @@ assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf)//np.sqrt(np.prod(X0.shape)) < 1e-
 
 #+name: svd_rank1_approximation_with_missing_data_test
 #+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle ../cfe/test/svd_rank1_approximation_with_missing_data_test.py
+#name: svd_rank1_approximation_with_missing_data_test
 import numpy as np
 import pandas as pd
 
@@ -651,6 +661,9 @@ P=pd.DataFrame({'Rice':[4,5,4,5,6,5,6,7,6,7,8,7],
 
 numeraire='Rice'
 #+END_SRC
+
+#+RESULTS:
+
 Note that not all goods for which household level expenditures are
 observed need to have  price supplied.  If prices for one good are
 supplied, it should be the numéraire; if prices for two or more goods
@@ -659,6 +672,7 @@ to estimate any missing prices.
 
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
+#name: estimate_reduced_form
 import pandas as pd
 import warnings
 import sys
@@ -669,11 +683,11 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   """Estimate reduced-form Frisch expenditure/demand system.
 
   Inputs:
-      - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m), 
-            where j indexes the household, t the period, and m the market.  
+      - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m),
+            where j indexes the household, t the period, and m the market.
             Columns are different expenditure items, indexed by i.
 
-      - z : pd.DataFrame of household characteristics; index should match that of y.  
+      - z : pd.DataFrame of household characteristics; index should match that of y.
             Columns are different characteristics, indexed by l.
 
   Outputs:
@@ -725,8 +739,8 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   sed = pd.DataFrame(columns=y.columns)
   sea = pd.DataFrame(columns=y.columns)
   a = pd.Series(index=y.columns,dtype=float)
-  b = OrderedDict() 
-  d = OrderedDict() 
+  b = OrderedDict()
+  d = OrderedDict()
   ce = pd.DataFrame(index=y.index,columns=y.columns)
   V = OrderedDict()
 
@@ -758,25 +772,27 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
       znil=pd.DataFrame([[0]*z.shape[1]],index=[(-1,0,0)],columns=z.columns)
       timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
-      X=rhs.append(znil.join(timednil))
+      # change append to concat: X=rhs.append(znil.join(timednil))
+      X=pd.concat([rhs, znil.join(timednil)])
       X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
 
       # Estimate d & b
-      myb,mye=ols(X,lhs.append(ynil),return_se=False,return_v=False,return_e=True) 
+      # change append to concat: lhs.append(ynil)
+      myb,mye=ols(X,pd.concat([lhs, ynil]) ,return_se=False,return_v=False,return_e=True)
       ce[Item]=mye.iloc[:-1,:] # Drop constraint that sums time-effects to zero
 
       if return_v or return_se:
           if z.shape[1]:
               V[Item]=arellano_robust_cov(z,ce[Item])
               sed[Item]=pd.Series(np.sqrt(np.diag(V[Item])), index=z.columns) # reduced form se on characteristics
-              
+
               stderrs = (mye.groupby(['t','m']).std()/np.sqrt(mye.groupby(['t','m']).count()))
               if len(useDateLocs) > 0:
                   sea[Item] = stderrs.squeeze()
               else:
                   sea[Item] = stderrs[Item]
 
-      zvars = z.columns.intersection(myb.index) 
+      zvars = z.columns.intersection(myb.index)
       d[Item]= myb.loc[zvars].squeeze() # reduced form coefficients on characteristics
 
       b[Item] = myb.loc[useDateLocs].squeeze()  # Terms involving prices
@@ -803,16 +819,21 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   return out
 #+END_SRC
 
+#+RESULTS: estimate_reduced_form
+: Missing dependencies for OracleDemands.
+
 ** Test
    If we use a set of fixed parameters to generate artificial data, we
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
 #+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/NOtest_estimate_reduced_form.py
+#name: test_estimate_reduced_form
+
 from scipy.stats.distributions import chi2
 
 # Tangling may not include :vars from header
-try: 
+try:
     N
 except NameError: # :var inputs not set?
     N=5000
@@ -835,19 +856,22 @@ z = parts['characteristics'].to_dataframe('z').unstack('k')
 z.columns = z.columns.droplevel(0)
 z.columns = [chr(i) for i in range(ord('a'),ord('a')+len(z.columns))]
 
-b,ce,d,se = estimate_reduced_form(np.log(x),np.log(z),return_se=True)[:-1]
+b,ce,d,se,sea,V = estimate_reduced_form(np.log(x),np.log(z),return_se=True,return_v=True)
 
 z2 = ((d-1)/se)**2
 
 J=z2.sum().sum()
 p=(1 - chi2.cdf(J,len(z2)))
-assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1: (d,se)=(%s,%s)" % (d,se)
+
+try:
+    DRAWS
+except NameError:
+    assert p > 0.01, "Shouldn't often reject coefficients on characteristics all equal to 1: (d,se)=(%s,%s)" % (d,se)
 
 print(p)
 #+END_SRC
 
 #+results: test_estimate_reduced_form
-: [[ 0.82896109]]
 
 The preceding creates a random sample with  known parameters =d=;
 estimates of =d= should all be equal to 1 in expectation.  We
@@ -856,17 +880,22 @@ $\chi^2$.  The code below resamples to  determine whether in fact we
 match the correct distribution.  We construct  a =pp_plot= which
 should deliver a line close to 45 degrees if all is well.
 
-#+BEGIN_SRC python :var DRAWS=200 :tangle ../cfe/test/monte_carlo_estimate_reduced_form.py
+#+BEGIN_SRC python :results output :var DRAWS=200  SEED=0 :tangle ../cfe/stochastic_test/monte_carlo_estimate_reduced_form.py
 import pylab as pl
+import numpy as np
 
 # Tangling may not include :vars from header
-try: 
+try:
     DRAWS
 except NameError: # :var inputs not set?
     DRAWS = 200
+    SEED = 228
+
+if SEED:
+    np.random.seed(seed=SEED)
 
 T=1
-N=1000
+N=10000
 n=6
 
 def empirical_cdf(x):
@@ -891,26 +920,30 @@ def pp_plot(F,G,interval=(0,1),npts=100):
 
     return xy
 
+
 Jay=[]
 Dee=[]
 Vee=[]
 for i in range(DRAWS):
+    print(i)
     <<test_estimate_reduced_form>>
     Dee.append(d.values.squeeze().tolist())
-    Jay.append(J[0,0])
-    Vee.append(V.squeeze().values.tolist())
+    Jay.append(J)
+    Vee.append((se**2).squeeze().values.tolist())
 
 Dee=np.array(Dee)
 Jay=np.array(Jay)
 Vee=np.array(Vee)
 
 F=empirical_cdf(Jay)
-G=lambda x: chi2.cdf(x,len(g))
+G=lambda x: chi2.cdf(x, np.prod(d.shape))
 
-xy=pp_plot(F,G,interval=chi2.interval(.999,len(g)))
+xy=pp_plot(F,G,interval=chi2.interval(.999, np.prod(d.shape)))
 
 assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 #+END_SRC
+
+#+RESULTS:
 
 *** Test with one period, one market
 
@@ -919,6 +952,8 @@ assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 
 #+name: test_one_period_one_market
 #+begin_src python :tangle ../cfe/test/test_one_period_one_market.py
+#name: test_one_period_one_market
+
 import cfe
 import numpy as np
 
@@ -932,7 +967,6 @@ def some_result(M,T):
     x, stuff = cfe.dgp.expenditures(J,T,M,n,k,np.linspace(0,1,n),rho_lz=0)
 
     y = np.log(x)
-
     z = stuff.characteristics
 
     result = cfe.Result(y=y,z=z)
@@ -963,6 +997,8 @@ def test_se_a():
 * Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
+#name: get_loglambdas
+
 import pandas as pd
 
 try: 
@@ -1120,6 +1156,8 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
 *** Test of get_loglambdas
 #+name: test_get_loglambdas
 #+begin_src python :noweb no-export :results output :var miss_percent=0.6 :tangle ../cfe/stochastic_test/test_get_loglambdas.py
+#name: test_get_loglambdas
+
 import numpy as np
 import pandas as pd
 import warnings
@@ -1165,7 +1203,9 @@ def test_svd_vs_truth_error():
 *** Artificial data
 We begin by generating some artificial data on expenditures.
 #+name: artificial_data
-#+BEGIN_SRC python :noweb no-export :results output 
+#+BEGIN_SRC python :noweb no-export :results output
+#name: artificial_data
+
 import pandas as pd
 <<lambdas_dgp>> #lambdas
 <<prices_dgp>> # prices
@@ -1188,6 +1228,8 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 
 #+name: test_artificial_data
 #+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_artificial_data.py
+#name: test_artificial_data
+
 <<artificial_data>>
 
 def test_artificial_data(T=2,N=50,n=5,k=2):
@@ -1202,6 +1244,8 @@ Rather than using an svd to factor residuals, here's an approach that
 directly estimates using interactive fixed effects.
 #+name: test_interactive_fixed_effects
 #+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_interactive_fixed_effects.py
+#name: test_interactive_fixed_effects
+
 <<artificial_data>>
 from cfe.df_utils import use_indices, drop_missing
 import numpy as np
@@ -1279,10 +1323,14 @@ plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
-#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_estimate_with_missing.py :exports none
+#+begin_src python :noweb no-export :results output :var SEED = 227 :tangle ../cfe/test/test_estimate_with_missing.py :exports none
+#name: test_estimate_with_missing
+
 import numpy as np
 from cfe.result import to_dataframe
 
+if SEED:
+    np.random.seed(seed=SEED)
 
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -1405,6 +1453,8 @@ dtype: float64
 
 #+name: direct_price_elasticities
 #+BEGIN_SRC python :tangle ../cfe/estimation.py
+#name: direct_price_elasticities
+
 def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False):
     """Estimate reduced-form Frisch expenditure/demand system.
 
@@ -1677,7 +1727,9 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
   analysis, among others.
 
 #+name: analysis_omnibus
-#+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py 
+#+begin_src python :noweb no-export :exports code :tangle ../cfe/estimation.py
+#name: analysis_omnibus
+
 # -*- coding: utf-8 -*-
 
 import tempfile
@@ -1895,6 +1947,8 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
 
 #+name: elasticities_equal
 #+BEGIN_SRC python :exports code :tangle ../cfe/estimation.py
+#name: elasticities_equal
+
 import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.stats.distributions import f as F
@@ -1951,6 +2005,8 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
 
 #+name: test_elasticities_equal
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/stochastic_test/test_elasticities_equal.py
+#name: test_elasticities_equal
+
 <<elasticities_equal>>
 
 N = 10000
@@ -2022,6 +2078,8 @@ assert p>0.01, "Should seldrom reject equality of elasticities."
 
 #+name: predicted_expenditures
 #+begin_src python :exports code :tangle ../cfe/estimation.py
+#name: predicted_expenditures
+
 import numpy as np
 
 def predicted_expenditures(yhat,e):
@@ -2075,6 +2133,8 @@ def predicted_expenditures(yhat,e):
 
 #+name: optimal_index
 #+begin_src python :exports code :tangle ../cfe/estimation.py
+#name: optimal_index
+
 import warnings
 with warnings.catch_warnings():  
     warnings.filterwarnings("ignore",category=UserWarning)
@@ -2119,6 +2179,8 @@ def optimal_index(a,yhat,e):
 *** Test
  #+name: test_optimal_index
  #+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_optimal_index.py
+ #name: test_optimal_index
+
 import cfe
 import numpy as np
 
@@ -2185,6 +2247,8 @@ pidx = optimal_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
 
 #+name: lambdas_dgp
 #+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
+#name: lambdas_dgp
+
 from scipy.stats.distributions import lognorm
 import numpy as np
 
@@ -2219,6 +2283,8 @@ def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brown
   demands.
 #+name: characteristics_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+#name: characteristics_dgp
+
 def characteristics(N,T,M=1): 
     z = lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
     return z
@@ -2232,6 +2298,8 @@ def characteristics(N,T,M=1):
     process (so we can re-purpose code for generating \(\lambda\)s here):
 #+name: prices_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+#name: prices_dgp
+
 def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownian(.2)):
 
     P0 = xr.DataArray(G0.rvs(size=(n,1,M)),dims=('i','t','m'),
@@ -2255,7 +2323,9 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
     Truncation can only be accomplished after the "true" expenditures
     are generated below.
 #+name: measurement_error_dgp
-#+BEGIN_SRC python :results value 
+#+BEGIN_SRC python :results value
+#name: measurement_error_dgp
+
 import pandas as pd
 from scipy.stats import distributions
 import numpy as np
@@ -2308,6 +2378,8 @@ def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
     of the matrix $\Theta$.  Instantiated in code:
 #+name: expenditures_dgp
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
+#name: expenditures_dgp
+
 <<measurement_error_dgp>>
 
 def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None,rho_lz=0):
@@ -2379,6 +2451,8 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
 
 #+name: df_utils
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
+#name: df_utils
+
 import numpy as np
 from scipy import sparse
 import pandas as pd
@@ -2714,6 +2788,8 @@ def use_indices(df,idxnames):
 
 #+name: test_df_norm
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_df_norm.py
+#name: test_df_norm
+
 
 
 import numpy as np
@@ -2770,6 +2846,8 @@ def test_norm_twomat(m, n):
 #+END_SRC
 
 #+name: test_df_to_orgtbl_tbl
+#name: test_df_to_orgtbl_tbl
+
 | A |  B | C |
 |---+----+---|
 | a |  1 | m |
@@ -2777,6 +2855,8 @@ def test_norm_twomat(m, n):
 
 #+name: test_df_to_orgtbl
 #+BEGIN_SRC python :noweb no-export :results output raw table :var X=test_df_to_orgtbl_tbl :colnames no :tangle ../cfe/test/test_df_to_orgtbl.py
+#name: test_df_to_orgtbl
+
 <<df_utils>>
 
 try:
@@ -2801,7 +2881,7 @@ print(s)
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
 import warnings
-with warnings.catch_warnings():  
+with warnings.catch_warnings():
     warnings.filterwarnings("ignore",category=UserWarning)
     import xarray as xr
 
@@ -2868,7 +2948,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
     x=pd.DataFrame(x) # Deal with possibility that x & y are series.
     y=pd.DataFrame(y)
     # Drop any observations that have missing data in *either* x or y.
-    x,y = drop_missing([x,y]) 
+    x,y = drop_missing([x,y])
 
     N,n=y.shape
     k=x.shape[1]
@@ -2881,7 +2961,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
     if return_se or return_v or return_e:
 
         u=y-x.dot(b)
-        assert u.shape == (N,n), "Dimensions of disturbance not as expected"      
+        assert u.shape == (N,n), "Dimensions of disturbance not as expected"
 
         if return_se or return_v:
             Sigma = u.T@u/N
@@ -2893,6 +2973,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
             se=pd.DataFrame(se,index=x.columns,columns=y.columns)
 
             out.append(se)
+
         if return_v:
             # Extract blocks along diagonal; return a k x kp x n array
             col0 = x.columns
@@ -2903,6 +2984,7 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
 
         if return_e:
             out.append(u)
+
     return tuple(out)
 #+END_SRC
 
@@ -2958,10 +3040,10 @@ import statsmodels.formula.api as sm
 import numpy as np
 
 from cfe.df_utils import arellano_robust_cov, ols, use_indices, drop_missing
-from cfe.dgp import expenditures  
+from cfe.dgp import expenditures
 from cfe.result import to_dataframe
 
-# r packages 
+# r packages
 try:
     from rpy2.robjects import r, pandas2ri
     from rpy2.robjects.packages import importr
@@ -3002,14 +3084,16 @@ try:
             znil=pd.DataFrame([[0]*dz.shape[1]],index=[(-1,0,0)],columns=dz.columns)
             timednil=pd.DataFrame([[1]*DateLocD.shape[1]],index=[(-1,0,0)],columns=DateLocD.columns)
 
-            X=rhs.append(znil.join(timednil))
+            # change append to concat:  X=rhs.append(znil.join(timednil))
+            X=pd.concat([rhs,znil.join(timednil)])
             X=X.loc[:,X.std()>0] # Drop  any X cols with no variation
-            lhs = lhs.append(ynil)
+            # change append to concat:  lhs.append(ynil)
+            lhs = pd.concat([lhs,ynil])
 
             df = lhs.join(X)
             df.columns = ['y', 'a', 'b', 'fe1', 'fe2']
 
-            # # # # # 
+            # # # # #
             # my ols
             cannedols = sm.ols(formula = "y ~ a + b + fe1 + fe2 -1", data = df).fit(cov_type='cluster',
                 cov_kwds={'groups': np.array(df[['fe1', 'fe2']])},
@@ -3041,14 +3125,14 @@ try:
             }
             ''')
             # call the function
-            myV = ro.r['estimateArellano'](r_from_pd_df)   
+            myV = ro.r['estimateArellano'](r_from_pd_df)
 
             # CFE ols
             myb,mye=ols(X,lhs,return_se=False,return_v=False,return_e=True)
             V = arellano_robust_cov(dz,mye.iloc[:-1,:])
 
             myb.index = canned_b.index
-            # set tolerance 
+            # set tolerance
             tol = 0.01
             assert np.sum(np.abs(myb.sub(canned_b, axis= 0).div(myb, axis = 1))).squeeze() < tol, "Betas differ substantially!"
             assert np.all(np.sum(np.abs((V - myV)/V) < tol)), "Variances differ substantially"
@@ -3082,7 +3166,7 @@ def fullrank(X,VERBOSE=False):
     try:
         cX=X.T@X
         cnd=np.linalg.cond(cX) - 1
-        if cnd>1e16: 
+        if cnd>1e16:
             if VERBOSE:
                 print("Condition - 1 = %f" % cnd)
             raise np.linalg.LinAlgError
@@ -3094,7 +3178,7 @@ def fullrank(X,VERBOSE=False):
 
 def reduce_rank_deficiency(X,tol=1e-10,VERBOSE=False):
     """Reduce the rank deficiency of a pd.DataFrame X.
-    
+
     If X is empty or has only columns of zeros, return [] and labels
     of dropped columns.  If X has some zero columns, eliminate these
     and return [X], along with labels of dropped columns.  Otherwise,
@@ -3164,9 +3248,11 @@ def fwl_regress(y,X,VERBOSE=False):
     while len(Xy)>1:
         b,Xy = fwl_pop(Xy,VERBOSE=VERBOSE)
         yb = b.pop()
-        A.append(pd.concat([pd.DataFrame(-np.eye(yb.shape[0]),
-                                    columns=yb.index,index=yb.index)]+b,axis=1))
-        B.append(yb)
+        # change append to concat: A.append(pd.concat([pd.DataFrame(-np.eye(yb.shape[0]), columns=yb.index,index=yb.index)]+b,axis=1))
+        pd.concat([A,pd.concat([pd.DataFrame(-np.eye(yb.shape[0]),
+                                    columns=yb.index,index=yb.index)]+b,axis=1)])
+        # change append to concat: B.append(yb)
+        pd.concat([B,yb])
 
     A = pd.concat(A,axis=0,sort=False).fillna(0)
     B = pd.concat(B,axis=0,sort=False)
@@ -3237,6 +3323,8 @@ if __name__=='__main__':
 
 #+name: broadcast_binary_op 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
+#name: broadcast_binary_op
+
 def merge_multi(df1, df2, on):
     """Merge on subset of multiindex.
    
@@ -3274,6 +3362,8 @@ Test the merge_multi() function, comparing it to pandas join().
 
 #+name: test_merge_multi
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/stochastic_test/test_merge_multi.py
+#name: test_merge_multi
+
 
 import numpy as np
 import pandas as pd
@@ -3316,6 +3406,8 @@ def test_merge_multi(b):
 
 #+name: test_broadcast_binary_op
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/broadcast_binary_op.py
+#name: test_broadcast_binary_op
+
 import pandas as pd
 from numpy import array, nan
 
@@ -3409,6 +3501,8 @@ j       t      m
 
 #+name: test_broadcast_binary_op2
 #+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/broadcast_binary_op2.py
+#name: test_broadcast_binary_op2
+
 import pandas as pd
 from numpy import array, nan
 
@@ -3435,9 +3529,11 @@ assert baz.iloc[3,0]==6
 ** Utility functions related to transformations between xarray and pandas objects
 #+name: broadcast_binary_op 
 
-#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py 
+#+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
+#name: broadcast_binary_op
+
 import warnings
-with warnings.catch_warnings():  
+with warnings.catch_warnings():
     warnings.filterwarnings("ignore",category=UserWarning)
     import xarray as xr
 

@@ -39,3 +39,6 @@ dist/
 /cfe/input_files.py
 /cfe/result.py
 cfe/test/*.py
+/.DS_Store
+/cfe/test/.DS_Store
+/env/
