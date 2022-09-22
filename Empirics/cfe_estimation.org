@@ -85,7 +85,13 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
     meanshares=shares['Mean shares']
 
     tab = pd.concat(shares,axis=1)
-    tab.sort_values(by=('Agg. shares',meanshares.columns[0]),ascending=False,inplace=True)
+
+    tab.columns.names = ['l','t']
+
+    tab['sort'] = tab.groupby('l',axis=1).mean()['Agg. shares']
+    
+    tab.sort_values(by='sort',ascending=False,inplace=True)
+    tab = tab.drop('sort',axis=1)
 
     if ax is None:
         fig, ax = pl.subplots()
