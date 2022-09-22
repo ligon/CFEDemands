@@ -36,7 +36,7 @@ corresponding to period-households, indexed by $(t,j)$.
 #+begin_src python :exports none :tangle ../cfe/estimation.py
 #name: agg_shares_and_mean_shares
 
-import pylab as pl 
+import pylab as pl
 import pandas as pd
 import numpy as np
 from cfe.df_utils import broadcast_binary_op, is_none
@@ -54,7 +54,7 @@ def expenditure_shares(df):
 
     return sharesdf,mratio
 
-def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False,CycleMarkers=False):
+def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None,VERTICAL=False,CycleMarkers=False,sort='first'):
     """Figure of log agg shares - log mean shares.
 
     Required argument is a pd.DataFrame of expenditures, indexed by (t,j).
@@ -65,15 +65,19 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
         If supplied, will save figure to file named figname.
 
     ConfidenceIntervals : Boolean or float in (0,1);  default False.
-        If True, the returned figure will have 95% confidence intervals.  
+        If True, the returned figure will have 95% confidence intervals.
         If in (0,1) that will be used for the size of the confidence interval instead.
 
     ax : matplotlib.Axes object; default None.
         If supplied, will draw figure on existing Axes object.
 
     VERTICAL : Boolean or scalar; default False.
-        If True or non-zero scalar produce figure with expenditures arranged in vertical list. 
+        If True or non-zero scalar produce figure with expenditures arranged in vertical list.
         If non-zero scalar used to control vertical spacing of figure.
+
+    sort : 'first' or 'average', default 'first'.
+        If 'first' use aggregate shares from first year to sort;
+        otherwise use average (across years) aggregate shares.
     """
 
     if CycleMarkers:
@@ -88,8 +92,13 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
 
     tab.columns.names = ['l','t']
 
-    tab['sort'] = tab.groupby('l',axis=1).mean()['Agg. shares']
-    
+    if sort.lower() == 'first':
+        tab['sort'] = tab[('Agg. shares',meanshares.columns[0])]
+    elif sort.lower() = 'average':
+        tab['sort'] = tab.groupby('l',axis=1).mean()['Agg. shares']
+    else:
+        raise ValueError,"Invalid sort option"
+
     tab.sort_values(by='sort',ascending=False,inplace=True)
     tab = tab.drop('sort',axis=1)
 
@@ -129,26 +138,26 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
                 if mratio.iloc[i,0]>0.2:
                     #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small',ha='right')
 
-                    # The key option here is `bbox`. 
-                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10), 
+                    # The key option here is `bbox`.
+                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(-20,10),
                                 textcoords='offset points', ha='right', va='bottom',
                                 bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25',
                                 color='red'),fontsize='xx-small')
 
                 if mratio.iloc[i,0]<-0.2:
                     #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
-                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10), 
+                    ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10),
                                 textcoords='offset points', ha='left', va='top',
                                 bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.3),
-                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25', 
+                                arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25',
                                 color='red'),fontsize='xx-small')
         else: #Put labels on xaxis
             ax.set_xticklabels(mratio.index.values.tolist(),rotation=45)
 
         ax.axhline()
 
-  
+
 
     if ConfidenceIntervals>0: # Bootstrap some confidence intervals
         if ConfidenceIntervals==1: ConfidenceIntervals=0.95
