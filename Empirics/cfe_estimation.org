@@ -1329,6 +1329,14 @@ plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 import numpy as np
 from cfe.result import to_dataframe
 
+try:
+    SEED 
+except NameError: # :var inputs not set?
+    n=12
+    m=2000
+    percent_missing=0.5
+    SEED=0
+
 if SEED:
     np.random.seed(seed=SEED)
 
