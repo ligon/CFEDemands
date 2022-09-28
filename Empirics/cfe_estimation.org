@@ -929,6 +929,7 @@ for i in range(DRAWS):
     <<test_estimate_reduced_form>>
     Dee.append(d.values.squeeze().tolist())
     Jay.append(J)
+
     Vee.append((se**2).squeeze().values.tolist())
 
 Dee=np.array(Dee)
