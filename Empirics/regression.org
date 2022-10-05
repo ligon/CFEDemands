@@ -1,0 +1,1134 @@
+#+title: Regression
+#+PROPERTY: header-args:python :noweb no-export :results output :tangle ../cfe/regression.py :exports code :comments link :prologue (format "# Tangled on %s" (current-time-string)) :shebang "#!/usr/bin/env python"
+
+This file defines a class =Regression= which takes a regression approach to the estimation of a CFE demand system.  In contrast to the =Result= class we don't rely on =xarray=, and estimation is (hopefully!) more transparent.
+
+* Generally available functions
+** Utilities
+*** Outer product of two series
+#+begin_src python
+import numpy as np
+import pandas as pd
+
+def outer(a,b):
+    """
+    Outer product of two series.
+    """
+
+    if type(a) is pd.DataFrame:
+        a = a.squeeze()
+
+    if type(b) is pd.DataFrame:
+        b = b.squeeze()
+
+    a = pd.Series(a)
+    b = pd.Series(b)
+
+    x = np.outer(a,b)
+
+    try:
+        x = pd.DataFrame(x,index=a.index,columns=b.index)
+    except AttributeError:
+        x = pd.DataFrame(x)
+
+    return x
+#+end_src
+*** Inner product
+#+begin_src python
+def to_series(df):
+    """
+    Stack a dataframe to make a series.
+    """
+    try:
+        df.columns.names = [n if n is not None else "_%d" % i for i,n in enumerate(df.columns.names)]
+    except AttributeError: # Already a series?
+        return pd.Series(df)
+
+    for n in df.columns.names:
+        df = df.stack(n)
+
+    return df
+
+def inner(a,b,idxout,colsout,fill_value=None,method='sum'):
+    """
+    Compute inner product of sorts, summing over indices of products which don't appear in idxout or colsout.
+    """
+
+    a = to_series(a)
+    b = to_series(b)
+
+    if fill_value is not None:
+        a = a.astype(pd.SparseDtype(fill_value=fill_value))
+        b = b.astype(pd.SparseDtype(fill_value=fill_value))
+
+    idxint = list(set(a.index.names).intersection(b.index.names))
+    aonly = list(set(a.index.names).difference(idxint))
+    bonly = list(set(b.index.names).difference(idxint))
+
+    if fill_value is None: # Non-sparse
+        a = a.replace(0.,np.nan).dropna()
+        b = b.replace(0.,np.nan).dropna()
+
+    c = pd.merge(a.reset_index(aonly),b.reset_index(bonly),on=idxint)
+    c = c.reset_index().set_index(idxint + aonly + bonly)
+
+    sumover = list(set(aonly+bonly+idxint).difference(idxout+colsout))
+    keep = list(set(aonly+bonly+idxint).difference(sumover))
+
+    if fill_value is not None:
+        foo = c.sparse.to_coo().tocsr()
+
+        foo = foo[:,0].multiply(foo[:,1])
+        foo = pd.DataFrame.sparse.from_spmatrix(foo,index=c.index)
+    else:
+        foo = c.iloc[:,0]*c.iloc[:,1]
+
+    if method=='sum':
+        p = foo.groupby(keep).sum()
+    elif method=='mean':
+        p = foo.groupby(keep).mean()
+    else:
+        raise ValueError("No method %s." % method)
+
+    p = p.unstack(colsout)
+
+    if len(idxout)>1:
+        p = p.reorder_levels(idxout)
+
+    p = p.sort_index()
+
+    if len(colsout):
+        p = p.sort_index(axis=1)
+
+    return p
+#+end_src
+*** SVD with missing data
+#+begin_src python
+import pandas as pd
+import numpy as np
+
+def svd_missing(X,gls=False):
+    """
+    Compute rank one approximation to X.
+    """
+    def ols(y,x,N=None):
+
+        use = y.index.droplevel(['i','t','m'])
+
+        if N is not None:
+            N = N[use]
+            x = x[use]*N
+            y = y*N
+
+        x = pd.DataFrame(x[use])
+
+        b = np.linalg.lstsq(x,y,rcond=None)[0].squeeze()
+
+        return b
+
+    Sigma = X.cov(ddof=0)
+    N = X.count()/X.count().sum()
+
+    s2,u = np.linalg.eigh(Sigma)
+    b = pd.Series(u[:,-1]*np.sqrt(s2[-1]),index=Sigma.index)
+
+    y = X.stack().dropna()
+
+    if gls:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x,N))
+    else:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x))
+
+    scale = np.sqrt(v.T@v)
+    u = pd.Series(u[:,-1],index=b.index)
+
+    return u,np.sqrt(s2[-1])*scale,v/scale
+#+end_src
+
+*** Angle between vectors (or series)
+
+#+begin_src python
+"""
+Compute angle between two vectors, thx to https://stackoverflow.com/questions/2827393/angles-between-two-n-dimensional-vectors-in-python/13849249#13849249
+"""
+import numpy as np
+
+def unit_vector(vector):
+    """ Returns the unit vector of the vector.  """
+    return vector / np.linalg.norm(vector)
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+
+            >>> angle_between((1, 0, 0), (0, 1, 0))
+            1.5707963267948966
+            >>> angle_between((1, 0, 0), (1, 0, 0))
+            0.0
+            >>> angle_between((1, 0, 0), (-1, 0, 0))
+            3.141592653589793
+    """
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+#+end_src
+*** OLS
+#+begin_src python
+def ols(y,x):
+    try:
+        xcols = x.columns
+    except AttributeError:
+        xcols = x
+        x = y[xcols]
+        y = y[y.columns.difference(xcols)]
+
+    y,x = drop_missing([y,x])
+
+    b = np.linalg.lstsq(x,y,rcond=None)[0]
+
+    return pd.Series(b.squeeze(),index=x.columns)
+#+end_src
+
+** Implementation of $\Mp$
+
+Provide a function =Mp= such that =Mp(X)= return $X-\E(X|p)$.  In our
+case we rely on the law of one price, so that this is a matter of
+computing deviations of $X$ from time-market means of $X$.
+
+#+name: code:Mp
+#+begin_src python 
+import pandas as pd
+import numpy as np
+from warnings import warn
+
+def Mp(X):
+    """
+    Construct X-E(X|p) = (I-S(S'S)^{-1}S')X.
+
+    Drop any categorical variables where taking means isn't sensible.
+    """
+    if len(X.shape) > 1:
+        X = X.loc[:,X.dtypes != 'category']
+    else:
+        if X.dtype == 'category': warn('Taking mean of categorical variable.')
+
+    use = list(set(['t','m','j']).intersection(X.index.names))
+
+    if len(use):
+        return X - X.groupby(use).transform(np.mean)
+    else:
+        return X - X.mean()
+#+end_src
+** Construction of $\Mpi$
+#+name: code:Mpi
+#+begin_src python
+
+def Mpi(X):
+    """
+    Construct X-E(X|pi).
+
+    Drop any categorical variables where taking means isn't sensible.
+    """
+    if len(X.shape) > 1:
+        X = X.loc[:,X.dtypes != 'category']
+    else:
+        if X.dtype == 'category': warn('Taking mean of categorical variable.')
+
+    return X - X.groupby(['t','m']).transform(np.mean)
+#+end_src
+
+** Use \(K\)-means to construct \Md
+
+Compute $\Md$, $\Mp$, and $\MdMp$ transformations of $(y,d)$ using \(K\)-means, with
+some logic to estimate the optimal number of clusters for \(K\)-means.
+#+name: code:kmeans
+#+begin_src python
+from sklearn.model_selection import GroupKFold
+from cfe.df_utils import use_indices, drop_missing
+from scipy.optimize import minimize_scalar
+
+def kmean_controls(n_clusters,Mpy,Mpd,shuffles=0,classifiers=None,verbose=False):
+    n_clusters = int(n_clusters)
+    Mpd = Mpd.copy()
+
+    km = KMeans(n_clusters=n_clusters,init='k-means++',n_init=10*int(np.ceil(np.sqrt(n_clusters))))
+    tau = km.fit_predict(Mpd)
+
+    if classifiers is not None:
+        c = classifiers.values.T.tolist()
+        Mpd['tau'] = list(zip(*c,tau))
+    else:
+        Mpd['tau'] = tau
+
+    Mpd['tau'] = Mpd['tau'].astype('category')
+
+    Mpyg = pd.DataFrame(Mpy).join(Mpd['tau'],how='left').groupby(['t','m','tau'])
+
+    MdMpy = Mp(pd.DataFrame(Mpy) - Mpyg.transform(np.mean)).squeeze()
+
+    # Compare real groups with shuffled groups
+    if shuffles:
+        Valt = []
+        for s in range(shuffles):
+            Mpd_alt = Mpd.copy()
+            Mpd_alt['tau'] = Mpd['tau'].sample(frac=1).reset_index(drop=True).values
+
+            Mpyg_alt = pd.DataFrame(Mpy).join(Mpd_alt['tau'],how='left').groupby(['tau'])
+
+            Valt.append((pd.DataFrame(Mpy) - Mpyg_alt.transform(np.mean)).squeeze().var())
+
+        lr = 2*(np.log(np.mean(Valt)) - np.log(MdMpy.var()))
+
+        if verbose:
+            print('K=%d\tLR=%f\tCoeff of variation=%f' % (n_clusters,lr,np.std(Valt)/np.mean(Valt)))
+
+        return lr,MdMpy
+    else:
+        return Mpd['tau'],MdMpy
+
+
+# Construct Md operator which goes with k-means clusters tau.
+def Md_generator(X,tau,method='categorical',Mp=False):
+    """
+    Md operator, for either categorical or linear expectations.
+    """
+
+    if method=='categorical': # assuming conditioning is on groups tau
+        if 'j' in X.index.names:
+            if Mp:
+                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','j','t','m'])
+            else:
+                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','j'])
+        else:
+            if Mp:
+                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','t','m'])
+            else:
+                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau'])
+
+        MdX = X - Xg.transform(np.mean).squeeze()
+    elif method=='linear':
+        try:
+            taucols = tau.columns
+            X = pd.DataFrame(X).join(tau,how='outer')
+        except AttributeError:  # tau a Series
+            taucols = tau
+
+        if 'j' in X.index.names:
+            MdX = X.groupby('j').apply(lambda y,x=taucols: Md_generator(y.droplevel('j'),x,method='linear',Mp=Mp)).T
+            try:
+                MdX = MdX.stack()
+            except AttributeError:
+                pass
+
+            MdX = MdX.reorder_levels(['i','t','m','j']).sort_index()
+        else:
+            # Difference out kmeans if tau provided
+            ycols = X.columns.difference(taucols)
+            xcols = taucols
+            if 'tau' in tau and Mp: # kmeans categories provided
+                xcols = taucols.drop('tau')
+                group = ['tau']
+                if Mp:
+                    X = X - X.groupby(['tau','t','m']).transform(np.mean)
+                else:
+                    X = X - X.groupby(['tau']).transform(np.mean)
+            else:
+                if Mp:
+                    X = X - X.groupby(['t','m']).transform(np.mean)
+                else:
+                    X = X - X.mean()
+
+            y = X[ycols]
+            x = X[xcols]
+            y,x = drop_missing([y,x])
+            x['Constant'] = 1
+            b = np.linalg.lstsq(x,y,rcond=None)[0]
+            MdX = pd.Series(y.squeeze() - (x@b).squeeze(),index=y.index)
+    else: raise ValueError("No method %s." % method)
+
+    return MdX
+#+end_src
+
+
+** Estimate \beta from $\MdMpy$
+
+Given $\MdMpy$ estimate \beta.
+#+name: code:beta_from_MdMpy
+#+begin_src python
+from cfe.estimation import svd_rank1_approximation_with_missing_data as mysvd
+import numpy as np
+
+def estimate_beta(MdMpy,return_seb=False,bootstrap_tol=None,Mdp=None,verbose=False):
+    if verbose:
+        print("estimate_beta")
+
+    if Mdp:
+        MdMpy = Mdp(MdMpy)
+    try:
+        MdMpY = MdMpy.unstack('j')
+    except KeyError:
+        MdMpY = MdMpy
+
+    # Estimate beta
+    s2,u = np.linalg.eigh(MdMpY.cov(ddof=0))
+
+    assert s2[0]<s2[-1]  # numpy returns eigenvalues in /ascending/ order
+    u = u[:,-1]
+    s2 = s2[-2]
+
+    if (np.sign(u)<0).mean(): # Fix sign of u.
+        u = -u
+
+    b = pd.DataFrame(u*np.sqrt(s2),index=MdMpY.columns,columns=['beta'])
+
+    if return_seb:
+        if bootstrap_tol is None:
+            raise ValueError("Not implemented. Specify bootstrap_tol>0.")
+            V = (((e-e.mean())**2).mul(v**2,axis=0)).mean() # See p. 150 of Bai (2003)
+            seb = np.sqrt(V)
+        else:
+            its = 0
+            B = pd.DataFrame(index=b.index)
+            seb=0
+            while its < 30 or np.linalg.norm(seb-last) > bootstrap_tol:
+                last = seb
+                B[its] = estimate_beta(MdMpY.iloc[np.random.randint(0,MdMpY.shape[0],size=MdMpY.shape[0]),:])[0]
+                seb = B.std(axis=1)
+                if verbose: print(f"On iteration {its} standard error is {seb}.")
+                its += 1
+    else:
+        seb = None
+
+    return b,seb
+  #+end_src
+
+** Estimation of \beta and $\M{p}w$
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
+#import krypy
+
+def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False):
+
+    MdMpy = Mdp(y)
+    try:
+        MdMpY = MdMpy.unstack('j')
+    except KeyError:
+        MdMpY = MdMpy
+
+    if not np.allclose(MdMpy.groupby(['t','m','j']).mean(),0):
+        warn("MdMpy means not close to zero.")
+
+    b,seb = estimate_beta(MdMpy,return_seb=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    B = B.loc[y.index,:]
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    R = R.loc[:,cols]
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MdMpy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+
+    mults = pd.Series(coeffs[len(cols):],index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM]),name='mult')
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+    b = (b*scale).squeeze()
+
+    if return_se: # See Greene-Seaks (1991)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MdMpy.index]
+
+            e1 = (MdMpy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            se_mult = np.sqrt(V22.diagonal())*sigma2
+
+            seb_alt = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            se_mult = pd.Series(se_mult,index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM]),name='se_mult')
+    else:
+        se_mult = None
+        e1 = None
+
+    return b,Mpw,seb,mults,se_mult,e1
+
+
+#+end_src
+
+** Estimation of $\gamma(d)$
+#+name: code:gamma
+#+begin_src python
+def estimate_gamma(y,beta,w,tau,method='categorical'):
+    """
+    Estimate $gamma(tau) = E[Mp(Y -hat{beta}hat{w}) | tau]$.
+    """
+
+    if beta is not None:
+        e = y.unstack('j') - pd.DataFrame({0:w})@pd.DataFrame({0:beta}).T
+    else:
+        e = y.unstack('j')
+
+    if method=='categorical':
+        gamma = Mp(e).join(tau,how='left').groupby('tau').mean()
+
+        # Construct gamma(d)
+        gamma_d = pd.DataFrame(tau).join(gamma,on='tau')
+        gamma_d.columns.name = 'j'
+        gamma_d = gamma_d.drop('tau',axis=1)
+        gamma_d = gamma_d.stack()
+        gamma_d.name = 'gamma_d'
+
+        e = e.stack('j')
+    elif method=='linear':
+        e = e.stack('j')
+        tau['Constant'] = 1
+
+        foo = pd.DataFrame(e).join(tau,how='outer')
+
+        gamma = foo.groupby('j').apply(lambda y,x=tau.columns: ols(y.droplevel('j'),x))
+        if gamma.columns.name is None:
+            gamma.columns.name = 'k'
+
+        try:
+            gamma_d = (tau*gamma).sum(axis=1).dropna()
+        except ValueError:
+            gamma_d = (tau@gamma.T).stack()
+
+        gamma_d.name = 'gamma_d'
+    else: raise ValueError("No method %s." % method)
+
+    e2 = e - gamma_d.loc[e.index]
+
+    return gamma, gamma_d, e2
+
+#+end_src
+
+** Estimation of $A(r)$ and $w$
+#+name: code:Ar_w
+#+begin_src python
+from scipy import sparse
+from timeit import default_timer as timer
+
+def estimate_w(y,beta,return_se=False):
+    """
+    Estimate regression $Y - widehat{gamma(d)}  =  A(r) + hat{beta}w + e$.
+    """
+    try:
+        y0 = y.stack()
+    except AttributeError:
+        y0 = y
+
+    J = len(beta)
+
+    beta = pd.DataFrame(beta)
+
+    tm = [(t,m) for t in y0.index.levels[1] for m in y0.index.levels[2]]
+
+    if len(y0.shape)==1 and y0.name is None: y0.name = 'y0'
+
+    N = y0.index.levels[0]
+
+    A = sparse.kron(sparse.kron(np.ones((len(N),1)),sparse.eye(len(tm))),np.ones((J,1)),format='csr')
+
+    index = pd.MultiIndex.from_tuples([(i,t,m,j) for i in N for t,m in tm for j in beta.index.tolist()])
+
+    A = pd.DataFrame.sparse.from_spmatrix(A,index=index)
+    A.columns = pd.MultiIndex.from_tuples([(t,m) for t,m in tm])
+    A.index.names = ['i','t','m','j']
+    A.columns.names = ['t','m']
+
+    cols = y0.groupby(['i','t','m']).mean().index
+
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in beta.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),beta,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    A = A.loc[y0.index,:]
+    B = B.loc[y0.index,:]
+
+    X0 = pd.concat([A,B],axis=1)
+    cols = X0.columns
+
+    X0 = X0.sparse.to_coo()
+
+    #start = timer()
+    b = sparse.linalg.lsqr(X0,y0,atol=1e-16,btol=1e-16)[0]
+    #end = timer()
+    #print("Time for lsqr %g" % (end-start,))
+    b = pd.Series(b,index=cols)
+
+    e = y0 - X0@b
+
+    eg = e.groupby(['t','m','j'])
+
+    Ar = eg.mean()
+    Ar.name = 'Ar'
+
+    Ar_se = eg.std()/np.sqrt(eg.count())
+
+    e3 = e - e.groupby(['t','m','j']).transform(np.mean)
+
+    what = pd.Series(b[len(A.columns):(len(A.columns)+len(B.columns))],index=B.columns)
+
+    return what,Ar,Ar_se,e3
+#+end_src
+** Estimating Price Indices
+#+name: code:pi
+#+begin_src python
+def estimate_pi(y,b,w,Ar,gamma_d):
+
+    try:
+        y0 = y.stack()
+    except AttributeError:
+        y0 = y.copy()
+
+    wb = outer(w,b).stack()
+
+    e = y0 - Ar - wb - gamma_d
+
+    e = e.dropna()
+
+    pi_g = e.groupby(['t','m'])
+
+    pi = pi_g.mean()
+    pi.name = 'pi'
+
+    pi_se = pi_g.std()/np.sqrt(pi_g.count())
+
+    e4 = e - pi
+    e4 = e4.reorder_levels(['i','t','m','j']).sort_index()
+
+    return pi, pi_se, e4
+#+end_src
+
+** Predicting $y$
+#+name: code:predict
+#+begin_src python
+def predict_y(pi,Ar,gamma_d,beta,wr):
+    bwr = outer(wr,beta).stack()
+
+    yhat = pi + Ar + gamma_d + bwr
+
+    return yhat.reorder_levels(['i','t','m','j']).sort_index()
+#+end_src
+
+** Data preparation
+#+name: code:data_preparation
+#+begin_src python
+from cfe.df_utils import broadcast_binary_op
+from cfe.estimation import get_loglambdas
+import matplotlib.pyplot as plt
+from types import SimpleNamespace
+
+def prepare_data(y,d):
+    assert y.index.names == ['i','t','m','j']
+
+    # Make d a dataframe, with columns k
+    if 'k' in d.index.names:
+        d = d.unstack('k')
+
+    # Match up rows of d with y
+    YD = pd.DataFrame({'y':y}).join(d,how='left')
+
+    YD = YD.dropna()
+
+    y = YD['y']  # Drops expenditures that lack corresponding d
+
+    # If no variation in d across j, collapse
+    dg = YD.iloc[:,1:].groupby(['i','t','m'])
+    if dg.std().mean().max()<1e-12:
+        d = dg.head(1).droplevel('j') # And vice versa
+        assert d.index.names == ['i','t','m']
+        d.columns.name='k'
+
+    return y,d
+
+def find_optimal_K(y,d,shuffles=30,verbose=False):
+    nstar = int(minimize_scalar(lambda k: -kmean_controls(k,Mp(y),Mp(d),
+                                                          shuffles=30,
+                                                          classifiers=d.loc[:,d.dtypes == 'category'],
+                                                          verbose=verbose)[0],
+                                    bracket=[1,20]).x)
+    return nstar
+#+end_src
+* Construct Missing "correction"
+#+begin_src python
+def missing_correction(y,d,K=None):
+    M = 1-np.isnan(y.unstack('j'))  # Non-missing
+    M = M.stack()
+
+    M,d = prepare_data(M,d)
+
+    R =  estimation(M,d,K=K,return_se=False)
+
+    Mhat = predict_y(R['pi'],R['Ar'],R['gamma_d'],R['beta'],R['w'])
+
+    R['M'] = M
+    R['Mhat'] = Mhat
+
+    e = M - Mhat
+    R['R2'] = 1-e.var()/M.var()
+
+    return e,R
+#+end_src
+
+#+begin_src python
+def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+
+    if K is not None:
+        d,MdMpy = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
+        MdMp = lambda x: Md_generator(x,d,Mp=True)
+        Md = lambda x: Md_generator(x,d,Mp=False)
+        method = 'categorical'
+    else:
+        method = 'linear'
+
+        # Change categorical vars to numeric
+        cats = d.select_dtypes(['category']).columns
+        if len(cats):
+            d[cats] = d[cats].apply(lambda x: x.cat.codes)
+
+        MdMp = lambda x: Md_generator(x,d,method=method,Mp=True)
+        Md = lambda x: Md_generator(x,d,method=method,Mp=False)
+
+        MdMpy = MdMp(y)
+
+    assert MdMpy.index.names == ['i','t','m','j']
+
+    if not np.all(np.abs(MdMpy.groupby(['j','t','m']).mean()) < 1e-6):
+        warn('MdMpy means greater than 1e-6')
+
+
+    # Estimation
+    hatb,hatMpw,seb,mults,se_mults,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+
+    hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
+    try:
+        if d.columns.name is None:
+            d.columns.name = 'k'
+    except AttributeError:
+        pass
+
+    # y - hatgamma(d)
+    y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
+
+    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
+    #print('Ar,w')
+
+    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
+
+    yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
+    e = y - yhat.loc[y.index]
+
+    sigma2 = e.unstack('j').var()
+
+    R2 = 1 - sigma2/y.unstack('j').var()
+
+    if method=='linear':
+        try:
+            se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
+        except KeyError:  # d doesn't vary with j?
+            se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
+    else: se_gamma = None
+
+    B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
+    if rectify:
+        # Re-orthogonalize
+        hatb = hatb*B['bw']
+        if seb is not None:
+            seb = seb*B['bw']
+        Ar = Ar*B['Ar']
+        Ar_se = Ar_se*B['Ar']
+        hatpi = hatpi*(B['pi']@y.groupby('j').count()/y.shape[0])
+        pi_se = pi_se*(B['pi']@y.groupby('j').count()/y.shape[0])
+        try:
+            hatgamma = (hatgamma.stack()*B['gamma_d']).unstack('k')
+            if se_gamma is not None:
+                se_gamma = (se_gamma.stack()*B['gamma_d']).unstack('k')
+        except AttributeError:
+            hatgamma = hatgamma*B['gamma_d']
+            if se_gamma is not None:
+                se_gamma = se_gamma*B['gamma_d']
+
+    return dict(y=y,
+                yhat=yhat,
+                mse=(e**2).mean(),
+                R2=R2,
+                d=d,
+                beta=hatb,
+                beta_se=seb,
+                mults = mults,
+                se_mults = se_mults,
+                e1 = e1,
+                w = hatw,
+                e3 = e3,
+                Mpw = hatMpw,
+                gamma = hatgamma,
+                gamma_se = se_gamma,
+                e2 = e2,
+                gamma_d = gamma_d,
+                pi = hatpi,
+                pi_se = pi_se,
+                e4 = e4,
+                Ar = Ar,
+                Ar_se = Ar_se,
+                B=B,
+                X=X)
+
+def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
+    def ols(x):
+        y = x['y']
+        x = x.drop('y',axis=1)
+
+        y,x = drop_missing([y,x])
+
+        b = np.linalg.lstsq(x,y,rcond=None)[0]
+
+        return pd.Series(b.squeeze(),index=x.columns)
+
+    X = pd.merge(Ar.reset_index('j'),pi,on=['t','m']).reset_index().set_index(['t','m','j'])
+
+    if gamma.index.name=='tau':
+        gamma_d = pd.DataFrame(d).join(gamma,on='tau')
+        gamma_d.columns.name = 'j'
+        gamma_d = gamma_d.drop('tau',axis=1)
+        gamma_d = gamma_d.stack()
+    else:
+        gamma_d = inner(d,gamma,['i','t','m','j'],[])
+
+    gamma_d.name = 'gamma_d'
+    gamma_d = gamma_d[y.index]
+
+    if GramSchmidt:
+        gamma_d = Mp(gamma_d)
+
+    if 'j' in gamma_d.index.names:
+        X = pd.merge(X,gamma_d.reset_index(['i']),left_on=['t','m','j'],right_on=['t','m','j'],how='outer')
+    else:
+        X = pd.merge(X.reset_index('j'),gamma_d.reset_index(['i']),left_on=['t','m'],right_on=['t','m'],how='outer')
+
+    X = X.rename(columns={('i',''):'i'}) # Deal with bug in reset_index for sparse matrices?
+
+    X = X.reset_index().set_index(['i','t','m','j'])
+
+    w.name='w'
+
+    bw = outer(w,beta).stack()
+    bw.name = 'bw'
+
+    if GramSchmidt:
+        MdMp = lambda x: Md_generator(x,d,Mp=True)
+        bw = Mp(MdMp(bw))
+        bw.name = 'bw'
+
+    X = X.join(bw[y.index])
+
+    X['y'] = y
+    X = X.dropna()
+    X.columns.name = 'l'
+
+    B = X.groupby('j').apply(lambda x: ols(x))
+
+    return B,X
+
+#+end_src
+
+#+end_src
+
+
+* Description of =Regression=
+#+name: regression_class
+#+BEGIN_SRC python
+import numpy as np
+import pandas as pd
+import warnings
+from sqlalchemy import create_engine
+from os import path
+from collections import namedtuple, OrderedDict
+
+# Names of Series & DataFrames which are attributes of a Regression object
+
+arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
+        'd':('itm','k'),      # Household characteristics (itm,k)
+        'alpha':("j",),
+        'beta':("j",),   # Frisch elasticities, (j,)
+        'gamma':('j','k'),  # Coefficients on characteristics (k,)
+        'alpha_se':('j',),
+        'beta_se':('j',),
+        'gamma_se':('j','k'),
+        'w':('itm',),
+        'yhat':('itmj',),
+        'e':('itmj',),
+        'pi':('tm',),
+        'pi_se':('tm',),
+        'R2':('j',),
+        'mults':('tm',),
+        'se_mults':('tm',),
+        'e1':('itmj',),
+        'e2':('itmj',),
+        'e3':('itmj',),
+        'e4':('itmj',),
+        'Mpw':('itm',),
+        'gamma_d':('j','k'),
+        'Ar':('j','tm'),
+        'Ar_se':('j','tm'),
+        'B':('j','l'),
+        'X':('itmj','l')
+         }
+
+class Regression:
+    """
+    A class which packages together data and methods for estimating a CFE demand system posed as a regression.
+
+    Data elements (and outputs) are typically pandas Series or DataFrames.  Indexes are kept consistent across objects, with:
+       - i :: Indexes households
+       - t :: Indexes periods
+       - m :: Indexes markets
+       - j :: Indexes goods
+       - k :: Indexes household characteristics
+
+    Ethan Ligon                               October 2022
+    """
+
+
+    __slots__ = list(arrs.keys()) + ['attrs']
+
+    def __init__(self,
+                 correct_miss=False,
+                 method='linear',
+                 K=None,
+                 bootstrap_tol=None,
+                 return_se=False,
+                 rectify=False,
+                 verbose=False,
+                 ,**kwargs):
+        """To load data, use cfe.load().
+
+        To instantiate from data on log expenditures (y) and household
+        characteristics (z), supply each as pd.DataFrames, with indices for y
+        (i,t,m) and columns (j, and for z indices (i,t,m) and columns (k,).
+        """
+
+        for k,v in kwargs.items():
+            if k in self.__slots__:
+                setattr(self,k,v)
+
+        attrs={}
+        attrs['correct_miss'] = correct_miss
+        attrs['method'] = method
+        attrs['K'] = K
+        attrs['bootstrap_tol'] = bootstrap_tol
+        attrs['return_se'] = return_se
+        attrs['rectify'] = rectify
+        attrs['verbose'] = verbose
+
+        self.attrs=attrs
+
+        if 'y' in kwargs.keys() and 'd' in kwargs.keys():
+            self.y,self.d = prepare_data(self.y,self.d)
+
+    def mse(self):
+        try:
+            return (self.y - self.yhat).mean()
+        except AttributeError:
+            estimate(self)
+            return mse(self)
+
+    def optimal_number_of_clusters(self):
+        """
+        Find optimal number of clusters for K-means.
+        """
+        self.flags['K'] = find_optimal_K(self.y,self.d)
+
+    def estimate(self):
+
+        R = estimation(self.y,self.d,
+                       K=self.attrs['K'],
+                       bootstrap_tol=self.attrs['bootstrap_tol'],
+                       return_se=self.attrs['return_se'],
+                       rectify=self.attrs['rectify'],
+                       verbose=self.attrs['verbose'])
+
+        for k,v in R.items():
+            try:
+                if getattr(self,k) is not None: continue
+            except AttributeError:
+                setattr(self,k,v)
+
+    def save(self,fn=None,overwrite=False):
+        """
+        Save to file fn.
+        """
+        if overwrite: if_exists = 'replace'
+        else: if_exists = 'fail'
+
+        if fn is not None:
+            fn = path.abspath(fn)
+            loc = f'sqlite:///{fn}'
+        else:
+            loc = f'sqlite://'
+
+        engine = create_engine(loc, echo=False)
+        with engine.begin() as connection:
+            try:
+                for k in arrs.keys():
+                    try:
+                        x = getattr(self,k)
+                        if x is not None:
+                            x.to_sql(k,connection,if_exists=if_exists)
+                    except AttributeError:
+                        continue
+                pd.Series(self.attrs).to_sql('attrs',connection,if_exists=if_exists)
+            except ValueError:
+                raise IOError("Save would overwrite existing data.  Pass 'overwrite=True' if this is what you want.") from None
+
+#+end_src
+* Read persistent Regression object
+#+begin_src python
+from sqlalchemy import inspect, create_engine
+def load(fn):
+    """
+    Read Regression object from file fn.
+    """
+    fn = path.abspath(fn)
+    loc = f'sqlite:///{fn}'
+    engine = create_engine(loc, echo=False)
+
+    inspector = inspect(engine)
+
+    R = {}
+    with engine.begin() as connection:
+        for t in inspector.get_table_names():
+            R[t] = pd.read_sql(t,connection)
+            try:
+                R[t] = R[t].set_index(list(arrs[t][0])).squeeze()
+                if len(R[t].shape)>1: # still a dataframe
+                    colnames = []
+                    for l in arrs[t][1]:
+                        if l not in R[t].columns:
+                            colnames.append(l)
+                        else:
+                            R[t] = R[t].stack(l)
+                    R[t].columns.names = colnames
+            except KeyError:
+                pass
+
+    return Regression(**R)
+
+#+end_src
+
+* Example of Use
+** Artificial Data
+#+begin_src python
+import cfe
+from cfe.df_utils import to_dataframe, df_to_orgtbl
+import pandas as pd
+import numpy as np
+from sklearn.cluster import KMeans
+from cfe import dgp
+
+def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
+    """
+    Return data on log expenditures & household characteristics.
+    """
+    p = dgp.prices(T,M,J,dgp.geometric_brownian(sigma=2))
+    #print(np.log(p).mean('i'))
+
+    x,truth = dgp.expenditures(N,T,M,J,k,np.linspace(.2,5,J),mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=p)
+
+    d = to_dataframe(truth.characteristics,'k')
+    d.index.names = ['i','t','m']
+
+    # Missing data on y, but not d?
+    assert d.shape[0] == d.dropna().shape[0]
+
+    y = to_dataframe(np.log(x))
+    y.index.names = ['i','t','m','j']
+
+    # Match up rows of d with y
+    YD = pd.DataFrame({'y':y}).join(d,how='left')
+
+    YD = YD.dropna()
+
+    y = YD['y']  # Drops expenditures that lack corresponding d
+
+    d = d.stack()
+
+    if return_truth:
+        return y,d,truth
+    else:
+        return y,d
+#+end_src
+
+** __main__
+#+begin_src python
+
+#+end_src
+#+begin_src python
+if __name__=='__main__':
+    y,d,truth = data(N=100,J=10,return_truth=True)
+    r = Regression(y=y,d=d,return_se=True,bootstrap_tol=0.005,verbose=True)
+    r.estimate()
+    r.save('/tmp/foo.rgsn',overwrite=True)
+    s = load('/tmp/foo.rgsn')
+#+end_src
