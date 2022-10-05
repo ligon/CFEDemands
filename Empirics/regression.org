@@ -470,7 +470,8 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
 
     Mpw = pd.Series(coeffs[:len(cols)],index=cols)
 
-    mults = pd.Series(coeffs[len(cols):],index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM]),name='mult')
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
 
     scale = Mpw.std(ddof=0)
     Mpw = Mpw/scale
@@ -503,7 +504,10 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
             se_mult = np.sqrt(V22.diagonal())*sigma2
 
             seb_alt = pd.Series(se[:len(b)]*sigma2,index=b.index)
-            se_mult = pd.Series(se_mult,index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM]),name='se_mult')
+            se_mult = pd.Series(se_mult,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='se_mult')
     else:
         se_mult = None
         e1 = None
@@ -817,8 +821,8 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 d=d,
                 beta=hatb,
                 beta_se=seb,
-                mults = mults,
-                se_mults = se_mults,
+                mults = mults.unstack('m'),
+                se_mults = se_mults.unstack('m'),
                 e1 = e1,
                 w = hatw,
                 e3 = e3,
@@ -827,11 +831,11 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 gamma_se = se_gamma,
                 e2 = e2,
                 gamma_d = gamma_d,
-                pi = hatpi,
-                pi_se = pi_se,
+                pi = hatpi.unstack('m'),
+                pi_se = pi_se.unstack('m'),
                 e4 = e4,
-                Ar = Ar,
-                Ar_se = Ar_se,
+                Ar = Ar.unstack(['t','m']),
+                Ar_se = Ar_se.unstack(['t','m']),
                 B=B,
                 X=X)
 
@@ -903,7 +907,7 @@ import numpy as np
 import pandas as pd
 import warnings
 from sqlalchemy import create_engine
-from os import path
+from pathlib import Path
 from collections import namedtuple, OrderedDict
 
 # Names of Series & DataFrames which are attributes of a Regression object
@@ -919,11 +923,11 @@ arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
         'w':('itm',),
         'yhat':('itmj',),
         'e':('itmj',),
-        'pi':('tm',),
-        'pi_se':('tm',),
+        'pi':('t','m'),
+        'pi_se':('t','m'),
         'R2':('j',),
-        'mults':('tm',),
-        'se_mults':('tm',),
+        'mults':('t','m'),
+        'se_mults':('t','m'),
         'e1':('itmj',),
         'e2':('itmj',),
         'e3':('itmj',),
@@ -1023,7 +1027,8 @@ class Regression:
         else: if_exists = 'fail'
 
         if fn is not None:
-            fn = path.abspath(fn)
+            if not Path(fn).is_absolute():
+                fn = str(Path(__file__).absolute().parent.joinpath(fn))
             loc = f'sqlite:///{fn}'
         else:
             loc = f'sqlite://'
@@ -1046,11 +1051,14 @@ class Regression:
 * Read persistent Regression object
 #+begin_src python
 from sqlalchemy import inspect, create_engine
+from ast import literal_eval as make_tuple
+
 def load(fn):
     """
     Read Regression object from file fn.
     """
-    fn = path.abspath(fn)
+    if not Path(fn).is_absolute():
+        fn = str(Path(__file__).absolute().parent.joinpath(fn))
     loc = f'sqlite:///{fn}'
     engine = create_engine(loc, echo=False)
 
@@ -1069,7 +1077,11 @@ def load(fn):
                             colnames.append(l)
                         else:
                             R[t] = R[t].stack(l)
-                    R[t].columns.names = colnames
+                    if len(colnames)==1: # Just an index
+                        R[t].columns.names = colnames
+                    else: # Need a multiindex
+                        cols = [make_tuple(s) for s in R[t].columns]
+                        R[t].columns = pd.MultiIndex.from_tuples(cols,names=colnames)
             except KeyError:
                 pass
 
@@ -1130,5 +1142,5 @@ if __name__=='__main__':
     r = Regression(y=y,d=d,return_se=True,bootstrap_tol=0.005,verbose=True)
     r.estimate()
     r.save('/tmp/foo.rgsn',overwrite=True)
-    s = load('/tmp/foo.rgsn')
+    s = load('./test/foo.rgsn')
 #+end_src
