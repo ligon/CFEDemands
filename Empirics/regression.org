@@ -532,6 +532,7 @@ def estimate_gamma(y,beta,w,tau,method='categorical'):
 
     if method=='categorical':
         gamma = Mp(e).join(tau,how='left').groupby('tau').mean()
+        gamma.columns.name = 'j'
 
         # Construct gamma(d)
         gamma_d = pd.DataFrame(tau).join(gamma,on='tau')
@@ -793,7 +794,8 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
             se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
         except KeyError:  # d doesn't vary with j?
             se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
-    else: se_gamma = None
+    else:
+        se_gamma = None
 
     B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
     if rectify:
@@ -813,6 +815,11 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
             hatgamma = hatgamma*B['gamma_d']
             if se_gamma is not None:
                 se_gamma = se_gamma*B['gamma_d']
+
+    # Convert tuples in index  to strings (necessary for persistence in sql)
+    if hatgamma.index.name == 'tau':
+        hatgamma.index = [str(s) for s in hatgamma.index]
+        hatgamma.index.name = 'k'
 
     return dict(y=y,
                 yhat=yhat,
@@ -1085,6 +1092,9 @@ def load(fn):
             except KeyError:
                 pass
 
+        if not len(R):
+            raise OSError(f'Trying to read empty file?  Check {loc}.')
+
     return Regression(**R)
 
 #+end_src
@@ -1138,9 +1148,9 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
 #+end_src
 #+begin_src python
 if __name__=='__main__':
-    y,d,truth = data(N=100,J=10,return_truth=True)
-    r = Regression(y=y,d=d,return_se=True,bootstrap_tol=0.005,verbose=True)
+    y,d,truth = data(N=1000,J=10,return_truth=True)
+    r = Regression(y=y,d=d,return_se=True,K=3,bootstrap_tol=0.005,verbose=False)
     r.estimate()
     r.save('/tmp/foo.rgsn',overwrite=True)
-    s = load('./test/foo.rgsn')
+    s = load('/tmp/foo.rgsn')
 #+end_src
