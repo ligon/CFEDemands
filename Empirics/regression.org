@@ -681,11 +681,11 @@ def predict_y(pi,Ar,gamma_d,beta,wr):
 #+name: code:data_preparation
 #+begin_src python
 from cfe.df_utils import broadcast_binary_op
-from cfe.estimation import get_loglambdas
+from cfe.estimation import drop_columns_wo_covariance
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
 
-def prepare_data(y,d):
+def prepare_data(y,d,min_obs=None):
     assert y.index.names == ['i','t','m','j']
 
     # Make d a dataframe, with columns k
@@ -698,6 +698,12 @@ def prepare_data(y,d):
     YD = YD.dropna()
 
     y = YD['y']  # Drops expenditures that lack corresponding d
+
+    # Drop goods from y if not enough observations to calculate
+    # covariance matrix
+    Y = drop_columns_wo_covariance(y.unstack('j'),min_obs=min_obs)
+
+    y = Y.stack('j').dropna()
 
     # If no variation in d across j, collapse
     dg = YD.iloc[:,1:].groupby(['i','t','m'])
@@ -972,6 +978,7 @@ class Regression:
                  return_se=False,
                  rectify=False,
                  verbose=False,
+                 min_obs=30,
                  ,**kwargs):
         """To load data, use cfe.load().
 
@@ -992,11 +999,12 @@ class Regression:
         attrs['return_se'] = return_se
         attrs['rectify'] = rectify
         attrs['verbose'] = verbose
+        attrs['min_obs'] = min_obs
 
         self.attrs=attrs
 
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
-            self.y,self.d = prepare_data(self.y,self.d)
+            self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs)
 
     def mse(self):
         try:
@@ -1143,9 +1151,7 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
 #+end_src
 
 ** __main__
-#+begin_src python
 
-#+end_src
 #+begin_src python
 if __name__=='__main__':
     y,d,truth = data(N=1000,J=10,return_truth=True)

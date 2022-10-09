@@ -256,7 +256,7 @@ def missing_inner_product(X,min_obs=None):
 
     return C + N*np.outer(xbar,xbar)
 
-def drop_columns_wo_covariance(X,min_obs=None,VERBOSE=False):
+def drop_columns_wo_covariance(X,min_obs=2,VERBOSE=False):
     """Drop columns from pd.DataFrame that lead to missing elements of covariance matrix."""
 
     m,n=X.shape
