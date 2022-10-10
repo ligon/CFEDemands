@@ -243,8 +243,9 @@ some logic to estimate the optimal number of clusters for \(K\)-means.
 #+name: code:kmeans
 #+begin_src python
 from sklearn.model_selection import GroupKFold
-from cfe.df_utils import use_indices, drop_missing
+from .df_utils import use_indices, drop_missing
 from scipy.optimize import minimize_scalar
+from sklearn.cluster import KMeans
 
 def kmean_controls(n_clusters,Mpy,Mpd,shuffles=0,classifiers=None,verbose=False):
     n_clusters = int(n_clusters)
@@ -354,10 +355,10 @@ def Md_generator(X,tau,method='categorical',Mp=False):
 Given $\MdMpy$ estimate \beta.
 #+name: code:beta_from_MdMpy
 #+begin_src python
-from cfe.estimation import svd_rank1_approximation_with_missing_data as mysvd
+from .estimation import svd_rank1_approximation_with_missing_data as mysvd
 import numpy as np
 
-def estimate_beta(MdMpy,return_seb=False,bootstrap_tol=None,Mdp=None,verbose=False):
+def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
     if verbose:
         print("estimate_beta")
 
@@ -380,7 +381,7 @@ def estimate_beta(MdMpy,return_seb=False,bootstrap_tol=None,Mdp=None,verbose=Fal
 
     b = pd.DataFrame(u*np.sqrt(s2),index=MdMpY.columns,columns=['beta'])
 
-    if return_seb:
+    if return_se:
         if bootstrap_tol is None:
             raise ValueError("Not implemented. Specify bootstrap_tol>0.")
             V = (((e-e.mean())**2).mul(v**2,axis=0)).mean() # See p. 150 of Bai (2003)
@@ -406,7 +407,6 @@ def estimate_beta(MdMpy,return_seb=False,bootstrap_tol=None,Mdp=None,verbose=Fal
 #+begin_src python
 from scipy import sparse
 import warnings
-#import krypy
 
 def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False):
 
@@ -419,19 +419,21 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
     if not np.allclose(MdMpy.groupby(['t','m','j']).mean(),0):
         warn("MdMpy means not close to zero.")
 
-    b,seb = estimate_beta(MdMpy,return_seb=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
-
+    b,seb = estimate_beta(MdMpy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
 
     # Construct regression to compute Mpw
     cols = y.groupby(['i','t','m']).mean().index
 
+    # This is VERY SLOW.  Find a better way!
     index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
 
     B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
     B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
     B.index.names = ['i','t','m','j']
 
-    B = B.loc[y.index,:]
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    B = B.reindex(y.index,axis=0)  #Maybe?
 
     N = y.index.levels[y.index.names.index('i')]
 
@@ -441,7 +443,8 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
 
     R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
     R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
-    R = R.loc[:,cols]
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
 
     Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
 
@@ -560,7 +563,8 @@ def estimate_gamma(y,beta,w,tau,method='categorical'):
         gamma_d.name = 'gamma_d'
     else: raise ValueError("No method %s." % method)
 
-    e2 = e - gamma_d.loc[e.index]
+    #e2 = e - gamma_d.loc[e.index]
+    e2 = e - gamma_d.reindex_like(e)
 
     return gamma, gamma_d, e2
 
@@ -608,8 +612,8 @@ def estimate_w(y,beta,return_se=False):
     B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
     B.index.names = ['i','t','m','j']
 
-    A = A.loc[y0.index,:]
-    B = B.loc[y0.index,:]
+    A = A.reindex(y0.index,axis=0)
+    B = B.reindex(y0.index,axis=0)
 
     X0 = pd.concat([A,B],axis=1)
     cols = X0.columns
@@ -680,8 +684,8 @@ def predict_y(pi,Ar,gamma_d,beta,wr):
 ** Data preparation
 #+name: code:data_preparation
 #+begin_src python
-from cfe.df_utils import broadcast_binary_op
-from cfe.estimation import drop_columns_wo_covariance
+from .df_utils import broadcast_binary_op
+from .estimation import drop_columns_wo_covariance
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
 
@@ -789,7 +793,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
     hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
 
     yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
-    e = y - yhat.loc[y.index]
+    e = y - yhat.reindex_like(y)
 
     sigma2 = e.unstack('j').var()
 
@@ -803,8 +807,8 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
     else:
         se_gamma = None
 
-    B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
     if rectify:
+        B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
         # Re-orthogonalize
         hatb = hatb*B['bw']
         if seb is not None:
@@ -821,11 +825,23 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
             hatgamma = hatgamma*B['gamma_d']
             if se_gamma is not None:
                 se_gamma = se_gamma*B['gamma_d']
+    else:
+        B = None
+        X = None
 
     # Convert tuples in index  to strings (necessary for persistence in sql)
     if hatgamma.index.name == 'tau':
         hatgamma.index = [str(s) for s in hatgamma.index]
         hatgamma.index.name = 'k'
+
+    if return_se:
+        se_mults = se_mults.unstack('m')
+        pi_se = pi_se.unstack('m')
+        Ar_se = Ar_se.unstack(['t','m'])
+    else:
+        se_mults = None
+        pi_se = None
+        Ar_se = None
 
     return dict(y=y,
                 yhat=yhat,
@@ -835,7 +851,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 beta=hatb,
                 beta_se=seb,
                 mults = mults.unstack('m'),
-                se_mults = se_mults.unstack('m'),
+                se_mults = se_mults,
                 e1 = e1,
                 w = hatw,
                 e3 = e3,
@@ -845,10 +861,10 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 e2 = e2,
                 gamma_d = gamma_d,
                 pi = hatpi.unstack('m'),
-                pi_se = pi_se.unstack('m'),
+                pi_se = pi_se,
                 e4 = e4,
                 Ar = Ar.unstack(['t','m']),
-                Ar_se = Ar_se.unstack(['t','m']),
+                Ar_se = Ar_se,
                 B=B,
                 X=X)
 
@@ -1108,23 +1124,22 @@ def load(fn):
 #+end_src
 
 * Example of Use
-** Artificial Data
-#+begin_src python
-import cfe
+** Artificial Data & Test
+#+begin_src python :tangle ../cfe/test/test_regression.py
 from cfe.df_utils import to_dataframe, df_to_orgtbl
 import pandas as pd
 import numpy as np
-from sklearn.cluster import KMeans
-from cfe import dgp
+from cfe.dgp import prices, expenditures, geometric_brownian
+from cfe import Regression, load
 
 def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
     """
     Return data on log expenditures & household characteristics.
     """
-    p = dgp.prices(T,M,J,dgp.geometric_brownian(sigma=2))
+    p = prices(T,M,J,geometric_brownian(sigma=2))
     #print(np.log(p).mean('i'))
 
-    x,truth = dgp.expenditures(N,T,M,J,k,np.linspace(.2,5,J),mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=p)
+    x,truth = expenditures(N,T,M,J,k,np.linspace(.2,5,J),mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=p)
 
     d = to_dataframe(truth.characteristics,'k')
     d.index.names = ['i','t','m']
@@ -1148,15 +1163,14 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
         return y,d,truth
     else:
         return y,d
-#+end_src
 
-** __main__
-
-#+begin_src python
-if __name__=='__main__':
-    y,d,truth = data(N=1000,J=10,return_truth=True)
-    r = Regression(y=y,d=d,return_se=True,K=3,bootstrap_tol=0.005,verbose=False)
+def main():
+    y,d,truth = data(N=10000,J=10,return_truth=True)
+    r = Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
     r.estimate()
     r.save('/tmp/foo.rgsn',overwrite=True)
     s = load('/tmp/foo.rgsn')
+
+if __name__=='__main__':
+    main()
 #+end_src
