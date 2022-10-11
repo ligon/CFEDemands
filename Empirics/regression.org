@@ -996,7 +996,7 @@ class Regression:
                  verbose=False,
                  min_obs=30,
                  ,**kwargs):
-        """To load data, use cfe.load().
+        """To load data, use cfe.read_sql().
 
         To instantiate from data on log expenditures (y) and household
         characteristics (z), supply each as pd.DataFrames, with indices for y
@@ -1050,9 +1050,9 @@ class Regression:
             except AttributeError:
                 setattr(self,k,v)
 
-    def save(self,fn=None,overwrite=False):
+    def to_sql(self,fn=None,overwrite=False):
         """
-        Save to file fn.
+        Save to sql database fn.
         """
         if overwrite: if_exists = 'replace'
         else: if_exists = 'fail'
@@ -1076,15 +1076,36 @@ class Regression:
                         continue
                 pd.Series(self.attrs).to_sql('attrs',connection,if_exists=if_exists)
             except ValueError:
-                raise IOError("Save would overwrite existing data.  Pass 'overwrite=True' if this is what you want.") from None
+                raise IOError("To_sql would overwrite existing data.  Pass 'overwrite=True' if this is what you want.") from None
+
+    def to_pickle(self,fn):
+        """
+        Write dictionary of attributes to a pickle.
+        """
+        import pickle
+
+        d = {}
+        for attr in self.__dir__():
+            try:
+                x = getattr(self,attr)
+                x.shape
+                d[attr] = x
+            except AttributeError: continue
+
+            d['attrs'] = self.attrs
+
+        with open(fn,'wb') as f:
+            pickle.dump(d,f)
 
 #+end_src
 * Read persistent Regression object
+** =read_sql=
+First =read_sql= provides the other half of an interface to a =sqlite= database.
 #+begin_src python
 from sqlalchemy import inspect, create_engine
 from ast import literal_eval as make_tuple
 
-def load(fn):
+def read_sql(fn):
     """
     Read Regression object from file fn.
     """
@@ -1122,7 +1143,21 @@ def load(fn):
     return Regression(**R)
 
 #+end_src
+** =read_pickle=
+#+begin_src python
+import pickle
 
+def read_pickle(fn):
+    """
+    Read pickled dictionary and assign keys as attributes to Regression object.
+    """
+    with open(fn,'rb') as f:
+        R = pickle.load(f)
+
+    return Regression(**R)
+
+
+#+end_src
 * Example of Use
 ** Artificial Data & Test
 #+begin_src python :tangle ../cfe/test/test_regression.py
@@ -1130,7 +1165,7 @@ from cfe.df_utils import to_dataframe, df_to_orgtbl
 import pandas as pd
 import numpy as np
 from cfe.dgp import prices, expenditures, geometric_brownian
-from cfe import Regression, load
+from cfe import Regression, read_sql
 
 def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
     """
@@ -1155,7 +1190,7 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
 
     YD = YD.dropna()
 
-    y = YD['y']  # Drops expenditures that lack corresponding d
+    y = YD['y']  # Drops expenditures that lack corresponding d.
 
     d = d.stack()
 
@@ -1168,9 +1203,11 @@ def main():
     y,d,truth = data(N=10000,J=10,return_truth=True)
     r = Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
     r.estimate()
-    r.save('/tmp/foo.rgsn',overwrite=True)
-    s = load('/tmp/foo.rgsn')
+    r.to_sql('/tmp/foo.rgsn',overwrite=True)
+    s = read_sql('/tmp/foo.rgsn')
+
+    return s
 
 if __name__=='__main__':
-    main()
+    s = main()
 #+end_src
