@@ -7,4 +7,5 @@ from .result import Result, from_dataset
 #from demands import engel_curves
 from .regression import Regression, read_sql, read_pickle
 
-with open('VERSION') as f: __version__ = f.readline()
+from importlib.metadata import version
+__version__ = version('CFEDemands')

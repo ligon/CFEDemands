@@ -36,7 +36,7 @@ devinstall: tangle test
 	pip install -e .
 
 upload: wheel
-	twine upload dist/*
+	twine upload dist/CFEDemands*.whl
 
 clean: 
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
