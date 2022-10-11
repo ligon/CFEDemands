@@ -43,3 +43,4 @@ cfe/test/*.py
 /cfe/test/.DS_Store
 /env/
 /cfe/regression.py
+cfe/stochastic_test/
