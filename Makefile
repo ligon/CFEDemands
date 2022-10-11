@@ -20,7 +20,7 @@ test: .test
 	pytest cfe/test/
 	touch .test
 
-wheel: setup.py tangle test CHANGES.txt cfe/requirements.txt
+wheel: pyproject.toml tangle test CHANGES.txt cfe/requirements.txt
 	pip wheel --wheel-dir=dist/ .
 
 CHANGES.txt:
