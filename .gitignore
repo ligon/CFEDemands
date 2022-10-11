@@ -42,3 +42,4 @@ cfe/test/*.py
 /.DS_Store
 /cfe/test/.DS_Store
 /env/
+/cfe/regression.py
