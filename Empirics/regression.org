@@ -1200,13 +1200,17 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
         return y,d
 
 def main():
-    y,d,truth = data(N=10000,J=10,return_truth=True)
+    y,d,truth = data(N=1000,J=10,return_truth=True)
     r = Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
     r.estimate()
-    r.to_sql('/tmp/foo.rgsn',overwrite=True)
-    s = read_sql('/tmp/foo.rgsn')
+    #r.to_sql('/tmp/foo.rgsn',overwrite=True)
+    #s = read_sql('/tmp/foo.rgsn')
 
-    return s
+    return r
+
+def test_main():
+    s = main()
+    assert np.all(s.beta>0)
 
 if __name__=='__main__':
     s = main()

@@ -382,7 +382,7 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
 Unit test drop_columns_wo_cov function using alternative implementation.
 
 #+name: test_drop_columns_wo_cov
-#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_drop_columns_wo_cov.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_drop_columns_wo_cov.py
 #name: test_drop_columns_wo_cov
 from cfe.estimation import drop_columns_wo_covariance
 import pandas as pd
@@ -485,7 +485,7 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
 
     xhat=pd.DataFrame(s*v@u.T,columns=x.index,index=x.columns).T
 
-    if TRANSPOSE: 
+    if TRANSPOSE:
         out = xhat.T
     else:
         out = xhat
@@ -498,8 +498,12 @@ def svd_rank1_approximation_with_missing_data(x,return_usv=False,max_rank=1,
         elif u.shape[0] == xhat.shape[0]:
             u = pd.Series(u.squeeze(),index=xhat.index)
             v = pd.Series(v.squeeze(),index=xhat.columns)
-        return xhat,u,s,v
-    else: return xhat
+        if TRANSPOSE:
+            out = (out,v,s,u)
+        else:
+            out = (out,u,s,v)
+
+    return out
 #+end_src
 
 #+results: svd_rank1_approximation_with_missing_data
@@ -510,7 +514,7 @@ First, some code to check if approximation works for a simple, small
 scale example.
 
 #+name: svd_rank1_approximation_with_missing_data_example
-#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_svd_rank1_approximation_with_missing_data_example.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_svd_rank1_approximation_with_missing_data_example.py
 #name: svd_rank1_approximation_with_missing_data_example
 import numpy as np
 import pandas as pd
@@ -540,7 +544,7 @@ X=pd.DataFrame(X).T
 def test_symmetry_of_svd_rank1_approximation():
     Xhat=svd_rank1_approximation_with_missing_data(X0,VERBOSE=False)
     XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
-    assert np.all(Xhat.T == XhatT)
+    assert np.all(Xhat.T.values == XhatT.values)
 
 def test_accuracy_of_svd_rank1_approximation():
     Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
@@ -579,7 +583,7 @@ assert np.linalg.norm((X0-Xhat)/X0,ord=np.inf)//np.sqrt(np.prod(X0.shape)) < 1e-
 #+end_example
 
 #+name: svd_rank1_approximation_with_missing_data_test
-#+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle ../cfe/test/svd_rank1_approximation_with_missing_data_test.py
+#+begin_src python :noweb no-export :results output :var n=12 :var m=2000 :var percent_missing=0.5 :var SEED=0 :tangle ../cfe/stochastic_test/svd_rank1_approximation_with_missing_data_test.py
 #name: svd_rank1_approximation_with_missing_data_test
 import numpy as np
 import pandas as pd
@@ -629,7 +633,7 @@ else: print()
 
 
 ** Test of construction of approximation to CE
-#+begin_src python  :noweb no-export :results output :tangle ../cfe/test/NOtest_approximation.py
+#+begin_src python  :noweb no-export :results output :tangle ../cfe/stochastic_test/test_approximation.py
 import numpy as np
 <<estimate_reduced_form>>
 <<artificial_data>>
@@ -842,7 +846,7 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
    should be able to recover some of these parameters from =estimate_reduced_form=.
    Below we construct a simple test of this.
 #+name: test_estimate_reduced_form
-#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/NOtest_estimate_reduced_form.py
+#+BEGIN_SRC python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/stochastic_test/test_estimate_reduced_form.py
 #name: test_estimate_reduced_form
 
 from scipy.stats.distributions import chi2
@@ -1039,7 +1043,7 @@ def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None,VERBOSE=F
 
     assert e.shape[0]>e.shape[1], "More goods than observations."
 
-    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=VERBOSE,max_rank=max_rank,min_obs=min_obs).T
+    chat = svd_rank1_approximation_with_missing_data(e,VERBOSE=VERBOSE,max_rank=max_rank,min_obs=min_obs)
 
     R2 = chat.var()/e.var()
 
@@ -1243,7 +1247,7 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 
 
 #+name: test_artificial_data
-#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_artificial_data.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_artificial_data.py
 #name: test_artificial_data
 
 <<artificial_data>>
@@ -1339,7 +1343,7 @@ plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 *** Tests of estimation with missing data
 
 #+name: test_estimate_with_missing
-#+begin_src python :noweb no-export :results output :var SEED = 227 :tangle ../cfe/test/test_estimate_with_missing.py :exports none
+#+begin_src python :noweb no-export :results output :var SEED = 227 :tangle ../cfe/stochastic_test/test_estimate_with_missing.py :exports none
 #name: test_estimate_with_missing
 
 import numpy as np
@@ -1603,7 +1607,7 @@ def indirect_price_elasticities(a,p,zbar):
 ** Test
    The direct and indirect methods  should yield similar results.
    Below we construct a simple test of this.
-#+BEGIN_SRC python :var T=20 N=1000 n=6 :tangle ../cfe/test/price_elasticities.py
+#+BEGIN_SRC python :var T=20 N=1000 n=6 :tangle ../cfe/stochastic_test/price_elasticities.py
 # Tangling may not include :vars from header
 try: 
     T
@@ -2090,15 +2094,9 @@ assert p>0.01, "Should seldrom reject equality of elasticities."
 #+END_SRC  
 
 * Predicted expenditures
-  To construct unbiased estimates of /levels/ of expenditures---rather
-  than the logarithms that emerge naturally from our estimation---we
-  need to take into account the distribution of error terms.  
+To construct unbiased estimates of /levels/ of expenditures---rather than the logarithms that emerge naturally from our estimation---we need to take into account the distribution of error terms.
 
-  One simple approach is to assume that these error terms are
-  normally distributed, with means and variances allowed to vary by market or
-  period.  This seems to work well in practice, but examining the
-  distribution of estimated residuals to check for gross violations of
-  this distributional assumption is important.
+One simple approach is to assume that these error terms are normally distributed, with means and variances allowed to vary by market or period.  This seems to work well in practice, but examining the distribution of estimated residuals to check for gross violations of this distributional assumption is important.
 
 #+name: predicted_expenditures
 #+begin_src python :exports code :tangle ../cfe/estimation.py
@@ -2202,7 +2200,7 @@ def optimal_index(a,yhat,e):
 
 *** Test
  #+name: test_optimal_index
- #+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/test/test_optimal_index.py
+ #+begin_src python :results output :var T=2 :var N=5000 :var n=12 :var M=2 :tangle ../cfe/stochastic_test/test_optimal_index.py
  #name: test_optimal_index
 
 import cfe
@@ -2239,13 +2237,9 @@ pidx = optimal_index(R.a,yhat.sel(j=range(3)),R.e.sel(j=range(3)))
  #+END_SRC
 
 * Monte Carlo Data Generating Process
- Here we construct a simple data-generating process, and then use
- data from this to estimate neediness, checking that we can recover
- the parameters of the data-generating process.  The various routines
- for generating data are tangled to a module =cfe.dgp=.
+Here we construct a simple data-generating process, and then use data from this to estimate neediness, checking that we can recover the parameters of the data-generating process.  The various routines for generating data are tangled to a module =cfe.dgp=.
 
- We randomly generate several different kinds of data: "neediness"
- \lambda_{it}; prices $p_t$; and from these expenditures $x_{it}$.  
+We randomly generate several different kinds of data: "neediness"  $\lambda_{it}$; prices $p_t$; and from these expenditures $x_{it}$.
 
 ** Data-generating process for $\{\lambda^j_{t}\}$
    First we define a function which can generate a panel dataset of
@@ -2811,10 +2805,8 @@ def use_indices(df,idxnames):
 #+END_SRC
 
 #+name: test_df_norm
-#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_df_norm.py
+#+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/test_df_norm.py
 #name: test_df_norm
-
-
 
 import numpy as np
 import pandas as pd
@@ -3057,7 +3049,7 @@ b,v = cfe.df_utils.ols(X,y,return_v=True,return_se=False)
 #+end_src
 
 Now I test the Arellano robust standard errors using canned R packages.
-#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_arellano_robust.py
+#+begin_src python :noweb no-export :results output :tangle ../cfe/stochastic_test/test_arellano_robust.py
 import cfe
 import pandas as pd
 import statsmodels.formula.api as sm
@@ -3385,7 +3377,7 @@ def broadcast_binary_op(x, op, y):
 Test the merge_multi() function, comparing it to pandas join().
 
 #+name: test_merge_multi
-#+BEGIN_SRC python :noweb no-export :tangle ../cfe/stochastic_test/test_merge_multi.py
+#+BEGIN_SRC python :noweb no-export :tangle ../cfe/test/test_merge_multi.py
 #name: test_merge_multi
 
 

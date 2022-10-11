@@ -1027,7 +1027,7 @@ assert c>0.99, "Correlation between predictions of iterated & pc estimator only 
 #+end_src
 
 *** Test parallel iterated_estimation()
-#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 n=10 :tangle ../cfe/test/test_parallel_estimation.py
+#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 n=10 :tangle ../cfe/test/NOtest_parallel_estimation.py
 import cfe
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1097,7 +1097,7 @@ assert len(R.coords['i']<n), "Failed to drop missing items?"
 
 *** Test get_stderrs()
 #+name: test_get_stderrs
-#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/stochastic_test/test_get_stderrs.py
 import cfe
 import numpy as np
 
