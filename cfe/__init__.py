@@ -6,4 +6,4 @@ from . import input_files
 from .result import Result, from_dataset
 #from demands import engel_curves
 from .regression import Regression, read_sql, read_pickle
-__version__ = '0.5.0dev'
+__version__ = '0.5.1dev'
