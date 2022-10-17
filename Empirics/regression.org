@@ -1151,8 +1151,14 @@ def read_pickle(fn):
     """
     Read pickled dictionary and assign keys as attributes to Regression object.
     """
-    with open(fn,'rb') as f:
-        R = pickle.load(f)
+    try:
+        R = pickle.load(fn)  # Is fn a file?
+    except TypeError:  # Maybe a filename?
+        with open(fn,'rb') as f:
+            R = pickle.load(f)
+
+    if type(R) is not dict:
+        R = R.__dict__
 
     return Regression(**R)
 
