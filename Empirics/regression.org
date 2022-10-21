@@ -1082,8 +1082,6 @@ class Regression:
         """
         Write dictionary of attributes to a pickle.
         """
-        import pickle
-
         d = {}
         for attr in self.__dir__():
             try:
@@ -1094,8 +1092,7 @@ class Regression:
 
             d['attrs'] = self.attrs
 
-        with open(fn,'wb') as f:
-            pickle.dump(d,f)
+        pd.to_pickle(d,fn)
 
 #+end_src
 * Read persistent Regression object
@@ -1147,15 +1144,25 @@ def read_sql(fn):
 #+begin_src python
 import pickle
 
-def read_pickle(fn):
+def read_pickle(fn,cache_dir=None):
     """
     Read pickled dictionary and assign keys as attributes to Regression object.
     """
+    import fsspec
+
     try:
         R = pickle.load(fn)  # Is fn a file?
     except TypeError:  # Maybe a filename?
-        with open(fn,'rb') as f:
-            R = pickle.load(f)
+        if cache_dir is not None:
+            if 'filecache::' not in fn:  # May already have caching specified
+                fn = 'filecache::' + fn
+            storage_options = {'filecache':{'cache_dir':cache_dir}}
+            with fsspec.open(fn,mode='rb',
+                             storage_options=storage_options) as f:
+                R = pickle.load(f)
+        else:
+            with fsspec.open(fn,mode='rb') as f:
+                R = pickle.load(f)
 
     if type(R) is not dict:
         R = R.__dict__
