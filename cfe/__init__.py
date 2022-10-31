@@ -1,4 +1,4 @@
-import demands
+import consumerdemands as demands
 from . import estimation
 from . import df_utils
 from . import dgp

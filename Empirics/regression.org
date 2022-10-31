@@ -938,6 +938,7 @@ import warnings
 from sqlalchemy import create_engine
 from pathlib import Path
 from collections import namedtuple, OrderedDict
+from cfe.df_utils import is_none
 
 # Names of Series & DataFrames which are attributes of a Regression object
 
@@ -995,12 +996,12 @@ class Regression:
                  rectify=False,
                  verbose=False,
                  min_obs=30,
-                 ,**kwargs):
-        """To load data, use cfe.read_sql().
+                 **kwargs):
+        """To load data, use cfe.read_sql() or cfe.read_pickle().
 
         To instantiate from data on log expenditures (y) and household
-        characteristics (z), supply each as pd.DataFrames, with indices for y
-        (i,t,m) and columns (j, and for z indices (i,t,m) and columns (k,).
+        characteristics (d), supply each as pd.DataFrames, with indices for y
+        (i,t,m) and columns (j,) and for d indices (i,t,m) and columns (k,).
         """
 
         for k,v in kwargs.items():
@@ -1095,6 +1096,108 @@ class Regression:
         pd.to_pickle(d,fn)
 
 #+end_src
+* Interface to demand module
+We've tucked code to calculate demands and related objects into =cfe.demands=.  The functions defined there generally take a list of parameters which define utility, along with variables such as price and budget that are mapped into quantities demanded, or other outcomes.
+
+Since after estimation a =result= instance has utility parameters recorded as attributes, it's convenient to provide the various demand functions as methods associated with the =Regression= class.
+
+#+name: regression_demand_interface
+#+begin_src python :noweb no-export :results output :tangle ../cfe/regression.py
+import consumerdemands
+import pandas as pd
+
+def _demand_parameters(self,p=None,d=None):
+    """Return tuple of (p,alpha,beta,phi) from regression instance.
+
+    Suitable for passing to =cfe.demand= functions.
+    """
+
+    beta = self.beta
+    n = len(beta)
+
+    alpha = np.exp(self.Ar.iloc[:,0])
+
+    if p is None:
+        prices = np.exp(alpha*0)
+    else:
+        prices = p
+
+    # The following hijinks deal with missing values (e.g., in prices)
+    phi = 0 # phi not (yet?) an attribute of Regression.
+
+    return prices,{'alpha':alpha,'beta':beta,'phi':phi}
+
+def _lambdavalue(self,x,p=None,z=None):
+    """Marginal utility at expenditures x.
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    return consumerdemands.lambdavalue(x,p,pparms)
+
+def _demands(self,x,p=None,z=None,type="Marshallian"):
+    """Quantities demanded at prices p for household with observable
+    characteristics z, having a utility function with parameters given
+    by (possibly estimated) attributes from a Regression (i.e., the
+    vectors of parameters alpha, beta, delta).
+
+    Default type is "Marshallian", in which case argument x is budget.
+
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Hicksian" :: argument x is level of utility
+
+    Ethan Ligon                                    April 2019
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    Qs = {'Marshallian':consumerdemands.marshallian.demands,
+          'Hicksian':consumerdemands.hicksian.demands,
+          'Frischian':consumerdemands.frischian.demands}
+
+    q = pd.Series(Qs[type](x,p,pparms),index=pparms['alpha'].index,name='quantities')
+
+    return q
+
+def _utility(self,x,p=None,z=None):
+    """Indirect utility
+
+    Varies with prices p, budget x and observable characteristics z,
+    having a utility function with parameters given by (possibly
+    estimated) attributes from a Regression (i.e., the vectors of
+    parameters alpha, beta, delta).
+
+    Ethan Ligon                                    April 2019
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    return consumerdemands.marshallian.indirect_utility(x,p,pparms)
+
+def _expenditurefunction(self,U,p=None,z=None):
+    """Total Expenditures
+
+    Varies with level of utility U, prices p, and observable
+    characteristics z, with a utility function having parameters given
+    by (possibly estimated) attributes from a Regression (i.e., the
+    vectors of parameters alpha, beta, delta).
+
+    Ethan Ligon                                    April 2019
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    return consumerdemands.hicksian.expenditurefunction(U,p,pparms)
+
+Regression.consumerdemands = consumerdemands
+Regression.demands = _demands
+Regression.lambdavalue = _lambdavalue
+Regression.indirect_utility = _utility
+Regression.expenditure = _expenditurefunction
+#+end_src
+
+
 * Read persistent Regression object
 ** =read_sql=
 First =read_sql= provides the other half of an interface to a =sqlite= database.
