@@ -1106,7 +1106,7 @@ class Regression:
         """
         self.flags['K'] = find_optimal_K(self.y,self.d)
 
-    def predicted_expenditures(self,resample=False,clusterby=['t','m','j'],verbose=False):
+    def predicted_expenditures(self,resample=False,clusterby=['t','m','j'],fill_missing=True,verbose=False):
         """Compute predicted /levels/ of expenditures.
 
         This is different from exp(yhat), since we have to account for the expected value of exp(e), where e = y - yhat.
@@ -1124,7 +1124,7 @@ class Regression:
         if not resample:
             # Use iqr instead of variance for some robustness to outliers
             # Relation for normal dist: iqr/1.3489795 = sigma
-            xhat = np.exp(self.yhat + eg.transform(np.mean) + ((eg.transform(iqr)/1.3489795)**2/2))
+            evar = (eg.transform(iqr)/1.3489795)**2
         else:
             if resample < 1: # Assume this is a tolerance
                 tol = resample
@@ -1142,9 +1142,15 @@ class Regression:
                 diff = np.abs(evar-last).max()
                 if verbose: print(f'Draw {i}, diff={diff}')
 
+        if fill_missing:
+            evar = evar.groupby(clusterby).mean()
+            xhat = np.exp(self.yhat.add(evar/2))
+            xhat = xhat.reorder_levels(self.yhat.index.names).sort_index()
+        else:
             xhat = np.exp(self.yhat + evar/2)
+            xhat = xhat.reorder_levels(self.yhat.index.names).sort_index()
 
-        return xhat.reindex_like(self.y)
+        return xhat
 
 
 #+end_src
