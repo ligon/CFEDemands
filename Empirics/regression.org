@@ -1,3 +1,4 @@
+# -*- org-src-preserve-indentation: t; -*-
 #+title: Regression
 #+PROPERTY: header-args:python :noweb no-export :results output :tangle ../cfe/regression.py :exports code :comments link :prologue (format "# Tangled on %s" (current-time-string)) :shebang "#!/usr/bin/env python"
 
@@ -349,7 +350,6 @@ def Md_generator(X,tau,method='categorical',Mp=False):
     return MdX
 #+end_src
 
-
 ** Estimate \beta from $\MdMpy$
 
 Given $\MdMpy$ estimate \beta.
@@ -472,6 +472,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
     coeffs = result[0].squeeze()
 
     Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
 
     mults = pd.Series(coeffs[len(cols):],
                       index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
@@ -527,7 +528,6 @@ def estimate_gamma(y,beta,w,tau,method='categorical'):
     """
     Estimate $gamma(tau) = E[Mp(Y -hat{beta}hat{w}) | tau]$.
     """
-
     if beta is not None:
         e = y.unstack('j') - pd.DataFrame({0:w})@pd.DataFrame({0:beta}).T
     else:
@@ -777,6 +777,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
     # Estimation
     hatb,hatMpw,seb,mults,se_mults,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
 
+    if verbose: print('Estimating gamma...')
     hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
     try:
         if d.columns.name is None:
@@ -787,11 +788,16 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
     # y - hatgamma(d)
     y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
 
+    if verbose: print('Estimating w...')
+
     hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
     #print('Ar,w')
 
+    if verbose: print('Estimating pi...')
+
     hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
 
+    if verbose: print('Predicting y...')
     yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
     e = y - yhat.reindex_like(y)
 
@@ -808,6 +814,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
         se_gamma = None
 
     if rectify:
+        if verbose: print('Rectifying...')
         B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
         # Re-orthogonalize
         hatb = hatb*B['bw']
@@ -1023,18 +1030,6 @@ class Regression:
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
             self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs)
 
-    def mse(self):
-        try:
-            return (self.y - self.yhat).mean()
-        except AttributeError:
-            estimate(self)
-            return mse(self)
-
-    def optimal_number_of_clusters(self):
-        """
-        Find optimal number of clusters for K-means.
-        """
-        self.flags['K'] = find_optimal_K(self.y,self.d)
 
     def estimate(self):
 
@@ -1094,6 +1089,63 @@ class Regression:
             d['attrs'] = self.attrs
 
         pd.to_pickle(d,fn)
+
+#+end_src
+* Other methods
+#+begin_src python
+    def mse(self):
+        try:
+            return (self.y - self.yhat).mean()
+        except AttributeError:
+            estimate(self)
+            return mse(self)
+
+    def optimal_number_of_clusters(self):
+        """
+        Find optimal number of clusters for K-means.
+        """
+        self.flags['K'] = find_optimal_K(self.y,self.d)
+
+    def predicted_expenditures(self,resample=False,clusterby=['t','m','j'],verbose=False):
+        """Compute predicted /levels/ of expenditures.
+
+        This is different from exp(yhat), since we have to account for the expected value of exp(e), where e = y - yhat.
+
+        One standard (and the default) way to calculate these is by assuming that the distribution of e is normal.  An alternative is to resample residuals.
+
+        Regardless of whether resampling is chosen, means (and variances) are selected at the level of the list clusterby.
+        """
+        e = self.y - self.yhat
+        eg = e.dropna().groupby(clusterby)
+
+        def iqr(x):
+            return np.diff(x.quantile([0.25,0.75]))[0]
+
+        if not resample:
+            # Use iqr instead of variance for some robustness to outliers
+            # Relation for normal dist: iqr/1.3489795 = sigma
+            xhat = np.exp(self.yhat + eg.transform(np.mean) + ((eg.transform(iqr)/1.3489795)**2/2))
+        else:
+            if resample < 1: # Assume this is a tolerance
+                tol = resample
+            last = -1
+            evar = e.dropna().groupby(clusterby).transform(np.var)
+            evar = evar.sort_index(level=clusterby)
+            i = 0
+            diff = 1
+            while diff>tol:
+                last = evar
+                esample = eg.sample(frac=1,replace=True)
+                drawvar = (esample.groupby(clusterby).transform(iqr)/1.3489795)**2
+                evar = i/(i+1)*evar + drawvar.values/(i+1)
+                i += 1
+                diff = np.abs(evar-last).max()
+                if verbose: print(f'Draw {i}, diff={diff}')
+
+            xhat = np.exp(self.yhat + evar/2)
+
+        return xhat.reindex_like(self.y)
+
 
 #+end_src
 * Interface to demand module
