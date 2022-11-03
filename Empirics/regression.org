@@ -408,14 +408,19 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
     except KeyError:
         MdMpY = MdMpy
 
+    C = MdMpY.cov(ddof=0)
+
+    if np.any(np.isnan(C)):
+        raise ValueError(f"Can't compute covariance matrix; too few {C.count().idxmin()}.")
+
     # Estimate beta
-    s2,u = np.linalg.eigh(MdMpY.cov(ddof=0))
+    s2,u = np.linalg.eigh(C)
 
     assert s2[0]<s2[-1]  # numpy returns eigenvalues in /ascending/ order
     u = u[:,-1]
     s2 = s2[-2]
 
-    if (np.sign(u)<0).mean(): # Fix sign of u.
+    if np.sign(u).mean()<0: # Fix sign of u.
         u = -u
 
     b = pd.DataFrame(u*np.sqrt(s2),index=MdMpY.columns,columns=['beta'])
@@ -431,7 +436,13 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
             seb=0
             while its < 30 or np.linalg.norm(seb-last) > bootstrap_tol:
                 last = seb
-                B[its] = estimate_beta(MdMpY.iloc[np.random.randint(0,MdMpY.shape[0],size=MdMpY.shape[0]),:])[0]
+                okay = False
+                while not okay:
+                    try:
+                        B[its] = estimate_beta(MdMpY.groupby(['t','m']).sample(frac=1,replace=True))[0]
+                        okay = True
+                    except ValueError as msg:
+                        print(msg)
                 seb = B.apply(lambda x:iqr(x,std=True),axis=1)
                 if verbose: print(f"On iteration {its} standard error is {seb}.")
                 its += 1
@@ -1407,6 +1418,7 @@ class Regression:
         for k,v in R.items():
             try:
                 if getattr(self,k) is not None: continue
+                setattr(self,k,v)
             except AttributeError:
                 setattr(self,k,v)
 
