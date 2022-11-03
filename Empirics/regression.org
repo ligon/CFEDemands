@@ -188,6 +188,16 @@ def ols(y,x):
 
     return pd.Series(b.squeeze(),index=x.columns)
 #+end_src
+*** Inter-quartile range
+#+begin_src python
+def iqr(x,std=False):
+    y = np.diff(x.quantile([0.25,0.75]))[0]
+
+    # Ratio between std deviation and iqr for normal distribution
+    if std: y = y*1.3489795
+
+    return y
+#+end_src
 
 ** Implementation of $\Mp$
 
@@ -350,6 +360,35 @@ def Md_generator(X,tau,method='categorical',Mp=False):
     return MdX
 #+end_src
 
+** Compute $\MdMpy$
+#+begin_src python
+def estimate_MdMpy(y,d,K=None):
+
+    if K is not None:
+        d,MdMpy = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
+        MdMp = lambda x: Md_generator(x,d,Mp=True)
+        Md = lambda x: Md_generator(x,d,Mp=False)
+        method = 'categorical'
+    else:
+        method = 'linear'
+
+        # Change categorical vars to numeric
+        cats = d.select_dtypes(['category']).columns
+        if len(cats):
+            d[cats] = d[cats].apply(lambda x: x.cat.codes)
+
+        MdMp = lambda x: Md_generator(x,d,method=method,Mp=True)
+        Md = lambda x: Md_generator(x,d,method=method,Mp=False)
+
+        MdMpy = MdMp(y)
+
+    assert MdMpy.index.names == ['i','t','m','j']
+
+    if not np.all(np.abs(MdMpy.groupby(['j','t','m']).mean()) < 1e-6):
+        warn('MdMpy means greater than 1e-6')
+
+    return MdMpy,Md,MdMp,d
+#+end_src
 ** Estimate \beta from $\MdMpy$
 
 Given $\MdMpy$ estimate \beta.
@@ -381,7 +420,7 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
 
     b = pd.DataFrame(u*np.sqrt(s2),index=MdMpY.columns,columns=['beta'])
 
-    if return_se:
+    if return_se and bootstrap_tol:
         if bootstrap_tol is None:
             raise ValueError("Not implemented. Specify bootstrap_tol>0.")
             V = (((e-e.mean())**2).mul(v**2,axis=0)).mean() # See p. 150 of Bai (2003)
@@ -393,7 +432,7 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
             while its < 30 or np.linalg.norm(seb-last) > bootstrap_tol:
                 last = seb
                 B[its] = estimate_beta(MdMpY.iloc[np.random.randint(0,MdMpY.shape[0],size=MdMpY.shape[0]),:])[0]
-                seb = B.std(axis=1)
+                seb = B.apply(lambda x:iqr(x,std=True),axis=1)
                 if verbose: print(f"On iteration {its} standard error is {seb}.")
                 its += 1
     else:
@@ -401,7 +440,125 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
 
     return b,seb
   #+end_src
+** Estimation of $\M{p}w$
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
 
+def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
+                 verbose=False):
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    # This is VERY SLOW.  Find a better way!
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    B = B.reindex(y.index,axis=0)  #Maybe?
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MdMpy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    return Mpw,scale,mults
+
+#+end_src
+
+** Estimate Lagrange Multipliers
+#+begin_src python
+def estimate_multipliers(y,scale):
+
+    cols = y.groupby(['i','t','m']).mean().index
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    if return_se and bootstrap_tol is None: # See Greene-Seaks (1991)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MdMpy.index]
+
+            e1 = (MdMpy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            se_mult = np.sqrt(V22.diagonal())*sigma2
+
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            se_mult = pd.Series(se_mult,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='se_mult')
+    else:
+        se_mult = None
+        e1 = None
+
+#+end_src
 ** Estimation of \beta and $\M{p}w$
     Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
 #+begin_src python
@@ -475,12 +632,12 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
     Mpw = pd.Series(coeffs[:len(cols)],index=cols)
     if verbose: print("Estimated Mpw")
 
-    mults = pd.Series(coeffs[len(cols):],
-                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
-
     scale = Mpw.std(ddof=0)
     Mpw = Mpw/scale
     b = (b*scale).squeeze()
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
 
     if return_se and bootstrap_tol is None: # See Greene-Seaks (1991)
         with warnings.catch_warnings():
@@ -748,6 +905,172 @@ def missing_correction(y,d,K=None):
     return e,R
 #+end_src
 
+* Alternate Estimate
+#+begin_src python
+import time
+
+def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+
+    if K is None: method = 'linear'
+    else: method = 'categorical'
+
+    if verbose:
+        tic = time.time()
+        print('Estimating MdMpy...')
+
+    MdMpy,Md,MdMp,d = estimate_MdMpy(y,d,K)
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating beta...')
+        tic = toc
+
+    # Estimate b
+    hatb, seb = estimate_beta(MdMpy,
+                              return_se=return_se,
+                              bootstrap_tol=bootstrap_tol,
+                              verbose=verbose)
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating Mpw...')
+        tic = toc
+
+    hatMpw,scale,mults = estimate_Mpw(y,hatb,MdMpy)
+    se_mults = mults*np.nan
+    e1 = None
+
+    # Scale bhat to match up with Mpw normalization
+    hatb = (hatb*scale).squeeze()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating gamma...')
+        tic = toc
+
+    hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
+    try:
+        if d.columns.name is None:
+            d.columns.name = 'k'
+    except AttributeError:
+        pass
+
+    # y - hatgamma(d)
+    y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating w, Ar...')
+        tic = toc
+
+    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
+    #print('Ar,w')
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating pi...')
+        tic = toc
+
+    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating yhat...')
+        tic = toc
+
+    yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
+    e = y - yhat.reindex_like(y)
+
+    sigma2 = e.unstack('j').var()
+
+    R2 = 1 - sigma2/y.unstack('j').var()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating gamma_se...')
+        tic = toc
+
+    if method=='linear':
+        try:
+            se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
+        except KeyError:  # d doesn't vary with j?
+            se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
+    else:
+        se_gamma = None
+
+    if rectify:
+        if verbose:
+            toc = time.time()
+            print(f'[{toc-tic}] Rectifying...')
+            tic = toc
+
+        B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
+        # Re-orthogonalize
+        hatb = hatb*B['bw']
+        if seb is not None:
+            seb = seb*B['bw']
+        Ar = Ar*B['Ar']
+        Ar_se = Ar_se*B['Ar']
+        hatpi = hatpi*(B['pi']@y.groupby('j').count()/y.shape[0])
+        pi_se = pi_se*(B['pi']@y.groupby('j').count()/y.shape[0])
+        try:
+            hatgamma = (hatgamma.stack()*B['gamma_d']).unstack('k')
+            if se_gamma is not None:
+                se_gamma = (se_gamma.stack()*B['gamma_d']).unstack('k')
+        except AttributeError:
+            hatgamma = hatgamma*B['gamma_d']
+            if se_gamma is not None:
+                se_gamma = se_gamma*B['gamma_d']
+    else:
+        B = None
+        X = None
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Finishing...')
+        tic = toc
+
+    # Convert tuples in index  to strings (necessary for persistence in sql)
+    if hatgamma.index.name == 'tau':
+        hatgamma.index = [str(s) for s in hatgamma.index]
+        hatgamma.index.name = 'k'
+
+    if return_se:
+        se_mults = se_mults.unstack('m')
+        pi_se = pi_se.unstack('m')
+        Ar_se = Ar_se.unstack(['t','m'])
+    else:
+        se_mults = None
+        pi_se = None
+        Ar_se = None
+
+    return dict(y=y,
+                yhat=yhat,
+                mse=(e**2).mean(),
+                R2=R2,
+                d=d,
+                beta=hatb,
+                beta_se=seb,
+                mults = mults.unstack('m'),
+                se_mults = se_mults,
+                e1 = e1,
+                w = hatw,
+                e3 = e3,
+                Mpw = hatMpw,
+                gamma = hatgamma,
+                gamma_se = se_gamma,
+                e2 = e2,
+                gamma_d = gamma_d,
+                pi = hatpi.unstack('m'),
+                pi_se = pi_se,
+                e4 = e4,
+                Ar = Ar.unstack(['t','m']),
+                Ar_se = Ar_se,
+                B=B,
+                X=X)
+#+end_src
+
+* Estimate
 #+begin_src python
 def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
 
@@ -875,6 +1198,10 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 Ar_se = Ar_se,
                 B=B,
                 X=X)
+#+end_src
+
+* Validate
+#+begin_src python
 
 def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
     def ols(x):
@@ -934,7 +1261,6 @@ def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
 
 #+end_src
 
-#+end_src
 
 
 * Description of =Regression=
@@ -1005,7 +1331,7 @@ class Regression:
                  rectify=False,
                  verbose=False,
                  min_obs=30,
-                 **kwargs):
+                 ,**kwargs):
         """To load data, use cfe.read_sql() or cfe.read_pickle().
 
         To instantiate from data on log expenditures (y) and household
@@ -1013,9 +1339,11 @@ class Regression:
         (i,t,m) and columns (j,) and for d indices (i,t,m) and columns (k,).
         """
 
-        for k,v in kwargs.items():
-            if k in self.__slots__:
-                setattr(self,k,v)
+        for k in self.__slots__:
+            if k in kwargs.keys():
+                setattr(self,k,kwargs[k])
+            else:
+                setattr(self,k,None)
 
         attrs={}
         attrs['correct_miss'] = correct_miss
@@ -1038,7 +1366,7 @@ class Regression:
 
     def estimate(self):
 
-        R = estimation(self.y,self.d,
+        R = _estimation(self.y,self.d,
                        K=self.attrs['K'],
                        bootstrap_tol=self.attrs['bootstrap_tol'],
                        return_se=self.attrs['return_se'],
@@ -1100,6 +1428,26 @@ class Regression:
         pd.to_pickle(d,fn)
 
 #+end_src
+** Accessors
+#+begin_src python
+    def get_MdMpy(self):
+        MdMpy,Md,MdMp,d = estimate_MdMpy(self.y,self.d,self.attrs['K'])
+        return MdMpy
+
+    def get_beta(self,verbose=None):
+
+        if self.beta is not None:
+            return self.beta
+
+        MdMpy = self.get_MdMpy()
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        b, seb = estimate_beta(MdMpy,verbose=verbose)
+        self.beta = b.squeeze()
+
+        return b.squeeze()
+#+end_src
 ** Other methods
 #+begin_src python
     def mse(self):
@@ -1126,9 +1474,6 @@ class Regression:
         """
         e = self.y - self.yhat
         eg = e.dropna().groupby(clusterby)
-
-        def iqr(x):
-            return np.diff(x.quantile([0.25,0.75]))[0]
 
         if not resample:
             # Use iqr instead of variance for some robustness to outliers
