@@ -408,7 +408,8 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
 from scipy import sparse
 import warnings
 
-def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False):
+def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
+                          verbose=False):
 
     MdMpy = Mdp(y)
     try:
@@ -481,7 +482,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
     Mpw = Mpw/scale
     b = (b*scale).squeeze()
 
-    if return_se: # See Greene-Seaks (1991)
+    if return_se and bootstrap_tol is None: # See Greene-Seaks (1991)
         with warnings.catch_warnings():
             warnings.simplefilter('error')
             # X0inv = sparse.linalg.inv(X0)  # Too expensive!
@@ -507,7 +508,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,verbose=False
 
             se_mult = np.sqrt(V22.diagonal())*sigma2
 
-            seb_alt = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
             se_mult = pd.Series(se_mult,
                                 index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
                                                                 names=['t','m']),
@@ -937,6 +938,7 @@ def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
 
 
 * Description of =Regression=
+** Setup and __init__
 #+name: regression_class
 #+BEGIN_SRC python
 import numpy as np
@@ -1030,6 +1032,9 @@ class Regression:
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
             self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs)
 
+#+end_src
+** Estimate
+#+begin_src python
 
     def estimate(self):
 
@@ -1046,6 +1051,10 @@ class Regression:
             except AttributeError:
                 setattr(self,k,v)
 
+#+end_src
+
+** Persistence
+#+begin_src python
     def to_sql(self,fn=None,overwrite=False):
         """
         Save to sql database fn.
@@ -1091,7 +1100,7 @@ class Regression:
         pd.to_pickle(d,fn)
 
 #+end_src
-* Other methods
+** Other methods
 #+begin_src python
     def mse(self):
         try:
@@ -1154,7 +1163,7 @@ class Regression:
 
 
 #+end_src
-* Presentation methods
+** Presentation methods
 #+begin_src python
     def graph_beta(self,fn=None):
         import matplotlib.pyplot as plt
