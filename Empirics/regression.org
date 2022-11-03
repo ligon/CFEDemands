@@ -1154,6 +1154,31 @@ class Regression:
 
 
 #+end_src
+* Presentation methods
+#+begin_src python
+    def graph_beta(self,fn=None):
+        import matplotlib.pyplot as plt
+
+        beta = self.beta.sort_values()
+        se = self.beta_se
+
+        # Sort se to match beta
+        se = se[beta.index]
+
+        # Want about 1/8" vertical space per good
+        fig,ax = plt.subplots(figsize=(8,1+len(beta)/8))
+
+        ax.errorbar(beta,range(len(beta)), xerr=se)
+        ax.set_xlabel(r'Relative Income Elasticities')
+
+        ax.set_yticks(list(range(len(beta))))
+        ax.set_yticklabels(beta.index.values.tolist(),rotation=0,size='small')
+
+        if fn is not None:
+            fig.savefig(fn,bbox_inches='tight')
+
+        return fig
+#+end_src
 * Interface to demand module
 We've tucked code to calculate demands and related objects into =cfe.demands=.  The functions defined there generally take a list of parameters which define utility, along with variables such as price and budget that are mapped into quantities demanded, or other outcomes.
 
