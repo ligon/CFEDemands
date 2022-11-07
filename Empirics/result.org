@@ -24,8 +24,13 @@ package data and results described elsewhere, particularly in
 import numpy as np
 import pandas as pd
 from . import estimation 
-import xarray as xr
 import warnings
+
+# Funky warning re: cfgrib from xarray we can't do anything about
+with warnings.catch_warnings():  
+    warnings.filterwarnings("ignore",category=UserWarning)
+    import xarray as xr
+
 from collections import namedtuple, OrderedDict
 from cfe.df_utils import to_dataframe, is_none, from_dataframe, ols, df_norm, use_indices, drop_missing, arellano_robust_cov
 
@@ -323,7 +328,7 @@ class Result(xr.Dataset):
         else:
             return self
 
-    def get_reduced_form(self,VERBOSE=False):
+    def get_reduced_form(self,VERBOSE=False,tol=1e-3):
         """Estimate reduced form expression for system of log expenditures.
 
         Computes a, ce, delta, se_delta, delta_covariance.          
@@ -333,7 +338,7 @@ class Result(xr.Dataset):
 
         if self.attrs['iterate']:
             if VERBOSE: print("Iterating...")
-            self.iterated_estimation(VERBOSE=VERBOSE)
+            self.iterated_estimation(VERBOSE=VERBOSE,tol=tol)
         else:
             self._get_reduced_form(VERBOSE=VERBOSE)
 
@@ -356,126 +361,26 @@ class Result(xr.Dataset):
             self['delta'] = from_dataframe(d).to_array('k')
         except AttributeError:
             d.columns.name = 'k'
-            foo = from_dataframe(d)
-            self['delta'] = foo
+            self['delta'] = from_dataframe(d)
 
         self['ce'] = from_dataframe(ce).transpose(*self.y.dims)
         self['se_delta'] = from_dataframe(sed)
         self['se_a'] = from_dataframe(sea)
+
         self['delta_covariance'] = V
 
-    def iterated_estimation(self,VERBOSE=False,tol=1e-13):
+    def iterated_estimation(self,VERBOSE=False,tol=1e-3,max_its=30,cores=None):
         """Estimate (delta,beta,loglambda).
 
         Sets beta, loglambdas, and cehat.
         """
-        def my_ols(y,z,loglambda=None,return_se=False,return_v=False,VERBOSE=False):
-            """Like cfe.estimation.estimate_reduced_form, but estimates
-            (time,market) effects directly instead of via within
-            transformation.
-            """
+        z = to_dataframe(self.z,'k')
+        y = to_dataframe(self.y,'i')
 
-            # Create location-time dummies
-            DateLocD = use_indices(y,['t','m'])
-            DateLocD = pd.get_dummies(list(zip(DateLocD['t'],DateLocD['m'])))
-            DateLocD.index = y.index
-            DateLocD.columns = pd.MultiIndex.from_tuples(DateLocD.columns)
+        dm = use_indices(y,['t','m'])
+        dm = sorted(list(set(zip(dm['t'],dm['m']))))
 
-            se = pd.DataFrame(columns=y.columns)
-            b = OrderedDict()
-            ce = pd.DataFrame(index=y.index,columns=y.columns)
-            V = OrderedDict()
-
-            for i,Item in enumerate(y.columns):
-                if VERBOSE: 
-                    print(Item,end='')
-                    print()
-
-                if loglambda is None:
-                    lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD],axis=1)])
-                else:
-                    lhs,rhs=drop_missing([y.iloc[:,[i]],pd.concat([z,DateLocD,loglambda],axis=1)])
-
-                stdev = rhs.std()
-                for constant in stdev[stdev==0].index.tolist():
-                    warnings.warn("No variation in: %s" % str(constant))
-
-                X = rhs.loc[:,rhs.std()>0] # Drop  any X cols with no variation
-
-                # Estimate d & b
-                myb,mye = ols(X,lhs,return_se=False,return_v=False,return_e=True) 
-                b[Item] = myb.squeeze()
-                ce[Item] = mye # Drop constraint that sums time-effects to zero
-                
-                if return_v or return_se:
-                    V[Item] = arellano_robust_cov(X,ce[Item],clusterby=['t','m'])
-                    se[Item] = pd.Series(np.sqrt(np.diag(V[Item])), index=X.columns) # reduced form se on characteristics
-
-            se = se.T
-
-            b = pd.DataFrame(b).T
-            b.index.name = 'i'
-
-            out = [b,ce]
-
-            if return_se:
-                out += [se]
-            if return_v:
-                V = xr.Dataset(V).to_array(dim='i')
-                out += [V]
-
-            return out
-
-        if is_none(self.loglambdas):
-            if is_none(self.ce):
-                self._get_reduced_form(VERBOSE=VERBOSE)
-
-            min_obs = self.attrs['min_xproducts']
-
-            self.drop_useless_expenditures() # as_df=True) # Returns a dataframe
-            y = self.y.dropna('i',how='all')
-
-            ce = y - self.z@self.delta - self.a.mean('i')
-
-            ce = to_dataframe(self.ce,'i')
-
-            coeffs = 0 # pd.concat([a,d],axis=1)
-            its = 0
-
-            while  (its < 5) or (np.linalg.norm(coeffs_last - coeffs) > tol):
-                
-                if (its>1) and VERBOSE: 
-                    print("Iteration %d, Norm: %g" % (its,np.linalg.norm(coeffs_last-coeffs)))
-                coeffs_last = coeffs
-                bphi,loglambda = estimation.get_loglambdas(ce,TEST=False,min_obs=min_obs)
-
-                loglambda = loglambda.astype(float)
-
-                coeffs, e = my_ols(y,z,loglambda,return_se=False,return_v=False,VERBOSE=VERBOSE)
-
-                a = coeffs[dm]
-
-                delta = coeffs[z.columns]
-                delta.columns.name = 'k'
-                
-                if VERBOSE: 
-                    print(coeffs)
-
-                ce = y - z@delta.T
-                ce = ce - ce.mean()
-                
-
-                its += 1
-
-        coeffs,e,se,V = my_ols(y,z,loglambda,return_se=True,return_v=True,VERBOSE=False)
-
-        a = coeffs[dm]
-
-        a.columns = pd.MultiIndex.from_tuples(dm)
-        a.columns.names = ['t','m']
-
-        d = coeffs[z.columns]
-        bphi = coeffs['loglambda']
+        a,b,d,e,loglambda,se,V = estimation.iterated_regression(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE,cores=cores)
 
         seb = se['loglambda']
         sea = se[dm]
@@ -490,22 +395,21 @@ class Result(xr.Dataset):
             self['delta'] = from_dataframe(d).to_array('k')
         except AttributeError:
             d.columns.name = 'k'
-            foo = from_dataframe(d)
-            self['delta'] = foo
+            self['delta'] = from_dataframe(d)
 
-        self['ce'] = from_dataframe(ce).transpose(*self.y.dims)
-        self['e'] = from_dataframe(e).transpose(*self.y.dims)
-        self['se_delta'] = from_dataframe(sed)
-        self['se_a'] = from_dataframe(sea)
-        self['delta_covariance'] = V
+        self['e'] = from_dataframe(e.stack()).transpose(*self.y.dims)
+        self['se_delta'] = from_dataframe(sed,'i')
+        self['se_a'] = from_dataframe(sea,'i')
+        self['delta_covariance'] = xr.Dataset(V).to_array(dim='i')
 
-        cehat=np.outer(pd.DataFrame(bphi),pd.DataFrame(-loglambda).T).T
-        cehat=pd.DataFrame(cehat,columns=bphi.index,index=loglambda.index)
+        cehat=np.outer(pd.DataFrame(b),pd.DataFrame(loglambda).T).T
+        cehat=pd.DataFrame(cehat,columns=b.index,index=loglambda.index)
 
         self['cehat'] = from_dataframe(cehat).transpose(*self.y.dims)
+        self['ce'] = self['cehat'] + self['e']
         self['loglambdas'] = loglambda.astype(float).to_xarray()
-        self['beta'] = bphi.to_xarray()
-        self['se_beta'] = from_dataframe(seb)
+        self['beta'] = -b.to_xarray()
+        self['se_beta'] = from_dataframe(seb,'i')
 
         if self.attrs['common_alpha']:
             self['alpha'] = self.a.sel(t=self.firstround,drop=True).mean('m')
@@ -515,14 +419,14 @@ class Result(xr.Dataset):
             self['se_alpha'] = self.se_a.sel(t=self.firstround,drop=True)
 
 
-    def get_loglambdas(self,as_df=False):
+    def get_loglambdas(self,as_df=False,tol=1e-3):
         """Estimate (beta,loglambda).
 
         Sets beta, loglambdas, and cehat.  Returns loglambdas.
         """
         if is_none(self.loglambdas):
             if is_none(self.ce):
-                self.get_reduced_form()
+                self.get_reduced_form(tol=tol)
 
             min_obs = self.attrs['min_xproducts']
 
@@ -555,9 +459,18 @@ class Result(xr.Dataset):
         else:
             return self.beta
 
-    def get_cehat(self,as_df=False):
+    def get_delta(self,as_df=False):
+        if is_none(self.delta):
+            self.get_reduced_form()
+
+        if as_df:
+            return self.delta.to_dataframe().squeeze().unstack('k').dropna()
+        else:
+            return self.delta
+
+    def get_cehat(self,as_df=False,tol=1e-3):
         if is_none(self.beta):
-            self.get_loglambdas()
+            self.get_loglambdas(tol=tol)
 
         out = self.cehat
 
@@ -614,7 +527,7 @@ class Result(xr.Dataset):
         df = df.div(y.var(ddof=0),axis=0)
         df['Total var'] = y.var(ddof=0)
 
-        r2 = 1 - self.e.var()/(self.y+(self.e*0)).var()  # Make sure both e & y sharing missing elements.
+        r2 = 1 - self.e.var(['j','t','m'])/(self.y+(self.e*0)).var(['j','t','m'])  # Make sure both e & y sharing missing elements.
 
         df['$R^2$'] = to_dataframe(r2)
 
@@ -622,13 +535,13 @@ class Result(xr.Dataset):
 
         return df
 
-    def get_predicted_log_expenditures(self,as_df=False):
+    def get_predicted_log_expenditures(self,as_df=False,tol=1e-3):
         """Return predicted log expenditures.
 
         Sets yhat and e.
         """
         if is_none(self.yhat):
-            cehat = self.get_cehat()
+            cehat = self.get_cehat(tol=tol)
             self['yhat'] = cehat + self.z@self.delta + self.a
 
             self['e'] = self.y - self.yhat
@@ -643,12 +556,12 @@ class Result(xr.Dataset):
             return out
 
 
-    def get_predicted_expenditures(self,as_df=False):
+    def get_predicted_expenditures(self,as_df=False,tol=1e-3):
         """Return predicted levels of expenditures.
 
         Assumes residuals e have normal distribution.
         """
-        yhat = self.get_predicted_log_expenditures()
+        yhat = self.get_predicted_log_expenditures(tol=tol)
         e = self.e
 
         out = estimation.predicted_expenditures(yhat,e)
@@ -956,7 +869,7 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
 
 #+name: result_demand_interface
 #+begin_src python :noweb no-export :results output :tangle ../cfe/result.py
-from cfe import demands
+import demands
 import pandas as pd
 
 def _demand_parameters(self,p=None,z=None):
@@ -1080,6 +993,7 @@ Result.expenditure = _expenditurefunction
 import cfe
 import numpy as np
 import matplotlib.pyplot as plt
+from timeit import default_timer as timer
 #import warnings
 
 N=1000 
@@ -1095,18 +1009,66 @@ beta = np.linspace(.2,2,n)
 
 x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2),rho_lz=0.3)
 
+start = timer()
 r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
+r.iterated_estimation(cores=None)
 r.get_predicted_expenditures()
+end = timer()
+print('Time for iterated estimation: %g' % (end-start,))
 
+start = timer()
 r0 = cfe.Result(y=np.log(x),z=truth.characteristics)
 r0.get_predicted_expenditures()
+end = timer()
+print('Time for PC estimation: %g' % (end-start,))
 
+c = np.corrcoef(r0.yhat.values.reshape(-1),r.yhat.values.reshape(-1))[0,1]
+assert c>0.99, "Correlation between predictions of iterated & pc estimator only %f." % c
+#+end_src
+
+*** Test parallel iterated_estimation()
+#+begin_src python :results output :var N=500 T=3 M=1 n=12 k=3 n=10 :tangle ../cfe/test/NOtest_parallel_estimation.py
+import cfe
+import numpy as np
+import matplotlib.pyplot as plt
+from timeit import default_timer as timer
+from ray.util.multiprocessing import Pool
+
+#import warnings
+
+N=1000 
+T=3 
+M=1 
+n=60
+k=3 
+
+
+#warnings.filterwarnings('error')
+
+beta = np.linspace(.2,2,n)
+
+x,truth = cfe.dgp.expenditures(N,T,M,n,k,beta,Fbar=cfe.dgp.geometric_brownian(2),rho_lz=0.3)
+
+start = timer()
+r = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True,verbose=True)
+with Pool(6) as rc:
+    r.iterated_estimation(cores=rc)
+    r.get_predicted_expenditures()
+end = timer()
+print('Time for parallel estimation: %g' % (end-start,))
+
+start = timer()
+r0 = cfe.Result(y=np.log(x),z=truth.characteristics,iterate=True)
+r.iterated_estimation(cores=None)
+r0.get_predicted_expenditures()
+end = timer()
+print('Time for serial estimation: %g' % (end-start,))
 
 #+end_src
 
 *** Test drop_useless_expenditures()
 #+name: test_drop_useless_expenditures
-#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/test/test_drop_useless_expenditures.py
+#+begin_src python :results output :var T=1 :var N=5000 :var n=6 :tangle ../cfe/stochastic_test/test_drop_useless_expenditures.py
 from scipy.stats.distributions import chi2
 import cfe
 import numpy as np
@@ -1135,7 +1097,7 @@ assert len(R.coords['i']<n), "Failed to drop missing items?"
 
 *** Test get_stderrs()
 #+name: test_get_stderrs
-#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/test/test_get_stderrs.py
+#+begin_src python :results output :var T=2 :var N=5000 :var n=12 :tangle ../cfe/stochastic_test/test_get_stderrs.py
 import cfe
 import numpy as np
 

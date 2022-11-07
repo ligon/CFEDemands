@@ -1,5 +1,5 @@
 ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
-	     Files/input_files.org
+	     Empirics/regression.org Files/input_files.org
 
 .PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt
 
@@ -10,6 +10,7 @@ tangle: .tangle
 .tangle: $(ORG_INPUTS) 
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
 	(cd Empirics; ../tangle.sh result.org)
+	(cd Empirics; ../tangle.sh regression.org)
 	(cd Files; ../tangle.sh input_files.org)
 	touch .tangle
 
@@ -44,3 +45,4 @@ clean:
 	-rm -f .test
 	-rm -f .tangle
 	-rm -f cfe/test/*.py
+	-rm -f cfe/stochastic_test/*.py
