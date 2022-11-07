@@ -391,13 +391,16 @@ def estimate_MdMpy(y,d,K=None):
 #+end_src
 ** Estimate \beta from $\MdMpy$
 
-Given $\MdMpy$ estimate \beta.
+Given $\MdMpy$ estimate \beta.  The default approach to estimation here assumes a form of homoskedasticity.   But this is something we can test (and if necessary, correct).  The basic model involves a mean zero vector $X=\beta w + \epsilon$, from which we construct $\E XX^\T = \beta\E w^2\beta^\T + \E\epsilon\epsilon^\T$.  Under an assumption of homoskedasticity we have $\E\epsilon\epsilon^\T = \sigma^2\mI$.
 #+name: code:beta_from_MdMpy
 #+begin_src python
-from .estimation import svd_rank1_approximation_with_missing_data as mysvd
+from .estimation import svd_missing
 import numpy as np
 
-def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
+def estimate_beta(MdMpy,
+                  heteroskedastic=False,
+                  return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
+
     if verbose:
         print("estimate_beta")
 
@@ -414,16 +417,12 @@ def estimate_beta(MdMpy,return_se=False,bootstrap_tol=None,Mdp=None,verbose=Fals
         raise ValueError(f"Can't compute covariance matrix; too few {C.count().idxmin()}.")
 
     # Estimate beta
-    s2,u = np.linalg.eigh(C)
-
-    assert s2[0]<s2[-1]  # numpy returns eigenvalues in /ascending/ order
-    u = u[:,-1]
-    s2 = s2[-2]
+    u,s,vt = svd_missing(C,max_rank=1,heteroskedastic=heteroskedastic)
 
     if np.sign(u).mean()<0: # Fix sign of u.
         u = -u
 
-    b = pd.DataFrame(u*np.sqrt(s2),index=MdMpY.columns,columns=['beta'])
+    b = pd.DataFrame(u*s,index=MdMpY.columns,columns=['beta'])
 
     if return_se and bootstrap_tol:
         if bootstrap_tol is None:

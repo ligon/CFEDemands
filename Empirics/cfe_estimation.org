@@ -240,10 +240,10 @@ def missing_inner_product(X,min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
     n,m=X.shape
 
-    if n<m: 
+    if n<m:
         axis=1
         N=m
-    else: 
+    else:
         axis=0
         N=n
 
@@ -255,6 +255,25 @@ def missing_inner_product(X,min_obs=None):
         C=(N-1)*X.cov(min_periods=min_obs)
 
     return C + N*np.outer(xbar,xbar)
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+
+            >>> angle_between((1, 0, 0), (0, 1, 0))
+            1.5707963267948966
+            >>> angle_between((1, 0, 0), (1, 0, 0))
+            0.0
+            >>> angle_between((1, 0, 0), (-1, 0, 0))
+            3.141592653589793
+    """
+    def unit_vector(vector):
+        """ Returns the unit vector of the vector.  """
+        return vector / np.linalg.norm(vector)
+
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+
 
 def drop_columns_wo_covariance(X,min_obs=2,VERBOSE=False):
     """Drop columns from pd.DataFrame that lead to missing elements of covariance matrix."""
@@ -278,12 +297,50 @@ def drop_columns_wo_covariance(X,min_obs=2,VERBOSE=False):
 
     return X
 
-def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
+def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
+    """Estimate r factors and factor weights of covariance matrix C."""
+    from scipy.spatial import procrustes
+
+    N = C - np.diag(np.diag(C))
+
+    ulast = np.zeros((N.shape[1],r))
+    u = np.zeros((N.shape[1],r))
+    u[0,0] = 1
+    ulast[-1,0] = 1
+
+    t = 0
+
+    # We only get nice estimates of u, not singular values.
+    # Use sine of angle between estimates of u for convergence criterion.
+
+    #while np.abs(np.sin(angle_between(u[:,0],ulast[:,0]))) >tol and t<max_its:
+    while procrustes(u,ulast)[-1] >tol and t<max_its:
+        ulast = u
+
+        u,s,vt = np.linalg.svd(N,full_matrices=False,hermitian=True)
+
+        s = s[:r]
+        u = u[:,:r]
+
+        Ntilde = u[:,:r]@np.diag(s[:r])@vt[:r,:]
+
+        N = N - np.diag(np.diag(N)) + np.diag(np.diag(Ntilde))
+
+        t += 1
+
+        if t==max_its:
+            warnings.warn("Exceeded maximum iterations (%d)" % max_its)
+        if verbose: print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
+
+
+    return u,s
+
+def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False):
     """Singular Value Decomposition with missing values
 
     Returns matrices U,S,V.T, where A~=U*S*V.T.
 
-    Inputs: 
+    Inputs:
         - A :: matrix or pd.DataFrame, with NaNs for missing data.
 
         - max_rank :: Truncates the rank of the representation.  Note
@@ -292,7 +349,7 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
                       non-missing values.  If not supplied rank may be
                       truncated using the Kaiser criterion.
 
-        - min_obs :: Smallest number of non-missing observations for a 
+        - min_obs :: Smallest number of non-missing observations for a
                      row of U to be computed.
 
         - heteroskedastic :: If true, use the "heteroPCA" algorithm
@@ -306,37 +363,11 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
     Ethan Ligon                                        September 2021
 
     """
+    # Defaults; modify by passing a tuple to heteroskedastic argument.
     max_its=50
     tol = 1e-3
 
     P=missing_inner_product(A,min_obs=min_obs) # P = A.T@A
-
-    def heteropca(C,r=1,max_its=max_its,tol=tol):
-        """Estimate r factors and factor weights of covariance matrix C."""
-
-        N = C - np.diag(np.diag(C))
-
-        NLast = 1
-        t = 0
-        while np.linalg.norm(N-NLast)>tol and t<max_its:
-            NLast = N
-
-            u,s,vt = np.linalg.svd(N,full_matrices=False)
-
-            Ntilde = u[:,:r]@np.diag(s[:r])@vt[:r,:]
-
-            N = N - np.diag(np.diag(N)) + np.diag(np.diag(Ntilde))
-
-            t += 1
-
-        if t==max_its:
-            warnings.warn("Exceeded maximum iterations (%d)" % max_its)
-
-        s = np.sqrt(s[:r])
-        
-        u = u[:,:r]
-
-        return u,s
 
     sigmas,u=np.linalg.eigh(P)
 
@@ -354,30 +385,106 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False):
 
     r=len(s)
 
-    if heteroskedastic:
+    if heteroskedastic: # Interpret tuple
         try:
             max_its,tol = heteroskedastic
         except TypeError:
             pass
-            
-        u,s = heteropca(P,r=r,max_its=max_its,tol=tol)
-    
-    us=u@np.diag(s)
 
-    v=np.zeros((len(s),A.shape[1]))
-    for j in range(A.shape[1]):
-        a=A.iloc[:,j].values.reshape((-1,1))
-        x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
-        if len(x)>=r:
-            v[:,j]=(np.linalg.pinv(us[x,:])@a[x]).reshape(-1)
-        else:
-            v[:,j]=np.nan
+        u,s = heteropca(P,r=r,max_its=max_its,tol=tol,verbose=verbose)
+
+    if A.shape[0]==A.shape[1]: # Symmetric; v=u
+        return u,s,u.T
+    else:
+        us=u@np.diag(s)
+
+        v=np.zeros((len(s),A.shape[1]))
+        for j in range(A.shape[1]):
+            a=A.iloc[:,j].values.reshape((-1,1))
+            x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
+            if len(x)>=r:
+                v[:,j]=(np.linalg.pinv(us[x,:])@a[x]).reshape(-1)
+            else:
+                v[:,j]=np.nan
 
     return u,s,v.T
 #+END_SRC
 
 #+results: svd_missing
+*** Test svd_missing
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_svd_missing.py
+import pandas as pd
+import numpy as np
+import pytest
+from cfe.estimation import svd_missing, angle_between
+from scipy.spatial import procrustes
 
+# generate random data
+J = 60
+N = 10000
+
+b = pd.DataFrame(np.arange(1,J+1)/J)
+w = pd.DataFrame(np.random.normal(size=(N, 1)))
+
+#X = b@w.T@w@b.T/N
+e = pd.DataFrame(np.random.normal(size=(N,J)))
+
+D = np.diag([1,3]*(J//2))
+#D = np.eye(J)
+#D[-1,-1] = 3
+
+homoy = w@b.T + e
+heteroy = w@b.T + e@D
+
+u0,s0,v0t = svd_missing(homoy.cov(),max_rank=12,heteroskedastic=False,verbose=True)
+uh0,sh0,vh0t = svd_missing(homoy.cov(),max_rank=12,heteroskedastic=(100,1e-5),verbose=True)
+
+u,s,vt = svd_missing(heteroy.cov(),max_rank=12,heteroskedastic=False,verbose=True)
+uh,sh,vht = svd_missing(heteroy.cov(),max_rank=12,heteroskedastic=(100,1e-5),verbose=True)
+
+
+
+bs = b.squeeze()
+u0 = np.abs(u0).squeeze()
+u = np.abs(u).squeeze()
+uh = np.abs(uh).squeeze()
+
+angle0 = np.abs(np.sin(angle_between(bs,uh)))
+angle1 = np.abs(np.sin(angle_between(bs,u)))
+
+
+print(angle0/angle1)
+#t.mark.parametrize("X", [homoX,heteroX])
+
+if False:
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    df = pd.DataFrame({'b':bs,'u0':u0,'u':u,'uh':uh})
+
+    df.plot.scatter(x='b',y='u',c='blue',ax=ax)
+    df.plot.scatter(x='b',y='uh',c='red',ax=ax)
+
+
+def test_equal_to_drop_cols(df):
+    results = 0
+    for m in min_obs_list:
+        foo = drop_columns_wo_covariance(df, min_obs=m)
+        baz = df.loc[:,df.count()>=m]
+
+        print(foo)
+
+        # get difference
+        diff = foo - baz
+        diff = diff.fillna(0)
+
+        if ~((foo.shape == baz.shape) & ((diff < 1e-5).all(axis=None))):
+            results += 1
+
+    assert results == 0
+
+#+end_src
+
+*** Test drop_columns_wo_cov
 
 Unit test drop_columns_wo_cov function using alternative implementation.
 
@@ -387,7 +494,7 @@ Unit test drop_columns_wo_cov function using alternative implementation.
 from cfe.estimation import drop_columns_wo_covariance
 import pandas as pd
 import numpy as np
-import pytest 
+import pytest
 
 # generate random data
 N = 5
@@ -411,9 +518,9 @@ single = rectandf.copy()
 single.iloc[2,2] = np.NaN
 
 another = rectandf.copy()
-another.iloc[0,1] = np.NaN 
-another.iloc[1,1] = np.NaN 
-another.iloc[2,1] = np.NaN 
+another.iloc[0,1] = np.NaN
+another.iloc[1,1] = np.NaN
+another.iloc[2,1] = np.NaN
 
 @pytest.mark.parametrize("df", [
     line,
@@ -421,6 +528,7 @@ another.iloc[2,1] = np.NaN
     single,
     another
 ])
+
 def test_equal_to_drop_cols(df):
     results = 0
     for m in min_obs_list:
@@ -429,7 +537,7 @@ def test_equal_to_drop_cols(df):
 
         print(foo)
 
-        # get difference 
+        # get difference
         diff = foo - baz
         diff = diff.fillna(0)
 
