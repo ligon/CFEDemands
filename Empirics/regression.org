@@ -399,7 +399,9 @@ import numpy as np
 
 def estimate_beta(MdMpy,
                   heteroskedastic=False,
-                  return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
+                  cov = lambda X : pd.DataFrame.cov(X,ddof=0),
+                  return_se=False,
+                  return_var=False,bootstrap_tol=None,Mdp=None,verbose=False):
 
     if verbose:
         print("estimate_beta")
@@ -411,7 +413,7 @@ def estimate_beta(MdMpy,
     except KeyError:
         MdMpY = MdMpy
 
-    C = MdMpY.cov(ddof=0)
+    C = cov(MdMpY)
 
     if np.any(np.isnan(C)):
         raise ValueError(f"Can't compute covariance matrix; too few {C.count().idxmin()}.")
@@ -424,7 +426,7 @@ def estimate_beta(MdMpy,
 
     b = pd.DataFrame(u*s,index=MdMpY.columns,columns=['beta'])
 
-    if return_se and bootstrap_tol:
+    if (return_se or return_var) and bootstrap_tol:
         if bootstrap_tol is None:
             raise ValueError("Not implemented. Specify bootstrap_tol>0.")
             V = (((e-e.mean())**2).mul(v**2,axis=0)).mean() # See p. 150 of Bai (2003)
@@ -445,10 +447,14 @@ def estimate_beta(MdMpy,
                 seb = B.apply(lambda x:iqr(x,std=True),axis=1)
                 if verbose: print(f"On iteration {its} standard error is {seb}.")
                 its += 1
+            V = B.T.cov()
     else:
         seb = None
 
-    return b,seb
+    if return_var:
+        return b,V
+    else:
+        return b,seb
   #+end_src
 ** Estimation of $\M{p}w$
     Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
@@ -541,15 +547,15 @@ def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
             e1 = (MdMpy - B@Mpw)
             sigma2 = e1.var(ddof=0)
 
-            se_mult = np.sqrt(V22.diagonal())*sigma2
+            mults_se = np.sqrt(V22.diagonal())*sigma2
 
             seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
-            se_mult = pd.Series(se_mult,
+            mults_se = pd.Series(mults_se,
                                 index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
                                                                 names=['t','m']),
-                                name='se_mult')
+                                name='mults_se')
 
-            return Mpw, scale, mults, seb, se_mult, e1
+            return Mpw, scale, mults, seb, mults_se, e1
 
     return Mpw,scale,mults
 
@@ -586,16 +592,16 @@ def estimate_stderrs(y,scale):
         e1 = (MdMpy - B@Mpw)
         sigma2 = e1.var(ddof=0)
 
-        se_mult = np.sqrt(V22.diagonal())*sigma2
+        mults_se = np.sqrt(V22.diagonal())*sigma2
 
         seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
-        se_mult = pd.Series(se_mult,
+        mults_se = pd.Series(mults_se,
                             index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
                                                             names=['t','m']),
-                            name='se_mult')
+                            name='mults_se')
 
 
-    return seb, se_mult, e1
+    return seb, mults_se, e1
 #+end_src
 ** Estimation of \beta and $\M{p}w$
     Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
@@ -664,7 +670,6 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
 
     result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
 
-
     coeffs = result[0].squeeze()
 
     Mpw = pd.Series(coeffs[:len(cols)],index=cols)
@@ -701,18 +706,18 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
             e1 = (MdMpy - B@Mpw)
             sigma2 = e1.var(ddof=0)
 
-            se_mult = np.sqrt(V22.diagonal())*sigma2
+            mults_se = np.sqrt(V22.diagonal())*sigma2
 
             seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
-            se_mult = pd.Series(se_mult,
+            mults_se = pd.Series(mults_se,
                                 index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
                                                                 names=['t','m']),
-                                name='se_mult')
+                                name='mults_se')
     else:
-        se_mult = None
+        mults_se = None
         e1 = None
 
-    return b,Mpw,seb,mults,se_mult,e1
+    return b,Mpw,seb,mults,mults_se,e1
 
 
 #+end_src
@@ -885,8 +890,21 @@ from .estimation import drop_columns_wo_covariance
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
 
-def prepare_data(y,d,min_obs=None):
+def prepare_data(y,d,min_obs=None,min_prop_items=0.1,alltm=False):
     assert y.index.names == ['i','t','m','j']
+
+    # Drop household observations with fewer items than
+    # min_prop_items*number of items
+    Y = y.unstack('j')
+    items = Y.count(axis=1)
+    Y = Y[items>(min_prop_items*Y.shape[1])]
+
+    if alltm:
+        alltm = Y.groupby(['t','m']).count().replace(0,np.nan).dropna(axis=1).columns.tolist()
+        Y = Y[alltm]
+
+    y = Y.stack('j').dropna()
+
 
     # Make d a dataframe, with columns k
     if 'k' in d.index.names:
@@ -947,7 +965,7 @@ def missing_correction(y,d,K=None):
 #+begin_src python
 import time
 
-def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+def _estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
 
     if K is None: method = 'linear'
     else: method = 'categorical'
@@ -963,11 +981,14 @@ def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verb
         print(f'[{toc-tic}] Estimating beta...')
         tic = toc
 
-    # Estimate b
-    hatb, seb = estimate_beta(MdMpy,
-                              return_se=return_se,
-                              bootstrap_tol=bootstrap_tol,
-                              verbose=verbose)
+    if beta is None:# Estimate b
+        hatb, seb = estimate_beta(MdMpy,
+                                  return_se=return_se,
+                                  bootstrap_tol=bootstrap_tol,
+                                  verbose=verbose)
+    else:
+        hatb = beta
+        seb = None
 
     if verbose:
         toc = time.time()
@@ -975,10 +996,10 @@ def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verb
         tic = toc
 
     if return_se and bootstrap_tol is None:
-        hatMpw, scale, mults, seb, se_mults, e1 = estimate_Mpw(y,hatb,MdMpy,return_se=True)
+        hatMpw, scale, mults, seb, mults_se, e1 = estimate_Mpw(y,hatb,MdMpy,return_se=True)
     else:
         hatMpw,scale,mults = estimate_Mpw(y,hatb,MdMpy,return_se=False)
-        se_mults = mults*np.nan
+        mults_se = mults*np.nan
         e1 = None
 
     # Scale bhat to match up with Mpw normalization
@@ -1077,11 +1098,11 @@ def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verb
         hatgamma.index.name = 'k'
 
     if return_se:
-        se_mults = se_mults.unstack('m')
+        mults_se = mults_se.unstack('m')
         pi_se = pi_se.unstack('m')
         Ar_se = Ar_se.unstack(['t','m'])
     else:
-        se_mults = None
+        mults_se = None
         pi_se = None
         Ar_se = None
 
@@ -1093,7 +1114,7 @@ def _estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verb
                 beta=hatb,
                 beta_se=seb,
                 mults = mults.unstack('m'),
-                se_mults = se_mults,
+                mults_se = mults_se,
                 e1 = e1,
                 w = hatw,
                 e3 = e3,
@@ -1140,7 +1161,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
 
 
     # Estimation
-    hatb,hatMpw,seb,mults,se_mults,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+    hatb,hatMpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
 
     if verbose: print('Estimating gamma...')
     hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
@@ -1207,11 +1228,11 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
         hatgamma.index.name = 'k'
 
     if return_se:
-        se_mults = se_mults.unstack('m')
+        mults_se = mults_se.unstack('m')
         pi_se = pi_se.unstack('m')
         Ar_se = Ar_se.unstack(['t','m'])
     else:
-        se_mults = None
+        mults_se = None
         pi_se = None
         Ar_se = None
 
@@ -1223,7 +1244,7 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 beta=hatb,
                 beta_se=seb,
                 mults = mults.unstack('m'),
-                se_mults = se_mults,
+                mults_se = mults_se,
                 e1 = e1,
                 w = hatw,
                 e3 = e3,
@@ -1333,7 +1354,7 @@ arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
         'pi_se':('t','m'),
         'R2':('j',),
         'mults':('t','m'),
-        'se_mults':('t','m'),
+        'mults_se':('t','m'),
         'e1':('itmj',),
         'e2':('itmj',),
         'e3':('itmj',),
@@ -1372,6 +1393,8 @@ class Regression:
                  rectify=False,
                  verbose=False,
                  min_obs=30,
+                 min_prop_items=0.1,
+                 alltm=True,
                  ,**kwargs):
         """To load data, use cfe.read_sql() or cfe.read_pickle().
 
@@ -1395,20 +1418,28 @@ class Regression:
         attrs['rectify'] = rectify
         attrs['verbose'] = verbose
         attrs['min_obs'] = min_obs
+        attrs['min_prop_items'] = min_prop_items
+        attrs['alltm'] = alltm
 
         self.attrs=attrs
 
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
-            self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs)
+            self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs,
+                                         min_prop_items=min_prop_items,
+                                         alltm=alltm)
 
 #+end_src
 ** Estimate
 #+begin_src python
 
-    def estimate(self):
+    def estimate(self,beta=None):
+
+        if beta is not None:
+            beta = pd.DataFrame(beta)
 
         R = _estimation(self.y,self.d,
                        K=self.attrs['K'],
+                       beta=beta,
                        bootstrap_tol=self.attrs['bootstrap_tol'],
                        return_se=self.attrs['return_se'],
                        rectify=self.attrs['rectify'],
@@ -1489,7 +1520,120 @@ class Regression:
         self.beta = b.squeeze()
 
         return b.squeeze()
+
+    def get_gamma_d(self,verbose=None):
+
+        if self.gamma_d is not None:
+            return self.gamma_d
+
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        b,Mpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(self.y,MdMp,
+                                      return_se=self.attrs['return_se'],
+                                      bootstrap_tol=self.attrs['bootstrap_tol'],
+                                      verbose=verbose)
+
+        if self.b is None: self.b = b.squeeze()
+        if self.Mpw is None: self.Mpw = Mpw
+        if self.beta_se is None: self.beta_se = seb.squeeze()
+        if self.mults is None: self.mults = mults.squeeze()
+        if self.mults_se is None: self.mults_se = mults_se.squeeze()
+        if self.e1 is None: self.e1 = e1
+
+        gamma,gamma_d,e2 = estimate_gamma(Mp(self.y),self.b,self.Mpw,self.d,
+                                          method=self.attrs['method'],
+                                          verbose=verbose)
+
+        if self.gamma is None: self.gamma = gamma
+        if self.e2 is None: self.e2 = e2
+        if self.gamma_d is None: self.gamma_d = gamma_d
+
+        return self.gamma_d
+
+    def get_w(self,verbose=None):
+        if self.w is not None:
+            return self.w
+
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        gamma_d = self.get_gamma_d(verbose=verbose)
+
+        y0 = (Mpi(self.y) - Mp(gamma_d)).dropna()
+
+        b = self.get_beta(verbose=verbose)
+
+        w,Ar,Ar_se,e3 = estimate_w(y0,b,verbose=verbose)
+
+        self.w = w
+        if self.Ar is None: self.Ar = Ar
+        if self.Ar_se is None: self.Ar_se = Ar_se
+        if self.e3 is None: self.e3 = e3
+
+        return self.w
+
+    def get_Ar(self,verbose=None):
+        if self.Ar is not None:
+            return self.Ar
+
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        # Estimation of w also computes Ar
+        self.get_w(verbose=verbose)
+
+        return self.Ar
+
+
+    def get_pi(self,verbose=None):
+        if self.pi is not None:
+            return self.pi
+
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        b = self.get_beta(verbose=None)
+        gamma_d = self.get_gamma_d(verbose=verbose)
+
+        w = self.get_w(verbose=verbose)
+
+        Ar = self.get_Ar(verbose=verbose)
+
+        self.pi = estimate_pi(self.y,b,w,Ar,gamma_d,verbose=verbose)
+
+        return self.pi
+
+
+    def predicted_log_expenditures(self,fill_missing=True,verbose=None):
+        """
+        Expected log expenditures.
+
+        - fill_missing :: Make predictions even when observations on actual log expenditures are missing.  Default True.
+        - verbose :: Default False.
+        """
+        if self.yhat is not None:
+            return self.yhat
+
+        if verbose is None:
+            verbose = self.attrs['verbose']
+
+        gamma_d = self.get_gamma_d(verbose=verbose)
+
+        b = self.get_beta(verbose=verbose)
+
+        w = self.get_w(verbose=verbose)
+
+        Ar = self.get_Ar(verbose=verbose)
+
+        pi = self.get_pi(verbose=verbose)
+
+        self.yhat = predict_y(pi,Ar,gamma_d,b,w)
+
+        return self.yhat
+
 #+end_src
+
 ** Other methods
 #+begin_src python
     def mse(self):
@@ -1748,9 +1892,14 @@ def read_pickle(fn,cache_dir=None):
 
     if type(R) is not dict:
         R = R.__dict__
+        # Fix ill-considered attribute name
+        try:
+            R['mults_se'] = R['se_mult']
+            del R['se_mult']
+        except KeyError:
+            pass
 
     return Regression(**R)
-
 
 #+end_src
 * Example of Use
