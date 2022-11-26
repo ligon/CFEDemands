@@ -477,6 +477,7 @@ def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
 
     # This is VERY, VERY SLOW!  Find a better way!
     #B = B.loc[y.index,:]
+    # Reindexing faster, but is not fast.
     B = B.reindex(y.index,axis=0)  #Maybe?
 
     N = y.index.levels[y.index.names.index('i')]
@@ -635,6 +636,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
 
     # This is VERY, VERY SLOW!  Find a better way!
     #B = B.loc[y.index,:]
+    # Reindexing is not fast.
     B = B.reindex(y.index,axis=0)  #Maybe?
 
     N = y.index.levels[y.index.names.index('i')]
@@ -725,7 +727,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
 ** Estimation of $\gamma(d)$
 #+name: code:gamma
 #+begin_src python
-def estimate_gamma(y,beta,w,tau,method='categorical'):
+def estimate_gamma(y,beta,w,tau,method='categorical',verbose=False):
     """
     Estimate $gamma(tau) = E[Mp(Y -hat{beta}hat{w}) | tau]$.
     """
@@ -777,14 +779,16 @@ def estimate_gamma(y,beta,w,tau,method='categorical'):
 from scipy import sparse
 from timeit import default_timer as timer
 
-def estimate_w(y,beta,return_se=False):
+def estimate_w(y,beta,return_se=False,verbose=False):
     """
-    Estimate regression $Y - widehat{gamma(d)}  =  A(r) + hat{beta}w + e$.
+    Estimate regression $Mpi(Y - widehat{gamma(d)})  =  A(r) + hat{beta}w + e$.
     """
     try:
         y0 = y.stack()
     except AttributeError:
         y0 = y
+
+    assert np.allclose(y0.groupby(['t','m']).mean(),0), "Pass Mpi(Y - gamma_d) to estimate_w."
 
     J = len(beta)
 
@@ -814,6 +818,7 @@ def estimate_w(y,beta,return_se=False):
     B.index.names = ['i','t','m','j']
 
     A = A.reindex(y0.index,axis=0)
+    # This is very slow.
     B = B.reindex(y0.index,axis=0)
 
     X0 = pd.concat([A,B],axis=1)
@@ -822,10 +827,10 @@ def estimate_w(y,beta,return_se=False):
     X0 = X0.sparse.to_coo()
 
     #start = timer()
-    b = sparse.linalg.lsqr(X0,y0,atol=1e-16,btol=1e-16)[0]
+    rslt = sparse.linalg.lsqr(X0,y0,atol=1e-16,btol=1e-16,show=verbose)
     #end = timer()
     #print("Time for lsqr %g" % (end-start,))
-    b = pd.Series(b,index=cols)
+    b = pd.Series(rslt[0],index=cols)
 
     e = y0 - X0@b
 
@@ -834,9 +839,13 @@ def estimate_w(y,beta,return_se=False):
     Ar = eg.mean()
     Ar.name = 'Ar'
 
+    # Missing data means that Ar.groupby(['t','m']).mean() may not be exactly zero; recenter.
+    Ar_bar = Ar.groupby(['t','m']).mean()
+    Ar = Ar - Ar_bar
+
     Ar_se = eg.std()/np.sqrt(eg.count())
 
-    e3 = e - e.groupby(['t','m','j']).transform(np.mean)
+    e3 = e - eg.transform(np.mean)
 
     what = pd.Series(b[len(A.columns):(len(A.columns)+len(B.columns))],index=B.columns)
 
@@ -845,7 +854,7 @@ def estimate_w(y,beta,return_se=False):
 ** Estimating Price Indices
 #+name: code:pi
 #+begin_src python
-def estimate_pi(y,b,w,Ar,gamma_d):
+def estimate_pi(y,b,w,Ar,gamma_d,verbose=False):
 
     try:
         y0 = y.stack()
@@ -961,11 +970,11 @@ def missing_correction(y,d,K=None):
     return e,R
 #+end_src
 
-* Alternate Estimate
+* Estimate
 #+begin_src python
 import time
 
-def _estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
 
     if K is None: method = 'linear'
     else: method = 'categorical'
@@ -1018,14 +1027,14 @@ def _estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=
         pass
 
     # y - hatgamma(d)
-    y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
+    y0 = (Mpi(y - gamma_d)).dropna()
 
     if verbose:
         toc = time.time()
         print(f'[{toc-tic}] Estimating w, Ar...')
         tic = toc
 
-    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
+    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb,verbose=verbose)
     #print('Ar,w')
 
     if verbose:
@@ -1033,7 +1042,7 @@ def _estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=
         print(f'[{toc-tic}] Estimating pi...')
         tic = toc
 
-    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
+    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d,verbose=verbose)
 
     if verbose:
         toc = time.time()
@@ -1091,136 +1100,6 @@ def _estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=
         toc = time.time()
         print(f'[{toc-tic}] Finishing...')
         tic = toc
-
-    # Convert tuples in index  to strings (necessary for persistence in sql)
-    if hatgamma.index.name == 'tau':
-        hatgamma.index = [str(s) for s in hatgamma.index]
-        hatgamma.index.name = 'k'
-
-    if return_se:
-        mults_se = mults_se.unstack('m')
-        pi_se = pi_se.unstack('m')
-        Ar_se = Ar_se.unstack(['t','m'])
-    else:
-        mults_se = None
-        pi_se = None
-        Ar_se = None
-
-    return dict(y=y,
-                yhat=yhat,
-                mse=(e**2).mean(),
-                R2=R2,
-                d=d,
-                beta=hatb,
-                beta_se=seb,
-                mults = mults.unstack('m'),
-                mults_se = mults_se,
-                e1 = e1,
-                w = hatw,
-                e3 = e3,
-                Mpw = hatMpw,
-                gamma = hatgamma,
-                gamma_se = se_gamma,
-                e2 = e2,
-                gamma_d = gamma_d,
-                pi = hatpi.unstack('m'),
-                pi_se = pi_se,
-                e4 = e4,
-                Ar = Ar.unstack(['t','m']),
-                Ar_se = Ar_se,
-                B=B,
-                X=X)
-#+end_src
-
-* Estimate
-#+begin_src python
-def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
-
-    if K is not None:
-        d,MdMpy = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
-        MdMp = lambda x: Md_generator(x,d,Mp=True)
-        Md = lambda x: Md_generator(x,d,Mp=False)
-        method = 'categorical'
-    else:
-        method = 'linear'
-
-        # Change categorical vars to numeric
-        cats = d.select_dtypes(['category']).columns
-        if len(cats):
-            d[cats] = d[cats].apply(lambda x: x.cat.codes)
-
-        MdMp = lambda x: Md_generator(x,d,method=method,Mp=True)
-        Md = lambda x: Md_generator(x,d,method=method,Mp=False)
-
-        MdMpy = MdMp(y)
-
-    assert MdMpy.index.names == ['i','t','m','j']
-
-    if not np.all(np.abs(MdMpy.groupby(['j','t','m']).mean()) < 1e-6):
-        warn('MdMpy means greater than 1e-6')
-
-
-    # Estimation
-    hatb,hatMpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
-
-    if verbose: print('Estimating gamma...')
-    hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
-    try:
-        if d.columns.name is None:
-            d.columns.name = 'k'
-    except AttributeError:
-        pass
-
-    # y - hatgamma(d)
-    y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
-
-    if verbose: print('Estimating w...')
-
-    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
-    #print('Ar,w')
-
-    if verbose: print('Estimating pi...')
-
-    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
-
-    if verbose: print('Predicting y...')
-    yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
-    e = y - yhat.reindex_like(y)
-
-    sigma2 = e.unstack('j').var()
-
-    R2 = 1 - sigma2/y.unstack('j').var()
-
-    if method=='linear':
-        try:
-            se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
-        except KeyError:  # d doesn't vary with j?
-            se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
-    else:
-        se_gamma = None
-
-    if rectify:
-        if verbose: print('Rectifying...')
-        B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
-        # Re-orthogonalize
-        hatb = hatb*B['bw']
-        if seb is not None:
-            seb = seb*B['bw']
-        Ar = Ar*B['Ar']
-        Ar_se = Ar_se*B['Ar']
-        hatpi = hatpi*(B['pi']@y.groupby('j').count()/y.shape[0])
-        pi_se = pi_se*(B['pi']@y.groupby('j').count()/y.shape[0])
-        try:
-            hatgamma = (hatgamma.stack()*B['gamma_d']).unstack('k')
-            if se_gamma is not None:
-                se_gamma = (se_gamma.stack()*B['gamma_d']).unstack('k')
-        except AttributeError:
-            hatgamma = hatgamma*B['gamma_d']
-            if se_gamma is not None:
-                se_gamma = se_gamma*B['gamma_d']
-    else:
-        B = None
-        X = None
 
     # Convert tuples in index  to strings (necessary for persistence in sql)
     if hatgamma.index.name == 'tau':
@@ -1352,7 +1231,6 @@ arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
         'e':('itmj',),
         'pi':('t','m'),
         'pi_se':('t','m'),
-        'R2':('j',),
         'mults':('t','m'),
         'mults_se':('t','m'),
         'e1':('itmj',),
@@ -1364,7 +1242,7 @@ arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
         'Ar':('j','tm'),
         'Ar_se':('j','tm'),
         'B':('j','l'),
-        'X':('itmj','l')
+        'X':('itmj','l'),
          }
 
 class Regression:
@@ -1437,7 +1315,7 @@ class Regression:
         if beta is not None:
             beta = pd.DataFrame(beta)
 
-        R = _estimation(self.y,self.d,
+        R = estimation(self.y,self.d,
                        K=self.attrs['K'],
                        beta=beta,
                        bootstrap_tol=self.attrs['bootstrap_tol'],
@@ -1505,7 +1383,18 @@ class Regression:
 #+begin_src python
     def get_MdMpy(self):
         MdMpy,Md,MdMp,d = estimate_MdMpy(self.y,self.d,self.attrs['K'])
+
+        self.d = d
+
         return MdMpy
+
+    MdMp = lambda self,x: Md_generator(x,
+                                  self.d,
+                                  method=self.attrs['method'],Mp=True)
+
+    Md = lambda self,x: Md_generator(x,
+                                self.d,
+                                method=self.attrs['method'],Mp=False)
 
     def get_beta(self,verbose=None):
 
@@ -1529,19 +1418,21 @@ class Regression:
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b,Mpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(self.y,MdMp,
+        b,Mpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(self.y,self.MdMp,
                                       return_se=self.attrs['return_se'],
                                       bootstrap_tol=self.attrs['bootstrap_tol'],
                                       verbose=verbose)
 
-        if self.b is None: self.b = b.squeeze()
+        if self.beta is None: self.beta = b.squeeze()
         if self.Mpw is None: self.Mpw = Mpw
-        if self.beta_se is None: self.beta_se = seb.squeeze()
+        if seb is not None:
+            if self.beta_se is None: self.beta_se = seb.squeeze()
         if self.mults is None: self.mults = mults.squeeze()
-        if self.mults_se is None: self.mults_se = mults_se.squeeze()
+        if mults_se is not None:
+            if self.mults_se is None: self.mults_se = mults_se.squeeze()
         if self.e1 is None: self.e1 = e1
 
-        gamma,gamma_d,e2 = estimate_gamma(Mp(self.y),self.b,self.Mpw,self.d,
+        gamma,gamma_d,e2 = estimate_gamma(Mp(self.y),self.beta,self.Mpw,self.d,
                                           method=self.attrs['method'],
                                           verbose=verbose)
 
@@ -1560,7 +1451,7 @@ class Regression:
 
         gamma_d = self.get_gamma_d(verbose=verbose)
 
-        y0 = (Mpi(self.y) - Mp(gamma_d)).dropna()
+        y0 = (Mpi(self.y - gamma_d)).dropna()
 
         b = self.get_beta(verbose=verbose)
 
@@ -1600,12 +1491,15 @@ class Regression:
 
         Ar = self.get_Ar(verbose=verbose)
 
-        self.pi = estimate_pi(self.y,b,w,Ar,gamma_d,verbose=verbose)
+        hatpi, pi_se, e4 = estimate_pi(self.y,b,w,Ar,gamma_d,verbose=verbose)
+        self.pi = hatpi
+        self.pi_se = pi_se
+        self.e4 = e4
 
         return self.pi
 
 
-    def predicted_log_expenditures(self,fill_missing=True,verbose=None):
+    def get_predicted_log_expenditures(self,fill_missing=True,verbose=None):
         """
         Expected log expenditures.
 
@@ -1636,12 +1530,59 @@ class Regression:
 
 ** Other methods
 #+begin_src python
+    def validate(self,rectify=False,GramSchmidt=False,verbose=False):
+        B,X = validate(self.y,
+                       self.pi,
+                       self.Ar,
+                       self.d,
+                       self.w,
+                       self.beta,
+                       self.gamma,
+                       GramSchmidt=GramSchmidt)
+
+        # Re-orthogonalize
+        if rectify:
+            self.beta = self.beta*B['bw']
+            if self.beta_se is not None:
+                self.beta_se = self.beta_se*B['bw']
+            self.Ar = self.Ar*B['Ar']
+            self.Ar_se = self.Ar_se*B['Ar']
+            self.pi = self.pi*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
+            self.pi_se = self.pi_se*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
+            try:
+                self.gamma = (self.gamma.stack()*B['gamma_d']).unstack('k')
+                if self.gamma_se is not None:
+                    self.gamma_se = (self.gamma_se.stack()*B['gamma_d']).unstack('k')
+            except AttributeError:
+                self.gamma = self.gamma*B['gamma_d']
+                if self.gamma_se is not None:
+                    self.gamma_se = self.gamma_se*B['gamma_d']
+        return B
+
     def mse(self):
+        if self.yhat is None:
+            self.get_predicted_log_expenditures()
         try:
-            return (self.y - self.yhat).mean()
+            return ((self.y - self.yhat)**2).mean()
         except AttributeError:
             estimate(self)
             return mse(self)
+
+    def R2(self,summary=False):
+        yhat = self.get_predicted_log_expenditures(fill_missing=False)
+
+        e = self.y - yhat.reindex_like(self.y)
+
+        if summary:
+            sigma2 = e.var()
+
+            R2 = 1 - sigma2/self.y.var()
+        else:
+            sigma2 = e.unstack('j').var()
+
+            R2 = 1 - sigma2/self.y.unstack('j').var()
+
+        return R2
 
     def optimal_number_of_clusters(self):
         """
