@@ -451,10 +451,14 @@ def estimate_beta(MdMpy,
     else:
         seb = None
 
-    if return_var:
-        return b,V
+    if return_var and return_se:
+        return b,seb,V
+    elif return_var:
+        return b,None,V
+    elif return_se:
+        return b,seb,None
     else:
-        return b,seb
+        return b,None,None
   #+end_src
 ** Estimation of $\M{p}w$
     Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
@@ -622,7 +626,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
     if not np.allclose(MdMpy.groupby(['t','m','j']).mean(),0):
         warn("MdMpy means not close to zero.")
 
-    b,seb = estimate_beta(MdMpy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+    b,seb,V = estimate_beta(MdMpy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
 
     # Construct regression to compute Mpw
     cols = y.groupby(['i','t','m']).mean().index
@@ -840,8 +844,8 @@ def estimate_w(y,beta,return_se=False,verbose=False):
     Ar.name = 'Ar'
 
     # Missing data means that Ar.groupby(['t','m']).mean() may not be exactly zero; recenter.
-    Ar_bar = Ar.groupby(['t','m']).mean()
-    Ar = Ar - Ar_bar
+    #Ar_bar = Ar.groupby(['t','m']).mean()
+    #Ar = Ar - Ar_bar
 
     Ar_se = eg.std()/np.sqrt(eg.count())
 
@@ -873,6 +877,8 @@ def estimate_pi(y,b,w,Ar,gamma_d,verbose=False):
     pi.name = 'pi'
 
     pi_se = pi_g.std()/np.sqrt(pi_g.count())
+
+    assert np.all(pi_se>0), "Non-positive estimates of pi_se?!"
 
     e4 = e - pi
     e4 = e4.reorder_levels(['i','t','m','j']).sort_index()
@@ -991,10 +997,10 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
         tic = toc
 
     if beta is None:# Estimate b
-        hatb, seb = estimate_beta(MdMpy,
-                                  return_se=return_se,
-                                  bootstrap_tol=bootstrap_tol,
-                                  verbose=verbose)
+        hatb,seb,V = estimate_beta(MdMpy,
+                                   return_se=return_se,
+                                   bootstrap_tol=bootstrap_tol,
+                                   verbose=verbose)
     else:
         hatb = beta
         seb = None
@@ -1122,6 +1128,7 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
                 d=d,
                 beta=hatb,
                 beta_se=seb,
+                beta_V=V,
                 mults = mults.unstack('m'),
                 mults_se = mults_se,
                 e1 = e1,
@@ -1226,6 +1233,7 @@ arrs = {'y':('itmj',),      # Log expenditures, (itm,j)
         'alpha_se':('j',),
         'beta_se':('j',),
         'gamma_se':('j','k'),
+        'beta_V':('j','jp'),
         'w':('itm',),
         'yhat':('itmj',),
         'e':('itmj',),
@@ -1396,19 +1404,37 @@ class Regression:
                                 self.d,
                                 method=self.attrs['method'],Mp=False)
 
-    def get_beta(self,verbose=None):
+    def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2):
+        """
+        Return beta, or if return_se=True, return beta_se.
+        If standard errors are computed obtain Variance matrix as a side-effect.
+        """
+        if return_se is None:
+            return_se = self.attrs['return_se']
 
-        if self.beta is not None:
-            return self.beta
+        if return_se:
+            if self.beta_se is not None:
+                return self.beta_se
+        else:
+            if self.beta is not None:
+                return self.beta
 
         MdMpy = self.get_MdMpy()
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb = estimate_beta(MdMpy,verbose=verbose)
-        self.beta = b.squeeze()
+        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,return_var=return_se,bootstrap_tol=bootstrap_tol)
+        b = b.squeeze()
+        if seb is not None:
+            self.beta_se = seb.squeeze()
+            self.beta_V = V
 
-        return b.squeeze()
+        self.beta = b
+
+        if return_se:
+            return self.beta_se
+        else:
+            return self.beta
 
     def get_gamma_d(self,verbose=None):
 
@@ -1443,6 +1469,9 @@ class Regression:
         return self.gamma_d
 
     def get_w(self,verbose=None):
+        """
+        Estimate welfare weights $w$.
+        """
         if self.w is not None:
             return self.w
 
@@ -1465,6 +1494,9 @@ class Regression:
         return self.w
 
     def get_Ar(self,verbose=None):
+        """
+        Estimate relative prices.
+        """
         if self.Ar is not None:
             return self.Ar
 
@@ -1478,6 +1510,9 @@ class Regression:
 
 
     def get_pi(self,verbose=None):
+        """
+        Estimate price index.
+        """
         if self.pi is not None:
             return self.pi
 
@@ -1542,24 +1577,28 @@ class Regression:
 
         # Re-orthogonalize
         if rectify:
+            self.yhat = None
             self.beta = self.beta*B['bw']
             if self.beta_se is not None:
                 self.beta_se = self.beta_se*B['bw']
             self.Ar = self.Ar*B['Ar']
             self.Ar_se = self.Ar_se*B['Ar']
             self.pi = self.pi*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
-            self.pi_se = self.pi_se*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
+            self.pi_se = self.pi_se*np.abs(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
             try:
                 self.gamma = (self.gamma.stack()*B['gamma_d']).unstack('k')
                 if self.gamma_se is not None:
-                    self.gamma_se = (self.gamma_se.stack()*B['gamma_d']).unstack('k')
+                    self.gamma_se = (self.gamma_se.stack()*np.abs(B['gamma_d'])).unstack('k')
             except AttributeError:
                 self.gamma = self.gamma*B['gamma_d']
                 if self.gamma_se is not None:
-                    self.gamma_se = self.gamma_se*B['gamma_d']
+                    self.gamma_se = self.gamma_se*np.abs(B['gamma_d'])
         return B
 
     def mse(self):
+        """
+        Mean-squared error of estimates.
+        """
         if self.yhat is None:
             self.get_predicted_log_expenditures()
         try:
@@ -1637,8 +1676,11 @@ class Regression:
 #+end_src
 ** Presentation methods
 #+begin_src python
-    def graph_beta(self,fn=None):
+    def graph_beta(self,fn=None,xlabel='Frisch Elasticities'):
         import matplotlib.pyplot as plt
+
+        if self.beta is None or self.beta_se is None:
+            self.get_beta(return_se=True)
 
         beta = self.beta.sort_values()
         se = self.beta_se
@@ -1650,7 +1692,7 @@ class Regression:
         fig,ax = plt.subplots(figsize=(8,1+len(beta)/8))
 
         ax.errorbar(beta,range(len(beta)), xerr=se)
-        ax.set_xlabel(r'Relative Income Elasticities')
+        ax.set_xlabel(xlabel)
 
         ax.set_yticks(list(range(len(beta))))
         ax.set_yticklabels(beta.index.values.tolist(),rotation=0,size='small')
