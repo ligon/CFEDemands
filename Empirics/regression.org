@@ -400,8 +400,7 @@ import numpy as np
 def estimate_beta(MdMpy,
                   heteroskedastic=False,
                   cov = lambda X : pd.DataFrame.cov(X,ddof=0),
-                  return_se=False,
-                  return_var=False,bootstrap_tol=None,Mdp=None,verbose=False):
+                  return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
 
     if verbose:
         print("estimate_beta")
@@ -426,7 +425,7 @@ def estimate_beta(MdMpy,
 
     b = pd.DataFrame(u*s,index=MdMpY.columns,columns=['beta'])
 
-    if (return_se or return_var) and bootstrap_tol:
+    if return_se and bootstrap_tol:
         if bootstrap_tol is None:
             raise ValueError("Not implemented. Specify bootstrap_tol>0.")
             V = (((e-e.mean())**2).mul(v**2,axis=0)).mean() # See p. 150 of Bai (2003)
@@ -451,12 +450,8 @@ def estimate_beta(MdMpy,
     else:
         seb = None
 
-    if return_var and return_se:
+    if return_se:
         return b,seb,V
-    elif return_var:
-        return b,None,V
-    elif return_se:
-        return b,seb,None
     else:
         return b,None,None
   #+end_src
@@ -1268,7 +1263,7 @@ class Regression:
     """
 
 
-    __slots__ = list(arrs.keys()) + ['attrs']
+    __slots__ = list(arrs.keys()) + ['attrs','Md','MdMp','Mp']
 
     def __init__(self,
                  correct_miss=False,
@@ -1394,15 +1389,10 @@ class Regression:
 
         self.d = d
 
+        self.MdMp = MdMp
+        self.Md = Md
+
         return MdMpy
-
-    MdMp = lambda self,x: Md_generator(x,
-                                  self.d,
-                                  method=self.attrs['method'],Mp=True)
-
-    Md = lambda self,x: Md_generator(x,
-                                self.d,
-                                method=self.attrs['method'],Mp=False)
 
     def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2):
         """
@@ -1423,7 +1413,7 @@ class Regression:
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,return_var=return_se,bootstrap_tol=bootstrap_tol)
+        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol)
         b = b.squeeze()
         if seb is not None:
             self.beta_se = seb.squeeze()
@@ -1453,6 +1443,7 @@ class Regression:
         if self.Mpw is None: self.Mpw = Mpw
         if seb is not None:
             if self.beta_se is None: self.beta_se = seb.squeeze()
+
         if self.mults is None: self.mults = mults.squeeze()
         if mults_se is not None:
             if self.mults_se is None: self.mults_se = mults_se.squeeze()
@@ -1559,8 +1550,27 @@ class Regression:
 
         self.yhat = predict_y(pi,Ar,gamma_d,b,w)
 
-        return self.yhat
+        if fill_missing:
+            return self.yhat
+        else:
+            return (self.yhat + self.y*0).dropna()
 
+    def get_gamma_se(self):
+        if self.gamma_se is not None: return self.gamma_se
+
+        e = self.y - self.get_predicted_log_expenditures(fill_missing=False)
+
+        d = self.d
+
+        sigma2 = e.unstack('j').var()
+
+        if self.attrs['method']=='linear':
+            try:
+                self.gamma_se = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
+            except KeyError:  # d doesn't vary with j?
+                self.gamma_se = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
+
+        return self.gamma_se
 #+end_src
 
 ** Other methods
@@ -1638,6 +1648,9 @@ class Regression:
 
         Regardless of whether resampling is chosen, means (and variances) are selected at the level of the list clusterby.
         """
+        if self.yhat is None:
+            self.yhat = self.get_predicted_log_expenditures(fill_missing=fill_missing,verbose=verbose)
+
         e = self.y - self.yhat
         eg = e.dropna().groupby(clusterby)
 
@@ -1721,12 +1734,14 @@ def _demand_parameters(self,p=None,d=None):
     beta = self.beta
     n = len(beta)
 
-    alpha = np.exp(self.Ar.iloc[:,0])
+    alpha = np.array([1]*n)
 
-    if p is None:
+    if p is None or len(p)==0:
         prices = np.exp(alpha*0)
     else:
         prices = p
+
+    assert len(prices), f"What happened to prices? p={prices}."
 
     # The following hijinks deal with missing values (e.g., in prices)
     phi = 0 # phi not (yet?) an attribute of Regression.
@@ -1796,11 +1811,25 @@ def _expenditurefunction(self,U,p=None,z=None):
 
     return consumerdemands.hicksian.expenditurefunction(U,p,pparms)
 
+def _relative_risk_aversion(self,p=None,z=None):
+    """Returns relative risk aversion =function= that varies with =x=.
+
+    Varies with level of budget x, prices p, and observable
+    characteristics z.
+
+    Ethan Ligon                                    December 2022
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    return consumerdemands.demands.relative_risk_aversion(p,pparms)
+
 Regression.consumerdemands = consumerdemands
 Regression.demands = _demands
 Regression.lambdavalue = _lambdavalue
 Regression.indirect_utility = _utility
 Regression.expenditure = _expenditurefunction
+Regression.relative_risk_aversion = _relative_risk_aversion
 #+end_src
 
 
