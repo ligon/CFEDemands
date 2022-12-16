@@ -1312,7 +1312,6 @@ class Regression:
 #+end_src
 ** Estimate
 #+begin_src python
-
     def estimate(self,beta=None):
 
         if beta is not None:
@@ -1588,9 +1587,7 @@ class Regression:
         # Re-orthogonalize
         if rectify:
             self.yhat = None
-            self.beta = self.beta*B['bw']
-            if self.beta_se is not None:
-                self.beta_se = self.beta_se*B['bw']
+            self.w = self.w*B['bw']
             self.Ar = self.Ar*B['Ar']
             self.Ar_se = self.Ar_se*B['Ar']
             self.pi = self.pi*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
@@ -1614,7 +1611,7 @@ class Regression:
         try:
             return ((self.y - self.yhat)**2).mean()
         except AttributeError:
-            estimate(self)
+            self.get_predicted_log_expenditures()
             return mse(self)
 
     def R2(self,summary=False):
@@ -1797,26 +1794,65 @@ def _utility(self,x,p=None,z=None):
 
     return consumerdemands.marshallian.indirect_utility(x,p,pparms)
 
-def _expenditurefunction(self,U,p=None,z=None):
-    """Total Expenditures
+def _utility(self,x,p=None,z=None,type="Marshallian"):
+    """(Indirect) utility
 
-    Varies with level of utility U, prices p, and observable
-    characteristics z, with a utility function having parameters given
+    Level of utility at prices p for household with observable
+    characteristics z, having a utility function with parameters given
     by (possibly estimated) attributes from a Regression (i.e., the
     vectors of parameters alpha, beta, delta).
+
+    Default type is "Marshallian", in which case argument x is budget.
+
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Hicksian" :: argument x is level of utility
 
     Ethan Ligon                                    April 2019
     """
 
     p,pparms = _demand_parameters(self,p,z)
 
-    return consumerdemands.hicksian.expenditurefunction(U,p,pparms)
+    Us = {'Marshallian':consumerdemands.marshallian.indirect_utility,
+          'Hicksian': lambda U,**xargs: U,
+          'Frischian':consumerdemands.frischian.indirect_utility}
 
-def _relative_risk_aversion(self,p=None,z=None):
+    return Qs[type](x,p,pparms)
+
+def _expenditurefunction(self,x,p=None,z=None,type='Hicksian'):
+    """Total Expenditures
+
+    Expenditures at prices p for household with observable
+    characteristics z, having a utility function with parameters given
+    by (possibly estimated) attributes from a Regression (i.e., the
+    vectors of parameters alpha, beta, delta).
+
+    Default type is "Hicksian", in which case argument x is level of utility U.
+
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Marshallian" :: argument x is expenditures.
+
+    Ethan Ligon                                    April 2019
+    """
+
+    p,pparms = _demand_parameters(self,p,z)
+
+    Xs = {'Marshallian': lambda U,**xargs: U,
+          'Hicksian': consumerdemands.hicksian.expenditurefunction,
+          'Frischian':consumerdemands._core.expenditures}
+
+    return Xs[type](x,p,pparms)
+
+def _relative_risk_aversion(self,p=None,z=None,type='Marshallian'):
     """Returns relative risk aversion =function= that varies with =x=.
 
-    Varies with level of budget x, prices p, and observable
-    characteristics z.
+    Varies with prices p, and observablecharacteristics z.
+    Default type is "Marshallian", in which case argument x is budget.
+
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Hicksian" :: argument x is level of utility
 
     Ethan Ligon                                    December 2022
     """
