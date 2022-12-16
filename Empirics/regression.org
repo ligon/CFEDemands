@@ -1587,7 +1587,9 @@ class Regression:
         # Re-orthogonalize
         if rectify:
             self.yhat = None
-            self.w = self.w*B['bw']
+            self.beta = self.beta*B['bw']
+            if self.beta_se is not None:
+                self.beta_se = self.beta_se*B['bw']
             self.Ar = self.Ar*B['Ar']
             self.Ar_se = self.Ar_se*B['Ar']
             self.pi = self.pi*(B['pi']@self.y.groupby('j').count()/self.y.shape[0])
