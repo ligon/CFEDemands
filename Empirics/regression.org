@@ -1726,7 +1726,7 @@ import consumerdemands
 import pandas as pd
 
 def _demand_parameters(self,p=None,d=None):
-    """Return tuple of (p,alpha,beta,phi) from regression instance.
+    """Return tuple of p and dictionary of (alpha,beta,phi) from regression instance.
 
     Suitable for passing to =cfe.demand= functions.
     """
@@ -1734,10 +1734,11 @@ def _demand_parameters(self,p=None,d=None):
     beta = self.beta
     n = len(beta)
 
-    alpha = np.array([1]*n)
+    if d is None:
+        alpha = np.exp(self.gamma_d.groupby('j').mean())
 
     if p is None or len(p)==0:
-        prices = np.exp(alpha*0)
+        prices = np.exp(self.Ar.groupby('j').mean())
     else:
         prices = p
 
@@ -1826,6 +1827,7 @@ def _relative_risk_aversion(self,p=None,z=None):
 
 Regression.consumerdemands = consumerdemands
 Regression.demands = _demands
+Regression.demand_parameters = _demand_parameters
 Regression.lambdavalue = _lambdavalue
 Regression.indirect_utility = _utility
 Regression.expenditure = _expenditurefunction
