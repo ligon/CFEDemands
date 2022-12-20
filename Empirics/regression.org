@@ -1819,7 +1819,7 @@ def _utility(self,x,p=None,z=None,type="Marshallian"):
           'Hicksian': lambda U,**xargs: U,
           'Frischian':consumerdemands.frischian.indirect_utility}
 
-    return Qs[type](x,p,pparms)
+    return Us[type](x,p,pparms)
 
 def _expenditurefunction(self,x,p=None,z=None,type='Hicksian'):
     """Total Expenditures
@@ -1846,15 +1846,10 @@ def _expenditurefunction(self,x,p=None,z=None,type='Hicksian'):
 
     return Xs[type](x,p,pparms)
 
-def _relative_risk_aversion(self,p=None,z=None,type='Marshallian'):
+def _relative_risk_aversion(self,p=None,z=None)
     """Returns relative risk aversion =function= that varies with =x=.
 
     Varies with prices p, and observablecharacteristics z.
-    Default type is "Marshallian", in which case argument x is budget.
-
-    Alternative types:
-       - "Frischian" :: argument x is Marginal utility of expenditures
-       - "Hicksian" :: argument x is level of utility
 
     Ethan Ligon                                    December 2022
     """
