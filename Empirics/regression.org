@@ -1846,7 +1846,7 @@ def _expenditurefunction(self,x,p=None,z=None,type='Hicksian'):
 
     return Xs[type](x,p,pparms)
 
-def _relative_risk_aversion(self,p=None,z=None)
+def _relative_risk_aversion(self,p=None,z=None):
     """Returns relative risk aversion =function= that varies with =x=.
 
     Varies with prices p, and observablecharacteristics z.
