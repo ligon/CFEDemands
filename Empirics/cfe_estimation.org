@@ -464,24 +464,6 @@ if False:
     df.plot.scatter(x='b',y='u',c='blue',ax=ax)
     df.plot.scatter(x='b',y='uh',c='red',ax=ax)
 
-
-def test_equal_to_drop_cols(df):
-    results = 0
-    for m in min_obs_list:
-        foo = drop_columns_wo_covariance(df, min_obs=m)
-        baz = df.loc[:,df.count()>=m]
-
-        print(foo)
-
-        # get difference
-        diff = foo - baz
-        diff = diff.fillna(0)
-
-        if ~((foo.shape == baz.shape) & ((diff < 1e-5).all(axis=None))):
-            results += 1
-
-    assert results == 0
-
 #+end_src
 
 *** Test drop_columns_wo_cov

@@ -1430,6 +1430,9 @@ class Regression:
         if self.gamma_d is not None:
             return self.gamma_d
 
+        if self.MdMp is None:
+            MdMpy = self.get_MdMpy()
+
         if verbose is None:
             verbose = self.attrs['verbose']
 
@@ -1686,6 +1689,9 @@ class Regression:
 
 
 #+end_src
+
+#+results:
+
 ** Presentation methods
 #+begin_src python
     def graph_beta(self,fn=None,xlabel='Frisch Elasticities'):
@@ -1956,7 +1962,7 @@ from cfe.df_utils import to_dataframe, df_to_orgtbl
 import pandas as pd
 import numpy as np
 from cfe.dgp import prices, expenditures, geometric_brownian
-from cfe import Regression, read_sql
+import cfe.regression as rgsn
 
 def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
     """
@@ -1992,8 +1998,8 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
 
 def main():
     y,d,truth = data(N=1000,J=10,return_truth=True)
-    r = Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
-    r.estimate()
+    r = rgsn.Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
+    r.get_predicted_log_expenditures()
     #r.to_sql('/tmp/foo.rgsn',overwrite=True)
     #s = read_sql('/tmp/foo.rgsn')
 
