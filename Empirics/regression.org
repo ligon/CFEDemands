@@ -1425,6 +1425,14 @@ class Regression:
         else:
             return self.beta
 
+    def get_gamma(self,verbose=None):
+
+        if self.gamma is not None:
+            return self.gamma
+        else:
+            gd = get_gamma_d(self,verbose=verbose)
+            return self.gamma
+
     def get_gamma_d(self,verbose=None):
 
         if self.gamma_d is not None:
@@ -1740,7 +1748,11 @@ def _demand_parameters(self,p=None,d=None):
     n = len(beta)
 
     if d is None:
-        alpha = np.exp(self.gamma_d.groupby('j').mean())
+        gd = self.get_gamma_d().groupby('j').mean()
+    else:
+        gd = d@self.gamma.T
+
+    alpha = np.exp(gd)
 
     if p is None or len(p)==0:
         prices = np.exp(self.Ar.groupby('j').mean())
@@ -1787,20 +1799,27 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
 
     return q
 
-def _utility(self,x,p=None,z=None):
-    """Indirect utility
+def _expenditures(self,x,p=None,z=None,type='Marshallian'):
+    """Expenditures for different goods at prices p for household with observable
+    characteristics z, having a utility function with parameters given
+    by (possibly estimated) attributes from a Regression (i.e., the
+    vectors of parameters alpha, beta, delta).
 
-    Varies with prices p, budget x and observable characteristics z,
-    having a utility function with parameters given by (possibly
-    estimated) attributes from a Regression (i.e., the vectors of
-    parameters alpha, beta, delta).
+    Default type is "Marshallian", in which case argument x is budget.
 
-    Ethan Ligon                                    April 2019
+    Alternative types:
+       - "Frischian" :: argument x is Marginal utility of expenditures
+       - "Hicksian" :: argument x is level of utility
+
+    Ethan Ligon                                    April 2023
     """
 
     p,pparms = _demand_parameters(self,p,z)
 
-    return consumerdemands.marshallian.indirect_utility(x,p,pparms)
+    q = _demands(self,x,p=p,z=z,type=type)
+
+    return p*q
+
 
 def _utility(self,x,p=None,z=None,type="Marshallian"):
     """(Indirect) utility
@@ -1866,6 +1885,7 @@ def _relative_risk_aversion(self,p=None,z=None):
 
 Regression.consumerdemands = consumerdemands
 Regression.demands = _demands
+Regression.expenditures = _expenditures
 Regression.demand_parameters = _demand_parameters
 Regression.lambdavalue = _lambdavalue
 Regression.indirect_utility = _utility
