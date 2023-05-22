@@ -900,7 +900,7 @@ from .estimation import drop_columns_wo_covariance
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
 
-def prepare_data(y,d,min_obs=None,min_prop_items=0.1,alltm=False):
+def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     assert y.index.names == ['i','t','m','j']
 
     # Drop household observations with fewer items than
@@ -952,11 +952,11 @@ def find_optimal_K(y,d,shuffles=30,verbose=False):
 #+end_src
 * Construct Missing "correction"
 #+begin_src python
-def missing_correction(y,d,K=None):
+def missing_correction(y,d,K=None,min_obs=None):
     M = 1-np.isnan(y.unstack('j'))  # Non-missing
     M = M.stack()
 
-    M,d = prepare_data(M,d)
+    M,d = prepare_data(M,d,min_obs=min_obs)
 
     R =  estimation(M,d,K=K,return_se=False)
 
@@ -1124,7 +1124,7 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
                 beta=hatb,
                 beta_se=seb,
                 beta_V=V,
-                mults = mults.unstack('m'),
+                mults = mults,
                 mults_se = mults_se,
                 e1 = e1,
                 w = hatw,
@@ -1134,10 +1134,10 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
                 gamma_se = se_gamma,
                 e2 = e2,
                 gamma_d = gamma_d,
-                pi = hatpi.unstack('m'),
+                pi = hatpi,
                 pi_se = pi_se,
                 e4 = e4,
-                Ar = Ar.unstack(['t','m']),
+                Ar = Ar,
                 Ar_se = Ar_se,
                 B=B,
                 X=X)
@@ -1755,7 +1755,7 @@ def _demand_parameters(self,p=None,d=None):
     alpha = np.exp(gd)
 
     if p is None or len(p)==0:
-        prices = np.exp(self.Ar.groupby('j').mean())
+        prices = np.exp((self.pi + self.Ar).groupby('j').mean())
     else:
         prices = p
 
