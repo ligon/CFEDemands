@@ -2570,16 +2570,16 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
     """
     Provides a norm for numeric pd.DataFrames, which may have missing data.
 
-    If a single pd.DataFrame is provided, then any missing values are replaced with zeros, 
+    If a single pd.DataFrame is provided, then any missing values are replaced with zeros,
     the norm of the resulting matrix is returned.
 
-    If an optional second dataframe is provided, then missing values are similarly replaced, 
+    If an optional second dataframe is provided, then missing values are similarly replaced,
     and the norm of the difference is replaced.
 
     Other optional arguments:
 
      - ignore_nan :: If False, missing values are *not* replaced.
-     - ord :: Order of the matrix norm; see documentation for numpy.linalg.norm.  
+     - ord :: Order of the matrix norm; see documentation for numpy.linalg.norm.
               Default is the Froebenius norm.
     """
     a=a.copy()
@@ -2589,7 +2589,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
       b=pd.DataFrame(np.zeros(a.shape),columns=a.columns,index=a.index)
 
     if ignore_nan:
-        missing=(a.isnull()+0.).replace([1],[np.NaN]) +  (b.isnull()+0.).replace([1],[np.NaN]) 
+        missing=(a.isnull()+0.).replace([1],[np.NaN]) +  (b.isnull()+0.).replace([1],[np.NaN])
         a=a+missing
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
@@ -2599,10 +2599,10 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
 
-    Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied, 
+    Optional inputs include conf_ints, a pair (lowerdf,upperdf).  If supplied,
     confidence intervals will be printed in brackets below the point estimate.
 
-    If conf_ints is /not/ supplied but sedf is, then standard errors will be 
+    If conf_ints is /not/ supplied but sedf is, then standard errors will be
     in parentheses below the point estimate.
 
     If tdf is False and sedf is supplied then stars will decorate significant point estimates.
@@ -2610,11 +2610,11 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
 
     if sedf is supplied, this creates some space for =bonus_stats= to be reported on each row.
 
-    BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables, 
+    BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables,
     but we do our best.
     """
     if len(df.shape)==1: # We have a series?
-        df = pd.DataFrame(df) 
+        df = pd.DataFrame(df)
 
     # Test for duplicates in index
     if df.index.duplicated().sum()>0:
@@ -2662,14 +2662,14 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
         return s
 
     def se_linestart(stats,i):
-        if stats is None: 
+        if stats is None:
             return '|'*levels
         else:
             stats = stats.loc[i]
             assert levels >= len(stats), "Too many columns of bonus stats"
             line = ['']*(levels-len(stats)+1)
             line += stats.tolist()
-            return ' | '.join(line) 
+            return ' | '.join(line)
 
     s = column_heading(df)
 
@@ -2684,8 +2684,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         s += '| %s ' % i[k]
                     else:
                         s += '| '
-            lastidx =i 
-    
+            lastidx =i
+
             for j in df.columns: # Point estimates
                 try:
                     entry='| '+float_fmt+' '
@@ -2708,7 +2708,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         s += '| %s ' % i[k]
                     else:
                         s += '| '
-            lastidx = i 
+            lastidx = i
 
             for j in df.columns:
                 try:
@@ -2732,7 +2732,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
         if tdf is not False:
             try: # Passed in dataframe?
                 tdf.shape
-            except AttributeError:  
+            except AttributeError:
                 tdf=df[sedf.columns]/sedf
 
         lastidx = ['']*levels
@@ -2745,7 +2745,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         s += '| %s ' % i[k]
                     else:
                         s += '| '
-            lastidx = i 
+            lastidx = i
 
             for j in df.columns: # Point estimates
                 if tdf is not False:
@@ -2773,17 +2773,17 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     elif np.isnan(sedf[j][i]):
                         se='(---)'
                     else:
-                        se='(' + float_fmt % sedf[j][i] + ')' 
+                        se='(' + float_fmt % sedf[j][i] + ')'
                 except KeyError: se=''
                 entry='| '+se+'  '
-                s+=entry 
+                s+=entry
             s+='|\n'
         return s
     elif not (conf_ints is None): # Print confidence intervals on alternate rows
         if tdf is not False and sedf is not None:
             try: # Passed in dataframe?
                 tdf.shape
-            except AttributeError:  
+            except AttributeError:
                 tdf=df[sedf.columns]/sedf
         lastidx = ['']*levels
         for i in df.index:
@@ -2794,8 +2794,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     if lastidx[k] != i[k]:
                         s += '| %s ' % i[k]
                     else:
-                        s += '| ' 
-            lastidx = i 
+                        s += '| '
+            lastidx = i
 
             for j in df.columns: # Point estimates
                 if tdf is not False and tdf is not None:
@@ -2823,7 +2823,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     ci= ci % (conf_ints[0][j][i],conf_ints[1][j][i])
                 except KeyError: ci=''
                 entry='| '+ci+'  '
-                s+=entry 
+                s+=entry
             s+='|\n'
         return s
 
@@ -2868,12 +2868,16 @@ def orgtbl_to_df(table, col_name_size=1, format_string=None, index=None, dtype=N
 
 def drop_missing(X,infinities=False):
     """
-    Return tuple of pd.DataFrames in X with any 
+    Return tuple of pd.DataFrames in X with any
     missing observations dropped.  Assumes common index.
 
-    If infinities is false values of plus or minus infinity are 
+    If infinities is false values of plus or minus infinity are
     treated as missing values.
     """
+
+    for i,x in enumerate(X):
+        if type(x)==pd.Series and x.name is None:
+            x.name = i
 
     foo=pd.concat(X,axis=1)
     if not infinities:
@@ -2886,7 +2890,7 @@ def drop_missing(X,infinities=False):
 
     Y=[]
     for x in X:
-        Y.append(foo.loc[:,pd.DataFrame(x).columns]) 
+        Y.append(foo.loc[:,pd.DataFrame(x).columns])
 
     return tuple(Y)
 

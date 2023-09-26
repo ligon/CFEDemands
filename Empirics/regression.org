@@ -1393,7 +1393,7 @@ class Regression:
 
         return MdMpy
 
-    def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2):
+    def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2,heteroskedastic=False):
         """
         Return beta, or if return_se=True, return beta_se.
         If standard errors are computed obtain Variance matrix as a side-effect.
@@ -1412,7 +1412,7 @@ class Regression:
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol)
+        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
         b = b.squeeze()
         if seb is not None:
             self.beta_se = seb.squeeze()
@@ -1702,11 +1702,11 @@ class Regression:
 
 ** Presentation methods
 #+begin_src python
-    def graph_beta(self,fn=None,xlabel='Frisch Elasticities'):
+    def graph_beta(self,fn=None,xlabel='Frisch Elasticities',heteroskedastic=False):
         import matplotlib.pyplot as plt
 
         if self.beta is None or self.beta_se is None:
-            self.get_beta(return_se=True)
+            self.get_beta(return_se=True,heteroskedastic=heteroskedastic)
 
         beta = self.beta.sort_values()
         se = self.beta_se
@@ -1761,7 +1761,6 @@ def _demand_parameters(self,p=None,d=None):
 
     assert len(prices), f"What happened to prices? p={prices}."
 
-    # The following hijinks deal with missing values (e.g., in prices)
     phi = 0 # phi not (yet?) an attribute of Regression.
 
     return prices,{'alpha':alpha,'beta':beta,'phi':phi}
