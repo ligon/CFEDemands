@@ -1425,14 +1425,6 @@ class Regression:
         else:
             return self.beta
 
-    def get_gamma(self,verbose=None):
-
-        if self.gamma is not None:
-            return self.gamma
-        else:
-            gd = get_gamma_d(self,verbose=verbose)
-            return self.gamma
-
     def get_gamma_d(self,verbose=None):
 
         if self.gamma_d is not None:
@@ -1468,6 +1460,14 @@ class Regression:
         if self.gamma_d is None: self.gamma_d = gamma_d
 
         return self.gamma_d
+
+    def get_gamma(self,verbose=None):
+
+        if self.gamma is not None:
+            return self.gamma
+        else:
+            gd = get_gamma_d(self,verbose=verbose)
+            return self.gamma
 
     def get_w(self,verbose=None):
         """
