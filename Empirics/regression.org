@@ -201,7 +201,7 @@ def iqr(x,std=False):
 
 ** Implementation of $\Mp$
 
-Provide a function =Mp= such that =Mp(X)= return $X-\E(X|p)$.  In our
+Provide a function =Mp= such that =Mp(X)= returns $X-\E(X|p)$.  In our
 case we rely on the law of one price, so that this is a matter of
 computing deviations of $X$ from time-market means of $X$.
 
@@ -247,7 +247,7 @@ def Mpi(X):
     return X - X.groupby(['t','m']).transform(np.mean)
 #+end_src
 
-** Use \(K\)-means to construct \Md
+** Use \(K\)-means to construct clusters of households by characteristics $d$
 
 Compute $\Md$, $\Mp$, and $\MdMp$ transformations of $(y,d)$ using \(K\)-means, with
 some logic to estimate the optimal number of clusters for \(K\)-means.
@@ -255,66 +255,174 @@ some logic to estimate the optimal number of clusters for \(K\)-means.
 #+begin_src python
 from sklearn.model_selection import GroupKFold
 from .df_utils import use_indices, drop_missing
-from scipy.optimize import minimize_scalar
 from sklearn.cluster import KMeans
 
-def kmean_controls(n_clusters,Mpy,Mpd,shuffles=0,classifiers=None,verbose=False):
+def kmean_controls(n_clusters,Y,d,shuffles=0,classifiers=None,verbose=False):
+    """
+    Use kmeans to classify households into clusters; Construct MdY
+    """
     n_clusters = int(n_clusters)
-    Mpd = Mpd.copy()
+    d = d.copy()
 
     km = KMeans(n_clusters=n_clusters,init='k-means++',n_init=10*int(np.ceil(np.sqrt(n_clusters))))
-    tau = km.fit_predict(Mpd)
+    tau = km.fit_predict(d)
 
     if classifiers is not None:
         c = classifiers.values.T.tolist()
-        Mpd['tau'] = list(zip(*c,tau))
+        d['tau'] = list(zip(*c,tau))
     else:
-        Mpd['tau'] = tau
+        d['tau'] = tau
 
-    Mpd['tau'] = Mpd['tau'].astype('category')
+    d['tau'] = d['tau'].astype('category')
 
-    Mpyg = pd.DataFrame(Mpy).join(Mpd['tau'],how='left').groupby(['t','m','tau'])
+    return d['tau']
+#+end_src
 
-    MdMpy = Mp(pd.DataFrame(Mpy) - Mpyg.transform(np.mean)).squeeze()
+
+Evaluate usefulness of clustering for predicting expenditures.
+#+begin_src python :tangle no
+
+    #Yg = pd.DataFrame(Y).join(d['tau'],how='left').groupby(['t','m','tau'])
+    Yg = pd.DataFrame(Y).join(d['tau'],how='left').groupby(['tau'])
+
+    MdY = (pd.DataFrame(Y) - Yg.transform(np.mean)).squeeze()
 
     # Compare real groups with shuffled groups
     if shuffles:
         Valt = []
         for s in range(shuffles):
-            Mpd_alt = Mpd.copy()
-            Mpd_alt['tau'] = Mpd['tau'].sample(frac=1).reset_index(drop=True).values
+            d_alt = d.copy()
+            d_alt['tau'] = d['tau'].sample(frac=1).reset_index(drop=True).values
 
-            Mpyg_alt = pd.DataFrame(Mpy).join(Mpd_alt['tau'],how='left').groupby(['tau'])
+            Yg_alt = pd.DataFrame(Y).join(d_alt['tau'],how='left').groupby(['tau'])
 
-            Valt.append((pd.DataFrame(Mpy) - Mpyg_alt.transform(np.mean)).squeeze().var())
+            Valt.append((pd.DataFrame(Y) - Yg_alt.transform(np.mean)).squeeze().var())
 
-        lr = 2*(np.log(np.mean(Valt)) - np.log(MdMpy.var()))
+        lr = 2*(np.log(np.mean(Valt)) - np.log(MdY.var()))
 
         if verbose:
             print('K=%d\tLR=%f\tCoeff of variation=%f' % (n_clusters,lr,np.std(Valt)/np.mean(Valt)))
 
-        return lr,MdMpy
+        return lr,MdY
     else:
-        return Mpd['tau'],MdMpy
-
-
-# Construct Md operator which goes with k-means clusters tau.
-def Md_generator(X,tau,method='categorical',Mp=False):
+        return d['tau'],MdY
+#+end_src
+** \(\mathcal{M}_d\) operator
+Construct =Md= operator.  This can involve strictly categorical variables, in which case we can construct a non-parametric estimator of $\E(X|d=\tau)$ simply by taking means for every value of $\tau$ observed in the sample.    When the method is linear, we instead
+#+begin_src python
+def Md_generator(X,d,method='categorical',expected=False):
     """
     Md operator, for either categorical or linear expectations.
+
+    If expected is True, return E(X|d) rather than X-E(X|d).
+    """
+    if method=='categorical':
+        try:
+            groups = d.columns.tolist()
+        except AttributeError: # d is a series?
+            if d.name is None: d.name = 'tau'
+            groups = [d.name]
+        if 'j' in X.index.names: groups += 'j'
+        Xg = pd.DataFrame({'X':X}).join(d,how='left').groupby(groups)
+
+        gamma_d = Xg.transform(np.mean).squeeze()
+        gamma_d.name = 'gamma_d'
+
+        if expected: return gamma_d,None
+
+        MdX = X - gamma_d
+
+    elif method=='linear':
+        # Add constant column if one doesn't exist in d
+        d = pd.DataFrame(d)
+        if np.all(d.std()>0): d['Constant'] = 1
+
+        if 'j' in X.index.names:
+            Xj = X.groupby('j')
+            if expected: # Really return gamma_d,gamma
+                EdX = {}
+                Gamma = {}
+                for j,y in Xj:
+                    EdX[j],Gamma[j] = Md_generator(y.droplevel('j'),d,method='linear',expected=True)
+                EdX = pd.DataFrame(EdX)
+                EdX.columns.name = 'j'
+                Gamma = pd.DataFrame(Gamma).T
+
+                try:
+                    EdX = EdX.stack()
+                except AttributeError:
+                    pass
+
+                EdX = EdX.reorder_levels(['i','t','m','j']).sort_index()
+
+                return EdX,Gamma
+            else:
+                MdX = {}
+                for j,y in Xj:
+                    MdX[j] = Md_generator(y.droplevel('j'),d,method='linear',expected=False)
+                MdX = pd.DataFrame(MdX)
+                MdX.columns.name = 'j'
+
+                try:
+                    MdX = MdX.stack()
+                except AttributeError:
+                    pass
+
+                MdX = MdX.reorder_levels(['i','t','m','j']).sort_index()
+
+                return MdX
+        else:
+            y,x = drop_missing([X,d])
+            gamma = np.linalg.lstsq(x,y,rcond=None)[0]
+            gamma_d = (x@gamma).squeeze()
+            gamma_d.name = 'gamma_d'
+            if expected: return gamma_d,pd.Series(gamma.squeeze(),index=x.columns)
+
+            MdX = pd.Series(y.squeeze() - gamma_d,index=y.index)
+
+    elif method=='mixed': # Some columns of d are categorical, others not
+        if expected: raise NotImplementedError
+        # Identify categorical columns
+        cats = d.select_dtypes(['category']).columns
+        xcols = d.columns.difference(cats)
+
+        Z = X.join(d,how='outer')
+        ycols = Z.columns.difference(xcols.union(cats))
+
+        # Difference out means for each category
+        if len(cats):
+            Z = Z - Z.groupby(cats).transform(np.mean)
+        else:
+            Z = Z - Z.mean()
+
+        y = Z[ycols]
+        x = Z[xcols]
+
+        MdX = Md_generator(y,x,method='linear') # Regress demeaned vars.
+
+    else: raise ValueError("No method %s." % method)
+
+    return MdX
+
+def Ed(X,d,method='categorical'):
+    return Md_generator(X,d,method=method,expected=True)
+
+#+end_src
+** \(\mathcal{M}_{(d,p)}\) operator
+
+#+begin_src python :tangle no
+def Mdp_generator(X,tau,method='categorical'):
+    """
+    Md operator, for either categorical or linear expectations.
+
+    If Mpd is True, operator is Mpd (i.e. condition on d & p jointly).
     """
 
     if method=='categorical': # assuming conditioning is on groups tau
-        if 'j' in X.index.names:
-            if Mp:
-                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','j','t','m'])
-            else:
-                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','j'])
-        else:
-            if Mp:
-                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau','t','m'])
-            else:
-                Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(['tau'])
+        groups = ['tau']
+        if 'j' in X.index.names: groups += 'j'
+        if Mpd: groups += ['t','m']
+        Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(groups)
 
         MdX = X - Xg.transform(np.mean).squeeze()
     elif method=='linear':
@@ -325,7 +433,7 @@ def Md_generator(X,tau,method='categorical',Mp=False):
             taucols = tau
 
         if 'j' in X.index.names:
-            MdX = X.groupby('j').apply(lambda y,x=taucols: Md_generator(y.droplevel('j'),x,method='linear',Mp=Mp)).T
+            MdX = X.groupby('j').apply(lambda y,x=taucols: Md_generator(y.droplevel('j'),x,method='linear',Mpd=Mpd)).T
             try:
                 MdX = MdX.stack()
             except AttributeError:
@@ -336,18 +444,16 @@ def Md_generator(X,tau,method='categorical',Mp=False):
             # Difference out kmeans if tau provided
             ycols = X.columns.difference(taucols)
             xcols = taucols
-            if 'tau' in tau and Mp: # kmeans categories provided
+            group = []
+            if 'tau' in tau: # kmeans categories provided
                 xcols = taucols.drop('tau')
-                group = ['tau']
-                if Mp:
-                    X = X - X.groupby(['tau','t','m']).transform(np.mean)
-                else:
-                    X = X - X.groupby(['tau']).transform(np.mean)
+                group += 'tau'
+            if Mpd: group += ['t','m']
+
+            if len(group):
+                X = X - X.groupby(group).transform(np.mean)
             else:
-                if Mp:
-                    X = X - X.groupby(['t','m']).transform(np.mean)
-                else:
-                    X = X - X.mean()
+                X = X - X.mean()
 
             y = X[ycols]
             x = X[xcols]
@@ -360,14 +466,12 @@ def Md_generator(X,tau,method='categorical',Mp=False):
     return MdX
 #+end_src
 
-** Compute $\MdMpy$
+** Compute $\MpMdy$
 #+begin_src python
-def estimate_MdMpy(y,d,K=None):
+def estimate_MpMdy(y,d,K=None):
 
     if K is not None:
-        d,MdMpy = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
-        MdMp = lambda x: Md_generator(x,d,Mp=True)
-        Md = lambda x: Md_generator(x,d,Mp=False)
+        d  = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
         method = 'categorical'
     else:
         method = 'linear'
@@ -377,42 +481,40 @@ def estimate_MdMpy(y,d,K=None):
         if len(cats):
             d[cats] = d[cats].apply(lambda x: x.cat.codes)
 
-        MdMp = lambda x: Md_generator(x,d,method=method,Mp=True)
-        Md = lambda x: Md_generator(x,d,method=method,Mp=False)
+    Md = lambda x: Md_generator(x,d,method=method)
+    MpMd = lambda x: Mp(Md(x))
 
-        MdMpy = MdMp(y)
+    MpMdy = MpMd(y)
 
-    assert MdMpy.index.names == ['i','t','m','j']
+    assert MpMdy.index.names == ['i','t','m','j']
 
-    if not np.all(np.abs(MdMpy.groupby(['j','t','m']).mean()) < 1e-6):
-        warn('MdMpy means greater than 1e-6')
+    if not np.all(np.abs(MpMdy.groupby(['j','t','m']).mean()) < 1e-6):
+        warn('MpMdy means greater than 1e-6')
 
-    return MdMpy,Md,MdMp,d
+    return MpMdy,Md,MpMd,d
 #+end_src
 ** Estimate \beta from $\MdMpy$
 
-Given $\MdMpy$ estimate \beta.  The default approach to estimation here assumes a form of homoskedasticity.   But this is something we can test (and if necessary, correct).  The basic model involves a mean zero vector $X=\beta w + \epsilon$, from which we construct $\E XX^\T = \beta\E w^2\beta^\T + \E\epsilon\epsilon^\T$.  Under an assumption of homoskedasticity we have $\E\epsilon\epsilon^\T = \sigma^2\mI$.
+Given $\MpMdy$ estimate \beta.  The default approach to estimation here assumes a form of homoskedasticity.   But this is something we can test (and if necessary, correct).  The basic model involves a mean zero vector $X=\beta w + \epsilon$, from which we construct $\E XX^\T = \beta\E w^2\beta^\T + \E\epsilon\epsilon^\T$.  Under an assumption of homoskedasticity we have $\E\epsilon\epsilon^\T = \sigma^2\mI$.
 #+name: code:beta_from_MdMpy
 #+begin_src python
 from .estimation import svd_missing
 import numpy as np
 
-def estimate_beta(MdMpy,
+def estimate_beta(MpMdy,
                   heteroskedastic=False,
                   cov = lambda X : pd.DataFrame.cov(X,ddof=0),
-                  return_se=False,bootstrap_tol=None,Mdp=None,verbose=False):
+                  return_se=False,bootstrap_tol=None,verbose=False):
 
     if verbose:
         print("estimate_beta")
 
-    if Mdp:
-        MdMpy = Mdp(MdMpy)
     try:
-        MdMpY = MdMpy.unstack('j')
+        MpMdY = MpMdy.unstack('j')
     except KeyError:
-        MdMpY = MdMpy
+        MpMdY = MpMdy
 
-    C = cov(MdMpY)
+    C = cov(MpMdY)
 
     if np.any(np.isnan(C)):
         raise ValueError(f"Can't compute covariance matrix; too few {C.count().idxmin()}.")
@@ -423,7 +525,7 @@ def estimate_beta(MdMpy,
     if np.sign(u).mean()<0: # Fix sign of u.
         u = -u
 
-    b = pd.DataFrame(u*s,index=MdMpY.columns,columns=['beta'])
+    b = pd.DataFrame(u*s,index=MpMdY.columns,columns=['beta'])
 
     if return_se and bootstrap_tol:
         if bootstrap_tol is None:
@@ -439,7 +541,7 @@ def estimate_beta(MdMpy,
                 okay = False
                 while not okay:
                     try:
-                        B[its] = estimate_beta(MdMpY.groupby(['t','m']).sample(frac=1,replace=True))[0]
+                        B[its] = estimate_beta(MpMdY.groupby(['t','m']).sample(frac=1,replace=True))[0]
                         okay = True
                     except ValueError as msg:
                         print(msg)
@@ -461,7 +563,7 @@ def estimate_beta(MdMpy,
 from scipy import sparse
 import warnings
 
-def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
+def estimate_Mpw(y,b,MpMdy,return_se=False,bootstrap_tol=None,
                  verbose=False):
 
     # Construct regression to compute Mpw
@@ -506,7 +608,7 @@ def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
     X0 = pd.concat([zig,
                     zag],axis=0)
 
-    y0 = pd.concat([pd.Series(B.T@MdMpy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
 
     X0 = X0.sparse.to_coo().tocsc()
 
@@ -542,9 +644,9 @@ def estimate_Mpw(y,b,MdMpy,return_se=False,bootstrap_tol=None,
             se = np.sqrt(V11.diagonal())
 
             if 'j' in Mpw.index.names:
-                Mpw = Mpw[MdMpy.index]
+                Mpw = Mpw[MpMdy.index]
 
-            e1 = (MdMpy - B@Mpw)
+            e1 = (MpMdy - B@Mpw)
             sigma2 = e1.var(ddof=0)
 
             mults_se = np.sqrt(V22.diagonal())*sigma2
@@ -587,9 +689,9 @@ def estimate_stderrs(y,scale):
         se = np.sqrt(V11.diagonal())
 
         if 'j' in Mpw.index.names:
-            Mpw = Mpw[MdMpy.index]
+            Mpw = Mpw[MpMdy.index]
 
-        e1 = (MdMpy - B@Mpw)
+        e1 = (MpMdy - B@Mpw)
         sigma2 = e1.var(ddof=0)
 
         mults_se = np.sqrt(V22.diagonal())*sigma2
@@ -609,19 +711,19 @@ def estimate_stderrs(y,scale):
 from scipy import sparse
 import warnings
 
-def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
+def estimate_beta_and_Mpw(y,MpMd,return_se=False,bootstrap_tol=None,
                           verbose=False):
 
-    MdMpy = Mdp(y)
+    MpMdy = MpMd(y)
     try:
-        MdMpY = MdMpy.unstack('j')
+        MpMdY = MpMdy.unstack('j')
     except KeyError:
-        MdMpY = MdMpy
+        MpMdY = MpMdy
 
-    if not np.allclose(MdMpy.groupby(['t','m','j']).mean(),0):
+    if not np.allclose(MpMdy.groupby(['t','m','j']).mean(),0):
         warn("MdMpy means not close to zero.")
 
-    b,seb,V = estimate_beta(MdMpy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+    b,seb,V = estimate_beta(MpMdy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
 
     # Construct regression to compute Mpw
     cols = y.groupby(['i','t','m']).mean().index
@@ -665,7 +767,7 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
     X0 = pd.concat([zig,
                     zag],axis=0)
 
-    y0 = pd.concat([pd.Series(B.T@MdMpy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
 
     X0 = X0.sparse.to_coo().tocsc()
 
@@ -702,9 +804,9 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
             se = np.sqrt(V11.diagonal())
 
             if 'j' in Mpw.index.names:
-                Mpw = Mpw[MdMpy.index]
+                Mpw = Mpw[MpMdy.index]
 
-            e1 = (MdMpy - B@Mpw)
+            e1 = (MpMdy - B@Mpw)
             sigma2 = e1.var(ddof=0)
 
             mults_se = np.sqrt(V22.diagonal())*sigma2
@@ -725,10 +827,10 @@ def estimate_beta_and_Mpw(y,Mdp,return_se=False,bootstrap_tol=None,
 
 ** Estimation of $\gamma(d)$
 #+name: code:gamma
-#+begin_src python
-def estimate_gamma(y,beta,w,tau,method='categorical',verbose=False):
+#+begin_src python :tangle no
+def estimate_gamma(y,beta,w,d,method='categorical',verbose=False):
     """
-    Estimate $gamma(tau) = E[Mp(Y -hat{beta}hat{w}) | tau]$.
+    Estimate $gamma(d) = E[Y| d]$.
     """
     if beta is not None:
         e = y.unstack('j') - pd.DataFrame({0:w})@pd.DataFrame({0:beta}).T
@@ -899,6 +1001,7 @@ from .df_utils import broadcast_binary_op
 from .estimation import drop_columns_wo_covariance
 import matplotlib.pyplot as plt
 from types import SimpleNamespace
+from scipy.optimize import minimize_scalar
 
 def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     assert y.index.names == ['i','t','m','j']
@@ -972,7 +1075,7 @@ def missing_correction(y,d,K=None,min_obs=None):
 #+end_src
 
 * Estimate
-#+begin_src python
+#+begin_src python :tangle no
 import time
 
 def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
@@ -982,9 +1085,9 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
 
     if verbose:
         tic = time.time()
-        print('Estimating MdMpy...')
+        print('Estimating MpMdy...')
 
-    MdMpy,Md,MdMp,d = estimate_MdMpy(y,d,K)
+    MpMdy,Md,MpMd,d = estimate_MpMdy(y,d,K)
 
     if verbose:
         toc = time.time()
@@ -992,7 +1095,7 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
         tic = toc
 
     if beta is None:# Estimate b
-        hatb,seb,V = estimate_beta(MdMpy,
+        hatb,seb,V = estimate_beta(MpMdy,
                                    return_se=return_se,
                                    bootstrap_tol=bootstrap_tol,
                                    verbose=verbose)
@@ -1006,9 +1109,9 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
         tic = toc
 
     if return_se and bootstrap_tol is None:
-        hatMpw, scale, mults, seb, mults_se, e1 = estimate_Mpw(y,hatb,MdMpy,return_se=True)
+        hatMpw, scale, mults, seb, mults_se, e1 = estimate_Mpw(y,hatb,MpMdy,return_se=True)
     else:
-        hatMpw,scale,mults = estimate_Mpw(y,hatb,MdMpy,return_se=False)
+        hatMpw,scale,mults = estimate_Mpw(y,hatb,MpMdy,return_se=False)
         mults_se = mults*np.nan
         e1 = None
 
@@ -1020,7 +1123,7 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
         print(f'[{toc-tic}] Estimating gamma...')
         tic = toc
 
-    hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
+    gamma_d,hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
     try:
         if d.columns.name is None:
             d.columns.name = 'k'
@@ -1188,8 +1291,8 @@ def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
     bw.name = 'bw'
 
     if GramSchmidt:
-        MdMp = lambda x: Md_generator(x,d,Mp=True)
-        bw = Mp(MdMp(bw))
+        MpMd = lambda x: Md_generator(x,d,Mp=True)
+        bw = Mp(MpMd(bw))
         bw.name = 'bw'
 
     X = X.join(bw[y.index])
@@ -1263,7 +1366,7 @@ class Regression:
     """
 
 
-    __slots__ = list(arrs.keys()) + ['attrs','Md','MdMp','Mp']
+    __slots__ = list(arrs.keys()) + ['attrs','Md','MpMd','Mp']
 
     def __init__(self,
                  correct_miss=False,
@@ -1311,7 +1414,7 @@ class Regression:
 
 #+end_src
 ** Estimate
-#+begin_src python
+#+begin_src python :tangle no
     def estimate(self,beta=None):
 
         if beta is not None:
@@ -1383,15 +1486,15 @@ class Regression:
 #+end_src
 ** Accessors
 #+begin_src python
-    def get_MdMpy(self):
-        MdMpy,Md,MdMp,d = estimate_MdMpy(self.y,self.d,self.attrs['K'])
+    def get_MpMdy(self):
+        MpMdy,Md,MpMd,d = estimate_MpMdy(self.y,self.d,self.attrs['K'])
 
         self.d = d
 
-        self.MdMp = MdMp
+        self.MpMd = MpMd
         self.Md = Md
 
-        return MdMpy
+        return MpMdy
 
     def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2,heteroskedastic=False):
         """
@@ -1408,11 +1511,11 @@ class Regression:
             if self.beta is not None:
                 return self.beta
 
-        MdMpy = self.get_MdMpy()
+        MpMdy = self.get_MpMdy()
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb, V = estimate_beta(MdMpy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
+        b, seb, V = estimate_beta(MpMdy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
         b = b.squeeze()
         if seb is not None:
             self.beta_se = seb.squeeze()
@@ -1430,34 +1533,12 @@ class Regression:
         if self.gamma_d is not None:
             return self.gamma_d
 
-        if self.MdMp is None:
-            MdMpy = self.get_MdMpy()
+        gamma_d,gamma = Ed(self.y,self.d,method=self.attrs['method'])
 
-        if verbose is None:
-            verbose = self.attrs['verbose']
+        self.gamma_d = gamma_d
+        self.gamma = gamma
 
-        b,Mpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(self.y,self.MdMp,
-                                      return_se=self.attrs['return_se'],
-                                      bootstrap_tol=self.attrs['bootstrap_tol'],
-                                      verbose=verbose)
-
-        if self.beta is None: self.beta = b.squeeze()
-        if self.Mpw is None: self.Mpw = Mpw
-        if seb is not None:
-            if self.beta_se is None: self.beta_se = seb.squeeze()
-
-        if self.mults is None: self.mults = mults.squeeze()
-        if mults_se is not None:
-            if self.mults_se is None: self.mults_se = mults_se.squeeze()
-        if self.e1 is None: self.e1 = e1
-
-        gamma,gamma_d,e2 = estimate_gamma(Mp(self.y),self.beta,self.Mpw,self.d,
-                                          method=self.attrs['method'],
-                                          verbose=verbose)
-
-        if self.gamma is None: self.gamma = gamma
-        if self.e2 is None: self.e2 = e2
-        if self.gamma_d is None: self.gamma_d = gamma_d
+        self.e2 = self.y - gamma_d
 
         return self.gamma_d
 
