@@ -378,6 +378,8 @@ def Md_generator(X,d,method='categorical',expected=False):
             gamma = np.linalg.lstsq(x,y,rcond=None)[0]
             gamma_d = (x@gamma).squeeze()
             gamma_d.name = 'gamma_d'
+            gamma = gamma.squeeze()
+            gamma.index.name = 'j'
             if expected: return gamma_d,pd.Series(gamma.squeeze(),index=x.columns)
 
             MdX = pd.Series(y.squeeze() - gamma_d,index=y.index)
@@ -1432,11 +1434,14 @@ class Regression:
 
         e = self.y - self.get_predicted_log_expenditures(fill_missing=False)
 
+        assert np.abs(e.mean()<1e-10)
+
         d = self.d
 
         sigma2 = e.unstack('j').var()
 
         if self.attrs['method']=='linear':
+            if 'Constant' not in d.columns: d['Constant'] = 1
             try:
                 self.gamma_se = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
             except KeyError:  # d doesn't vary with j?
