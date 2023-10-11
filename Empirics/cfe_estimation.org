@@ -2594,7 +2594,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bonus_stats=None):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_stats=None,math_delimiters=True):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2671,6 +2671,21 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
             line += stats.tolist()
             return ' | '.join(line)
 
+    def format_entry(x,stars='',se=False,float_fmt=float_fmt,math_delimiters=math_delimiters):
+        try:
+            fmt = float_fmt+stars
+            if se: fmt = f'({fmt})'
+            if math_delimiters:
+                entry='| \\('+fmt+'\\) '
+            else:
+                entry='| '+fmt+' '
+            if np.isnan(x):
+                return '| --- '
+            else:
+                return entry % x
+        except TypeError:
+            return '| %s ' % str(x)
+
     s = column_heading(df)
 
     if (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -2687,14 +2702,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
             lastidx =i
 
             for j in df.columns: # Point estimates
-                try:
-                    entry='| '+float_fmt+' '
-                    if np.isnan(df[j][i]):
-                        s+='| --- '
-                    else:
-                        s+=entry % df[j][i]
-                except TypeError:
-                    s += '| %s ' % str(df[j][i])
+                s += format_entry(df[j][i])
             s+='|\n'
         return s
     elif not (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -2720,11 +2728,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         stars='^{'+'*'*stars + '}'
                     else: stars=''
                 except KeyError: stars=''
-                entry='| '+float_fmt+stars+' '
-                if np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
+
             s+='|\n'
 
         return s
@@ -2759,11 +2764,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| '+float_fmt+stars+'  '
-                if np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
+
             s+='|\n' + se_linestart(bonus_stats,i)
             for j in df.columns: # Now standard errors
                 s+='  '
@@ -2773,10 +2775,9 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     elif np.isnan(sedf[j][i]):
                         se='(---)'
                     else:
-                        se='(' + float_fmt % sedf[j][i] + ')'
-                except KeyError: se=''
-                entry='| '+se+'  '
-                s+=entry
+                        se = format_entry(sedf[j][i],se=True)
+                except KeyError: se='|  '
+                s += se
             s+='|\n'
         return s
     elif not (conf_ints is None): # Print confidence intervals on alternate rows
@@ -2809,11 +2810,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| '+float_fmt+stars+' '
-                if type(df[j][i]) is not str and np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
             s+='|\n' + se_linestart(bonus_stats,i)
 
             for j in df.columns: # Now confidence intervals
@@ -2898,6 +2895,8 @@ def use_indices(df,idxnames):
     return df.reset_index()[idxnames].set_index(df.index)
 #+END_SRC
 
+#+results: df_utils
+
 #+name: test_df_norm
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/test_df_norm.py
 #name: test_df_norm
@@ -2956,8 +2955,6 @@ def test_norm_twomat(m, n):
 #+END_SRC
 
 #+name: test_df_to_orgtbl_tbl
-#name: test_df_to_orgtbl_tbl
-
 | A |  B | C |
 |---+----+---|
 | a |  1 | m |
@@ -2982,10 +2979,6 @@ print(s)
 #+END_SRC
 
 #+results: test_df_to_orgtbl
-|   | B         | C |
-|---+-----------+---|
-| a | \(1.000\) | m |
-| b | \(2.000\) | c |
 
 ** Some econometric routines
 
