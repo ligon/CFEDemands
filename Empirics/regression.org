@@ -335,7 +335,9 @@ def Md_generator(X,d,method='categorical',expected=False):
     elif method=='linear':
         # Add constant column if one doesn't exist in d
         d = pd.DataFrame(d)
-        if np.all(d.std()>0): d['Constant'] = 1
+
+        d = d - d.mean()
+        d['Constant'] = 1  # Constant just picks up means of X
 
         if 'j' in X.index.names:
             Xj = X.groupby('j')
