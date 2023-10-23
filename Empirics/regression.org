@@ -308,7 +308,7 @@ Evaluate usefulness of clustering for predicting expenditures.
         return d['tau'],MdY
 #+end_src
 ** \(\mathcal{M}_d\) operator
-Construct =Md= operator.  This can involve strictly categorical variables, in which case we can construct a non-parametric estimator of $\E(X|d=\tau)$ simply by taking means for every value of $\tau$ observed in the sample.    When the method is linear, we instead
+Construct =Md= operator.  This can involve strictly categorical variables, in which case we can construct a non-parametric estimator of $\E(X|d=\tau)$ simply by taking means for every value of $\tau$ observed in the sample.    When the method is linear, we instead employ a linear projection.
 #+begin_src python
 def Md_generator(X,d,method='categorical',expected=False):
     """
@@ -349,6 +349,7 @@ def Md_generator(X,d,method='categorical',expected=False):
                 EdX = pd.DataFrame(EdX)
                 EdX.columns.name = 'j'
                 Gamma = pd.DataFrame(Gamma).T
+                Gamma.index.name = 'j'
 
                 try:
                     EdX = EdX.stack()
@@ -378,9 +379,9 @@ def Md_generator(X,d,method='categorical',expected=False):
             gamma = np.linalg.lstsq(x,y,rcond=None)[0]
             gamma_d = (x@gamma).squeeze()
             gamma_d.name = 'gamma_d'
-            gamma = gamma.squeeze()
-            gamma.index.name = 'j'
-            if expected: return gamma_d,pd.Series(gamma.squeeze(),index=x.columns)
+            gamma = pd.Series(gamma.squeeze(),index=x.columns)
+
+            if expected: return gamma_d,gamma
 
             MdX = pd.Series(y.squeeze() - gamma_d,index=y.index)
 
@@ -991,12 +992,20 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
 
     y = Y.stack('j').dropna()
 
+    Ds =[]
     # If no variation in d across j, collapse
-    dg = YD.iloc[:,1:].groupby(['i','t','m'])
-    if dg.std().mean().max()<1e-12:
-        d = dg.head(1).droplevel('j') # And vice versa
-        assert d.index.names == ['i','t','m']
-        d.columns.name='k'
+    numg = YD.iloc[:,1:].select_dtypes(exclude='category').groupby(['i','t','m'])
+    if numg.count().shape[1]:  # There are some non-categorical ds
+        if numg.std().mean().max()<1e-12:
+            Ds.append(numg.head(1).droplevel('j')) # And vice versa
+
+    catg = YD.iloc[:,1:].select_dtypes(include='category').groupby(['i','t','m'])
+    if catg.count().shape[1]: # There are some categorical ds
+        Ds.append(catg.head(1).droplevel('j')) # And vice versa
+
+    d = pd.concat(Ds,axis=1)
+    assert d.index.names == ['i','t','m']
+    d.columns.name='k'
 
     return y,d
 
@@ -1178,7 +1187,10 @@ class Regression:
 
         attrs={}
         attrs['correct_miss'] = correct_miss
-        attrs['method'] = method
+        if K is not None:
+            attrs['method'] = 'categorical'
+        else:
+            attrs['method'] = method
         attrs['K'] = K
         attrs['bootstrap_tol'] = bootstrap_tol
         attrs['return_se'] = return_se
@@ -1188,7 +1200,8 @@ class Regression:
         attrs['min_prop_items'] = min_prop_items
         attrs['alltm'] = alltm
 
-        self.attrs=attrs
+        if self.attrs is None:
+            self.attrs=attrs
 
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
             self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs,
@@ -1262,9 +1275,10 @@ class Regression:
                 d[attr] = x
             except AttributeError: continue
 
-            d['attrs'] = self.attrs
+        d['attrs'] = self.attrs.copy()
 
-        pd.to_pickle(d,fn)
+        with open(fn,'wb') as f:
+            pickle.dump(d,f)
 
 #+end_src
 ** Accessors
