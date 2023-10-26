@@ -14,6 +14,7 @@ done
 emacs -Q --batch \
      --eval "(progn
      (require 'org)(require 'ob)(require 'ob-tangle)
+     (setq org-src-preserve-indentation t)
      (mapc (lambda (file)
             (find-file (expand-file-name file \"$DIR\"))
             (org-babel-tangle)

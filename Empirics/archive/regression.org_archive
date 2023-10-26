@@ -1,0 +1,141 @@
+#    -*- mode: org -*-
+
+
+Archived entries from file /home/ligon/Research/CFEDemands/Empirics/regression.org
+
+
+* Estimate
+:PROPERTIES:
+:ARCHIVE_TIME: 2022-11-25 Fri 10:19
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python
+def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+
+    if K is not None:
+        d,MdMpy = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
+        MdMp = lambda x: Md_generator(x,d,Mp=True)
+        Md = lambda x: Md_generator(x,d,Mp=False)
+        method = 'categorical'
+    else:
+        method = 'linear'
+
+        # Change categorical vars to numeric
+        cats = d.select_dtypes(['category']).columns
+        if len(cats):
+            d[cats] = d[cats].apply(lambda x: x.cat.codes)
+
+        MdMp = lambda x: Md_generator(x,d,method=method,Mp=True)
+        Md = lambda x: Md_generator(x,d,method=method,Mp=False)
+
+        MdMpy = MdMp(y)
+
+    assert MdMpy.index.names == ['i','t','m','j']
+
+    if not np.all(np.abs(MdMpy.groupby(['j','t','m']).mean()) < 1e-6):
+        warn('MdMpy means greater than 1e-6')
+
+
+    # Estimation
+    hatb,hatMpw,seb,mults,mults_se,e1 = estimate_beta_and_Mpw(y,MdMp,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+
+    if verbose: print('Estimating gamma...')
+    hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
+    try:
+        if d.columns.name is None:
+            d.columns.name = 'k'
+    except AttributeError:
+        pass
+
+    # y - hatgamma(d)
+    y0 = (Mpi(y) - Mpi(gamma_d)).dropna()
+
+    if verbose: print('Estimating w...')
+
+    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb)
+    #print('Ar,w')
+
+    if verbose: print('Estimating pi...')
+
+    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d)
+
+    if verbose: print('Predicting y...')
+    yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
+    e = y - yhat.reindex_like(y)
+
+    sigma2 = e.unstack('j').var()
+
+    R2 = 1 - sigma2/y.unstack('j').var()
+
+    if method=='linear':
+        try:
+            se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
+        except KeyError:  # d doesn't vary with j?
+            se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
+    else:
+        se_gamma = None
+
+    if rectify:
+        if verbose: print('Rectifying...')
+        B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
+        # Re-orthogonalize
+        hatb = hatb*B['bw']
+        if seb is not None:
+            seb = seb*B['bw']
+        Ar = Ar*B['Ar']
+        Ar_se = Ar_se*B['Ar']
+        hatpi = hatpi*(B['pi']@y.groupby('j').count()/y.shape[0])
+        pi_se = pi_se*(B['pi']@y.groupby('j').count()/y.shape[0])
+        try:
+            hatgamma = (hatgamma.stack()*B['gamma_d']).unstack('k')
+            if se_gamma is not None:
+                se_gamma = (se_gamma.stack()*B['gamma_d']).unstack('k')
+        except AttributeError:
+            hatgamma = hatgamma*B['gamma_d']
+            if se_gamma is not None:
+                se_gamma = se_gamma*B['gamma_d']
+    else:
+        B = None
+        X = None
+
+    # Convert tuples in index  to strings (necessary for persistence in sql)
+    if hatgamma.index.name == 'tau':
+        hatgamma.index = [str(s) for s in hatgamma.index]
+        hatgamma.index.name = 'k'
+
+    if return_se:
+        mults_se = mults_se.unstack('m')
+        pi_se = pi_se.unstack('m')
+        Ar_se = Ar_se.unstack(['t','m'])
+    else:
+        mults_se = None
+        pi_se = None
+        Ar_se = None
+
+    return dict(y=y,
+                yhat=yhat,
+                mse=(e**2).mean(),
+                R2=R2,
+                d=d,
+                beta=hatb,
+                beta_se=seb,
+                mults = mults.unstack('m'),
+                mults_se = mults_se,
+                e1 = e1,
+                w = hatw,
+                e3 = e3,
+                Mpw = hatMpw,
+                gamma = hatgamma,
+                gamma_se = se_gamma,
+                e2 = e2,
+                gamma_d = gamma_d,
+                pi = hatpi.unstack('m'),
+                pi_se = pi_se,
+                e4 = e4,
+                Ar = Ar.unstack(['t','m']),
+                Ar_se = Ar_se,
+                B=B,
+                X=X)
+#+end_src
+

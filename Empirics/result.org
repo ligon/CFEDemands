@@ -869,7 +869,7 @@ def _drop_useless_expenditures(y0, attrs, VERBOSE=False):
 
 #+name: result_demand_interface
 #+begin_src python :noweb no-export :results output :tangle ../cfe/result.py
-import demands
+import consumerdemands as demands
 import pandas as pd
 
 def _demand_parameters(self,p=None,z=None):
@@ -877,9 +877,9 @@ def _demand_parameters(self,p=None,z=None):
 
     Note that the alpha returned is exp(alpha + delta.T z).
 
-    p can be a complete collection (e.g. Series) of prices, or a 
+    p can be a complete collection (e.g. Series) of prices, or a
     dictionary specifying a subset of prices.  In this case
-    unspecified prices are taken to be equal to one.  
+    unspecified prices are taken to be equal to one.
 
     If p is an (t,m) tuple will attempt to set prices from self.prices.
 
@@ -904,7 +904,7 @@ def _demand_parameters(self,p=None,z=None):
 
     if is_none(p):
         p = beta*0 # Copy coords, etc from beta
-        p.data = [1.]*n   
+        p.data = [1.]*n
         p.name = 'prices'
 
     if replace:
@@ -920,12 +920,12 @@ def _demand_parameters(self,p=None,z=None):
 
     p = foo.prices
     beta = foo.beta
-    alpha = foo.alpha 
+    alpha = foo.alpha
 
     phi = 0 # phi not (yet?) an attribute of Result.
 
     return p,{'alpha':alpha,'beta':beta,'phi':phi}
-    
+
 def _demands(self,x,p=None,z=None,type="Marshallian"):
     """Quantities demanded at prices p for household with observable
     characteristics z, having a utility function with parameters given
@@ -952,7 +952,7 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
     return q
 
 def _utility(self,x,p=None,z=None):
-    """Indirect utility 
+    """Indirect utility
 
     Varies with prices p, budget x and observable characteristics z,
     having a utility function with parameters given by (possibly
