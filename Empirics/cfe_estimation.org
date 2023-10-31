@@ -539,7 +539,7 @@ def test_equal_to_drop_cols(df):
 
 Once we've computed the SVD of a matrix we can construct an optimal rank one
 approximation to that matrix using just the  first left eigenvector,
-the first eigenvalue, andn the first right eigenvector.
+the first eigenvalue, and the first right eigenvector.
 
 #+name: svd_rank1_approximation_with_missing_data
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
