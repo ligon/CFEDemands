@@ -377,7 +377,7 @@ def Md_generator(X,d,method='categorical',expected=False):
         else:
             y,x = drop_missing([X,d])
             gamma = np.linalg.lstsq(x,y,rcond=None)[0]
-            gamma_d = (x@gamma).squeeze()
+            gamma_d = (d@gamma).squeeze()
             gamma_d.name = 'gamma_d'
             gamma = pd.Series(gamma.squeeze(),index=x.columns)
 
@@ -1421,7 +1421,10 @@ class Regression:
         - verbose :: Default False.
         """
         if self.yhat is not None:
-            return self.yhat
+            if fill_missing:
+                return self.yhat
+            else:
+                return (self.yhat + self.y*0).dropna()
 
         if verbose is None:
             verbose = self.attrs['verbose']
@@ -1540,7 +1543,7 @@ class Regression:
         Regardless of whether resampling is chosen, means (and variances) are selected at the level of the list clusterby.
         """
         if self.yhat is None:
-            self.yhat = self.get_predicted_log_expenditures(fill_missing=fill_missing,verbose=verbose)
+            self.yhat = self.get_predicted_log_expenditures(fill_missing=True,verbose=verbose)
 
         e = self.y - self.yhat
         eg = e.dropna().groupby(clusterby)
