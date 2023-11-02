@@ -663,3 +663,59 @@ def svd_missing(X,gls=False):
     return u,np.sqrt(s2[-1])*scale,v/scale
 #+end_src
 
+
+* Angle between vectors (or series)
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:31
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+
+#+begin_src python
+"""
+Compute angle between two vectors, thx to https://stackoverflow.com/questions/2827393/angles-between-two-n-dimensional-vectors-in-python/13849249#13849249
+"""
+import numpy as np
+
+def unit_vector(vector):
+    """ Returns the unit vector of the vector.  """
+    return vector / np.linalg.norm(vector)
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+
+            >>> angle_between((1, 0, 0), (0, 1, 0))
+            1.5707963267948966
+            >>> angle_between((1, 0, 0), (1, 0, 0))
+            0.0
+            >>> angle_between((1, 0, 0), (-1, 0, 0))
+            3.141592653589793
+    """
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+#+end_src
+
+* OLS
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:32
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python
+def ols(y,x):
+    try:
+        xcols = x.columns
+    except AttributeError:
+        xcols = x
+        x = y[xcols]
+        y = y[y.columns.difference(xcols)]
+
+    y,x = drop_missing([y,x])
+
+    b = np.linalg.lstsq(x,y,rcond=None)[0]
+
+    return pd.Series(b.squeeze(),index=x.columns)
+#+end_src
