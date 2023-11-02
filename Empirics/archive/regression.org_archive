@@ -373,3 +373,293 @@ def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=F
                 X=X)
 #+end_src
 
+
+* Estimation of $\M{p}w$
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 12:35
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions
+:ARCHIVE_CATEGORY: regression
+:END:
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
+
+def estimate_Mpw(y,b,MpMdy,return_se=False,bootstrap_tol=None,
+                 verbose=False):
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    # This is VERY SLOW.  Find a better way!
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    # Reindexing faster, but is not fast.
+    B = B.reindex(y.index,axis=0)  #Maybe?
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    if return_se:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+                # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MpMdy.index]
+
+            e1 = (MpMdy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            mults_se = np.sqrt(V22.diagonal())*sigma2
+
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            mults_se = pd.Series(mults_se,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='mults_se')
+
+            return Mpw, scale, mults, seb, mults_se, e1
+
+    return Mpw,scale,mults
+
+#+end_src
+
+
+* Estimation of \beta and $\M{p}w$
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 12:36
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions
+:ARCHIVE_CATEGORY: regression
+:END:
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
+
+def estimate_beta_and_Mpw(y,MpMd,return_se=False,bootstrap_tol=None,
+                          verbose=False):
+
+    MpMdy = MpMd(y)
+    try:
+        MpMdY = MpMdy.unstack('j')
+    except KeyError:
+        MpMdY = MpMdy
+
+    if not np.allclose(MpMdy.groupby(['t','m','j']).mean(),0):
+        warn("MdMpy means not close to zero.")
+
+    b,seb,V = estimate_beta(MpMdy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    # This is VERY SLOW.  Find a better way!
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    # Reindexing is not fast.
+    B = B.reindex(y.index,axis=0)  #Maybe?
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+    b = (b*scale).squeeze()
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    if return_se and bootstrap_tol is None: # See Greene-Seaks (1991)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MpMdy.index]
+
+            e1 = (MpMdy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            mults_se = np.sqrt(V22.diagonal())*sigma2
+
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            mults_se = pd.Series(mults_se,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='mults_se')
+    else:
+        mults_se = None
+        e1 = None
+
+    return b,Mpw,seb,mults,mults_se,e1
+
+
+#+end_src
+
+
+* SVD with missing data
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:27
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python
+import pandas as pd
+import numpy as np
+
+def svd_missing(X,gls=False):
+    """
+    Compute rank one approximation to X.
+    """
+    def ols(y,x,N=None):
+
+        use = y.index.droplevel(['i','t','m'])
+
+        if N is not None:
+            N = N[use]
+            x = x[use]*N
+            y = y*N
+
+        x = pd.DataFrame(x[use])
+
+        b = np.linalg.lstsq(x,y,rcond=None)[0].squeeze()
+
+        return b
+
+    Sigma = X.cov(ddof=0)
+    N = X.count()/X.count().sum()
+
+    s2,u = np.linalg.eigh(Sigma)
+    b = pd.Series(u[:,-1]*np.sqrt(s2[-1]),index=Sigma.index)
+
+    y = X.stack().dropna()
+
+    if gls:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x,N))
+    else:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x))
+
+    scale = np.sqrt(v.T@v)
+    u = pd.Series(u[:,-1],index=b.index)
+
+    return u,np.sqrt(s2[-1])*scale,v/scale
+#+end_src
+
