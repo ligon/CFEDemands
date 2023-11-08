@@ -898,30 +898,6 @@ class Regression:
                                          alltm=alltm)
 
 #+end_src
-** Estimate
-#+begin_src python :tangle no
-    def estimate(self,beta=None):
-
-        if beta is not None:
-            beta = pd.DataFrame(beta)
-
-        R = estimation(self.y,self.d,
-                       K=self.attrs['K'],
-                       beta=beta,
-                       bootstrap_tol=self.attrs['bootstrap_tol'],
-                       return_se=self.attrs['return_se'],
-                       rectify=self.attrs['rectify'],
-                       verbose=self.attrs['verbose'])
-
-        for k,v in R.items():
-            try:
-                if getattr(self,k) is not None: continue
-                setattr(self,k,v)
-            except AttributeError:
-                setattr(self,k,v)
-
-#+end_src
-
 ** Persistence
 #+begin_src python
     def to_sql(self,fn=None,overwrite=False):

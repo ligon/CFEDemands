@@ -719,3 +719,34 @@ def ols(y,x):
 
     return pd.Series(b.squeeze(),index=x.columns)
 #+end_src
+
+* Estimate
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-07 Tue 09:36
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Description of =Regression=
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python :tangle no
+    def estimate(self,beta=None):
+
+        if beta is not None:
+            beta = pd.DataFrame(beta)
+
+        R = estimation(self.y,self.d,
+                       K=self.attrs['K'],
+                       beta=beta,
+                       bootstrap_tol=self.attrs['bootstrap_tol'],
+                       return_se=self.attrs['return_se'],
+                       rectify=self.attrs['rectify'],
+                       verbose=self.attrs['verbose'])
+
+        for k,v in R.items():
+            try:
+                if getattr(self,k) is not None: continue
+                setattr(self,k,v)
+            except AttributeError:
+                setattr(self,k,v)
+
+#+end_src
+
