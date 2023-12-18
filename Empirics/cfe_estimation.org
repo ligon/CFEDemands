@@ -2999,8 +2999,8 @@ def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
     clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
     if  len(clusters)>1:
         # Take out time averages
-        ubar = u.groupby(level=clusterby).transform(np.mean)
-        Xbar = X.groupby(level=clusterby).transform(np.mean)
+        ubar = u.groupby(level=clusterby).transform("mean")
+        Xbar = X.groupby(level=clusterby).transform("mean")
     else:
         ubar = u.mean()
         Xbar = X.mean()

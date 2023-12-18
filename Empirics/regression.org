@@ -140,7 +140,7 @@ def Mp(X):
     use = list(set(['t','m','j']).intersection(X.index.names))
 
     if len(use):
-        return X - X.groupby(use).transform(np.mean)
+        return X - X.groupby(use).transform("mean")
     else:
         return X - X.mean()
 #+end_src
@@ -159,7 +159,7 @@ def Mpi(X):
     else:
         if X.dtype == 'category': warn('Taking mean of categorical variable.')
 
-    return X - X.groupby(['t','m']).transform(np.mean)
+    return X - X.groupby(['t','m']).transform("mean")
 #+end_src
 
 ** Use \(K\)-means to construct clusters of households by characteristics $d$
@@ -200,7 +200,7 @@ Evaluate usefulness of clustering for predicting expenditures.
     #Yg = pd.DataFrame(Y).join(d['tau'],how='left').groupby(['t','m','tau'])
     Yg = pd.DataFrame(Y).join(d['tau'],how='left').groupby(['tau'])
 
-    MdY = (pd.DataFrame(Y) - Yg.transform(np.mean)).squeeze()
+    MdY = (pd.DataFrame(Y) - Yg.transform("mean")).squeeze()
 
     # Compare real groups with shuffled groups
     if shuffles:
@@ -211,7 +211,7 @@ Evaluate usefulness of clustering for predicting expenditures.
 
             Yg_alt = pd.DataFrame(Y).join(d_alt['tau'],how='left').groupby(['tau'])
 
-            Valt.append((pd.DataFrame(Y) - Yg_alt.transform(np.mean)).squeeze().var())
+            Valt.append((pd.DataFrame(Y) - Yg_alt.transform("mean")).squeeze().var())
 
         lr = 2*(np.log(np.mean(Valt)) - np.log(MdY.var()))
 
@@ -240,7 +240,7 @@ def Md_generator(X,d,method='categorical',expected=False):
         if 'j' in X.index.names: groups += 'j'
         Xg = pd.DataFrame({'X':X}).join(d,how='left').groupby(groups)
 
-        gamma_d = Xg.transform(np.mean).squeeze()
+        gamma_d = Xg.transform("mean").squeeze()
         gamma_d.name = 'gamma_d'
 
         if expected: return gamma_d,None
@@ -311,7 +311,7 @@ def Md_generator(X,d,method='categorical',expected=False):
 
         # Difference out means for each category
         if len(cats):
-            Z = Z - Z.groupby(cats).transform(np.mean)
+            Z = Z - Z.groupby(cats).transform("mean")
         else:
             Z = Z - Z.mean()
 
@@ -344,7 +344,7 @@ def Mpd_generator(X,tau,method='categorical'):
         if Mpd: groups += ['t','m']
         Xg = pd.DataFrame({'X':X}).join(tau,how='left').groupby(groups)
 
-        MdX = X - Xg.transform(np.mean).squeeze()
+        MdX = X - Xg.transform("mean").squeeze()
     elif method=='linear':
         try:
             taucols = tau.columns
@@ -371,7 +371,7 @@ def Mpd_generator(X,tau,method='categorical'):
             if Mpd: group += ['t','m']
 
             if len(group):
-                X = X - X.groupby(group).transform(np.mean)
+                X = X - X.groupby(group).transform("mean")
             else:
                 X = X - X.mean()
 
@@ -591,7 +591,7 @@ def estimate_w(y,beta,return_se=False,verbose=False):
 
     Ar_se = eg.std()/np.sqrt(eg.count())
 
-    e3 = e - eg.transform(np.mean)
+    e3 = e - eg.transform("mean")
 
     what = pd.Series(b[len(A.columns):(len(A.columns)+len(B.columns))],index=B.columns)
 
@@ -1131,8 +1131,8 @@ class Regression:
 
         return self.gamma_se
 #+end_src
-
 ** Other methods
+*** Validation
 #+begin_src python
     def validate(self,rectify=False,GramSchmidt=False,verbose=False):
         B,X = validate(self.y,
@@ -1163,6 +1163,9 @@ class Regression:
                 if self.gamma_se is not None:
                     self.gamma_se = self.gamma_se*np.abs(B['gamma_d'])
         return B
+#+end_src
+*** Measures of Fit
+#+begin_src python
 
     def mse(self):
         """
@@ -1191,13 +1194,17 @@ class Regression:
             R2 = 1 - sigma2/self.y.unstack('j').var()
 
         return R2
-
+#+end_src
+*** Find optimal number of clusters
+#+begin_src python
     def optimal_number_of_clusters(self):
         """
         Find optimal number of clusters for K-means.
         """
         self.flags['K'] = find_optimal_K(self.y,self.d)
-
+#+end_src
+*** Predicted Expenditures
+#+begin_src python
     def predicted_expenditures(self,resample=False,clusterby=['t','m','j'],fill_missing=True,verbose=False):
         """Compute predicted /levels/ of expenditures.
 
@@ -1247,7 +1254,29 @@ class Regression:
 
 #+end_src
 
-#+results:
+*** Estimate Everything
+#+begin_src python
+    def estimate_all(self,verbose=None,heteroskedastic=False):
+
+        lhs = self.y
+        # 1. Estimate gamma
+        gamma_d,gamma = Ed(lhs,self.d,method=self.attrs['method'])
+
+        MpMdy,Md,MpMd,d = estimate_MpMdy(lhs,self.d,self.attrs['K'])
+
+        # 2. Estimate beta
+        b = estimate_beta(MpMdy,verbose=verbose,return_se=False,heteroskedastic=heteroskedastic).squeeze()
+
+        # 3. Estimate w
+        y0 = (Mpi(self.y - gamma_d)).dropna()
+
+        w,Ar,Ar_se,e3 = estimate_w(y0,b,verbose=verbose)
+        # 4. Estimate Ar
+        # 5. Estimate pi
+        # 6. Estimate standard errors
+#+end_src
+
+
 
 ** Presentation methods
 #+begin_src python
