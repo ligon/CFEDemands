@@ -256,11 +256,16 @@ def Md_generator(X,d,method='categorical',expected=False):
 
         if 'j' in X.index.names:
             Xj = X.groupby('j')
+            if 'j' in d.index.names: dj = d.groupby('j')
             if expected: # Really return gamma_d,gamma
                 EdX = {}
                 Gamma = {}
                 for j,y in Xj:
-                    EdX[j],Gamma[j] = Md_generator(y.droplevel('j'),d,method='linear',expected=True)
+                    if 'j' in d.index.names:
+                        x = dj.get_group(j).droplevel('j')
+                    else:
+                        x = d
+                    EdX[j],Gamma[j] = Md_generator(y.droplevel('j'),x,method='linear',expected=True)
                 EdX = pd.DataFrame(EdX)
                 EdX.columns.name = 'j'
                 Gamma = pd.DataFrame(Gamma).T
@@ -277,7 +282,11 @@ def Md_generator(X,d,method='categorical',expected=False):
             else:
                 MdX = {}
                 for j,y in Xj:
-                    MdX[j] = Md_generator(y.droplevel('j'),d,method='linear',expected=False)
+                    if 'j' in d.index.names:
+                        x = dj.get_group(j).droplevel('j')
+                    else:
+                        x = d
+                    MdX[j] = Md_generator(y.droplevel('j'),x,method='linear',expected=False)
                 MdX = pd.DataFrame(MdX)
                 MdX.columns.name = 'j'
 
@@ -328,6 +337,7 @@ def Ed(X,d,method='categorical'):
     return Md_generator(X,d,method=method,expected=True)
 
 #+end_src
+
 ** \(\mathcal{M}_{(p,d)}\) operator
 
 #+begin_src python :tangle no
