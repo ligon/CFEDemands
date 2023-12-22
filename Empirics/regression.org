@@ -328,7 +328,7 @@ def Ed(X,d,method='categorical'):
     return Md_generator(X,d,method=method,expected=True)
 
 #+end_src
-** \(\mathcal{M}_{(d,p)}\) operator
+** \(\mathcal{M}_{(p,d)}\) operator
 
 #+begin_src python :tangle no
 def Mpd_generator(X,tau,method='categorical'):
