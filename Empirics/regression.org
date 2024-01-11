@@ -454,19 +454,21 @@ def estimate_beta(MpMdy,
             seb = np.sqrt(V)
         else:
             its = 0
-            B = pd.DataFrame(index=b.index)
+            B = None
             seb=0
             while its < 30 or np.linalg.norm(seb-last) > bootstrap_tol:
                 last = seb
                 okay = False
                 while not okay:
                     try:
-                        B[its] = estimate_beta(MpMdY.groupby(['t','m']).sample(frac=1,replace=True))[0]
+                        b = estimate_beta(MpMdY.groupby(['t','m']).sample(frac=1,replace=True))[0]
+                        B = pd.concat([B,b.squeeze()],axis=1)
                         okay = True
                     except ValueError as msg:
                         print(msg)
-                seb = B.apply(lambda x:iqr(x,std=True),axis=1)
-                if verbose: print(f"On iteration {its} standard error is {seb}.")
+                if its >= 29:
+                    seb = B.apply(lambda x:iqr(x,std=True),axis=1)
+                    if verbose: print(f"On iteration {its} standard error is {seb}.")
                 its += 1
             V = B.T.cov()
     else:
