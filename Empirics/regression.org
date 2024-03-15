@@ -1355,6 +1355,26 @@ def _demand_parameters(self,p=None,d=None):
 
     phi = 0 # phi not (yet?) an attribute of Regression.
 
+    # Cast to numeric arrays
+    try:
+        prices = prices.values
+    except AttributeError:
+        pass
+
+    try:
+        alpha = alpha.values
+    except AttributeError:
+        pass
+    try:
+        beta = beta.values
+    except AttributeError:
+        pass
+
+    try:
+        phi = phi.values
+    except AttributeError:
+        pass
+
     return prices,{'alpha':alpha,'beta':beta,'phi':phi}
 
 def _lambdavalue(self,x,p=None,z=None):
@@ -1380,13 +1400,14 @@ def _demands(self,x,p=None,z=None,type="Marshallian"):
     Ethan Ligon                                    April 2019
     """
 
+    idx = self.get_beta().index
     p,pparms = _demand_parameters(self,p,z)
 
     Qs = {'Marshallian':consumerdemands.marshallian.demands,
           'Hicksian':consumerdemands.hicksian.demands,
           'Frischian':consumerdemands.frischian.demands}
 
-    q = pd.Series(Qs[type](x,p,pparms),index=pparms['alpha'].index,name='quantities')
+    q = pd.Series(Qs[type](x,p,pparms),index=idx,name='quantities')
 
     return q
 
