@@ -139,3 +139,614 @@ def estimation(y,d,K=None,bootstrap_tol=None,return_se=False,rectify=False,verbo
                 X=X)
 #+end_src
 
+
+* Estimation of $\gamma(d)$
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-10-10 Tue 19:55
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions
+:ARCHIVE_CATEGORY: regression
+:END:
+#+name: code:gamma
+#+begin_src python :tangle no
+def estimate_gamma(y,beta,w,d,method='categorical',verbose=False):
+    """
+    Estimate $gamma(d) = E[Y| d]$.
+    """
+    if beta is not None:
+        e = y.unstack('j') - pd.DataFrame({0:w})@pd.DataFrame({0:beta}).T
+    else:
+        e = y.unstack('j')
+
+    if method=='categorical':
+        gamma = Mp(e).join(tau,how='left').groupby('tau').mean()
+        gamma.columns.name = 'j'
+
+        # Construct gamma(d)
+        gamma_d = pd.DataFrame(tau).join(gamma,on='tau')
+        gamma_d.columns.name = 'j'
+        gamma_d = gamma_d.drop('tau',axis=1)
+        gamma_d = gamma_d.stack()
+        gamma_d.name = 'gamma_d'
+
+        e = e.stack('j')
+    elif method=='linear':
+        e = e.stack('j')
+        tau['Constant'] = 1
+
+        foo = pd.DataFrame(e).join(tau,how='outer')
+
+        gamma = foo.groupby('j').apply(lambda y,x=tau.columns: ols(y.droplevel('j'),x))
+        if gamma.columns.name is None:
+            gamma.columns.name = 'k'
+
+        try:
+            gamma_d = (tau*gamma).sum(axis=1).dropna()
+        except ValueError:
+            gamma_d = (tau@gamma.T).stack()
+
+        gamma_d.name = 'gamma_d'
+    else: raise ValueError("No method %s." % method)
+
+    #e2 = e - gamma_d.loc[e.index]
+    e2 = e - gamma_d.reindex_like(e)
+
+    return gamma, gamma_d, e2
+
+#+end_src
+
+
+* Estimate
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-10-10 Tue 19:55
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python :tangle no
+import time
+
+def estimation(y,d,K=None,beta=None,bootstrap_tol=None,return_se=False,rectify=False,verbose=False):
+
+    if K is None: method = 'linear'
+    else: method = 'categorical'
+
+    if verbose:
+        tic = time.time()
+        print('Estimating MpMdy...')
+
+    MpMdy,Md,MpMd,d = estimate_MpMdy(y,d,K)
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating beta...')
+        tic = toc
+
+    if beta is None:# Estimate b
+        hatb,seb,V = estimate_beta(MpMdy,
+                                   return_se=return_se,
+                                   bootstrap_tol=bootstrap_tol,
+                                   verbose=verbose)
+    else:
+        hatb = beta
+        seb = None
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating Mpw...')
+        tic = toc
+
+    if return_se and bootstrap_tol is None:
+        hatMpw, scale, mults, seb, mults_se, e1 = estimate_Mpw(y,hatb,MpMdy,return_se=True)
+    else:
+        hatMpw,scale,mults = estimate_Mpw(y,hatb,MpMdy,return_se=False)
+        mults_se = mults*np.nan
+        e1 = None
+
+    # Scale bhat to match up with Mpw normalization
+    hatb = (hatb*scale).squeeze()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating gamma...')
+        tic = toc
+
+    gamma_d,hatgamma, gamma_d, e2 = estimate_gamma(Mp(y),hatb,hatMpw,d,method=method)
+    try:
+        if d.columns.name is None:
+            d.columns.name = 'k'
+    except AttributeError:
+        pass
+
+    # y - hatgamma(d)
+    y0 = (Mpi(y - gamma_d)).dropna()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating w, Ar...')
+        tic = toc
+
+    hatw, Ar, Ar_se, e3 = estimate_w(y0,hatb,verbose=verbose)
+    #print('Ar,w')
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating pi...')
+        tic = toc
+
+    hatpi, pi_se, e4 = estimate_pi(y,hatb,hatw,Ar,gamma_d,verbose=verbose)
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating yhat...')
+        tic = toc
+
+    yhat = predict_y(hatpi,Ar,gamma_d,hatb,hatw)
+    e = y - yhat.reindex_like(y)
+
+    sigma2 = e.unstack('j').var()
+
+    R2 = 1 - sigma2/y.unstack('j').var()
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Estimating gamma_se...')
+        tic = toc
+
+    if method=='linear':
+        try:
+            se_gamma = 1/np.sqrt((d.groupby('j').count()*(d.groupby('j').var() + d.groupby('j').mean()**2)).divide(sigma2,level='j',axis=0))
+        except KeyError:  # d doesn't vary with j?
+            se_gamma = np.sqrt((outer(sigma2,1/((d.var()+d.mean()**2)*d.count()))))
+    else:
+        se_gamma = None
+
+    if rectify:
+        if verbose:
+            toc = time.time()
+            print(f'[{toc-tic}] Rectifying...')
+            tic = toc
+
+        B,X = validate(y,hatpi,Ar,d,hatw,hatb,hatgamma,GramSchmidt=False)
+        # Re-orthogonalize
+        hatb = hatb*B['bw']
+        if seb is not None:
+            seb = seb*B['bw']
+        Ar = Ar*B['Ar']
+        Ar_se = Ar_se*B['Ar']
+        hatpi = hatpi*(B['pi']@y.groupby('j').count()/y.shape[0])
+        pi_se = pi_se*(B['pi']@y.groupby('j').count()/y.shape[0])
+        try:
+            hatgamma = (hatgamma.stack()*B['gamma_d']).unstack('k')
+            if se_gamma is not None:
+                se_gamma = (se_gamma.stack()*B['gamma_d']).unstack('k')
+        except AttributeError:
+            hatgamma = hatgamma*B['gamma_d']
+            if se_gamma is not None:
+                se_gamma = se_gamma*B['gamma_d']
+    else:
+        B = None
+        X = None
+
+    if verbose:
+        toc = time.time()
+        print(f'[{toc-tic}] Finishing...')
+        tic = toc
+
+    # Convert tuples in index  to strings (necessary for persistence in sql)
+    if hatgamma.index.name == 'tau':
+        hatgamma.index = [str(s) for s in hatgamma.index]
+        hatgamma.index.name = 'k'
+
+    if return_se:
+        mults_se = mults_se.unstack('m')
+        pi_se = pi_se.unstack('m')
+        Ar_se = Ar_se.unstack(['t','m'])
+    else:
+        mults_se = None
+        pi_se = None
+        Ar_se = None
+
+    return dict(y=y,
+                yhat=yhat,
+                mse=(e**2).mean(),
+                R2=R2,
+                d=d,
+                beta=hatb,
+                beta_se=seb,
+                beta_V=V,
+                mults = mults,
+                mults_se = mults_se,
+                e1 = e1,
+                w = hatw,
+                e3 = e3,
+                Mpw = hatMpw,
+                gamma = hatgamma,
+                gamma_se = se_gamma,
+                e2 = e2,
+                gamma_d = gamma_d,
+                pi = hatpi,
+                pi_se = pi_se,
+                e4 = e4,
+                Ar = Ar,
+                Ar_se = Ar_se,
+                B=B,
+                X=X)
+#+end_src
+
+
+* Estimation of $\M{p}w$
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 12:35
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions
+:ARCHIVE_CATEGORY: regression
+:END:
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
+
+def estimate_Mpw(y,b,MpMdy,return_se=False,bootstrap_tol=None,
+                 verbose=False):
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    # This is VERY SLOW.  Find a better way!
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    # Reindexing faster, but is not fast.
+    B = B.reindex(y.index,axis=0)  #Maybe?
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    if return_se:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+                # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MpMdy.index]
+
+            e1 = (MpMdy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            mults_se = np.sqrt(V22.diagonal())*sigma2
+
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            mults_se = pd.Series(mults_se,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='mults_se')
+
+            return Mpw, scale, mults, seb, mults_se, e1
+
+    return Mpw,scale,mults
+
+#+end_src
+
+
+* Estimation of \beta and $\M{p}w$
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 12:36
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions
+:ARCHIVE_CATEGORY: regression
+:END:
+    Estimate \beta and $\M{p}w$, imposing requirement that $\E(\Mp w|p)=0$.
+#+begin_src python
+from scipy import sparse
+import warnings
+
+def estimate_beta_and_Mpw(y,MpMd,return_se=False,bootstrap_tol=None,
+                          verbose=False):
+
+    MpMdy = MpMd(y)
+    try:
+        MpMdY = MpMdy.unstack('j')
+    except KeyError:
+        MpMdY = MpMdy
+
+    if not np.allclose(MpMdy.groupby(['t','m','j']).mean(),0):
+        warn("MdMpy means not close to zero.")
+
+    b,seb,V = estimate_beta(MpMdy,return_se=return_se,bootstrap_tol=bootstrap_tol,verbose=verbose)
+
+    # Construct regression to compute Mpw
+    cols = y.groupby(['i','t','m']).mean().index
+
+    # This is VERY SLOW.  Find a better way!
+    index = pd.MultiIndex.from_tuples([(i[0],i[1],i[2],j) for i in cols.tolist() for j in b.index.tolist()])
+
+    B = sparse.kron(sparse.eye(len(cols)),b,format='csr')
+    B = pd.DataFrame.sparse.from_spmatrix(B,index=index,columns=cols)
+    B.index.names = ['i','t','m','j']
+
+    # This is VERY, VERY SLOW!  Find a better way!
+    #B = B.loc[y.index,:]
+    # Reindexing is not fast.
+    B = B.reindex(y.index,axis=0)  #Maybe?
+
+    N = y.index.levels[y.index.names.index('i')]
+
+    TM = [(np.nan,t,m) for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    ITM = [(i,t,m) for i in N for t in y.index.levels[y.index.names.index('t')] for m in y.index.levels[y.index.names.index('m')]]
+
+    R = sparse.kron(np.ones((1,len(N))),sparse.eye(len(TM)),format='csr')
+    R = pd.DataFrame.sparse.from_spmatrix(R,index=TM,columns=ITM)
+    #R = R.loc[:,cols]
+    R = R.reindex(cols,axis=1)
+
+    Zeros = pd.DataFrame(np.zeros((len(TM),len(TM))),index=TM,columns=TM)
+
+    # Matrix multiplication too expensive for pd.DataFrame.sparse...
+    B = B.sparse.to_coo()
+    BB = B.T@B
+    BBdf = pd.DataFrame.sparse.from_spmatrix(BB,index=cols,columns=cols)
+
+    zig = pd.concat([BBdf,R.T],axis=1)
+    zag = pd.concat([R,Zeros],axis=1)
+
+    zag.index = pd.MultiIndex.from_tuples(zag.index)
+    zag.columns = pd.MultiIndex.from_tuples(zag.columns)
+
+    X0 = pd.concat([zig,
+                    zag],axis=0)
+
+    y0 = pd.concat([pd.Series(B.T@MpMdy,index=cols),pd.Series(np.zeros(len(TM)),index=TM)],axis=0)
+
+    X0 = X0.sparse.to_coo().tocsc()
+
+    result = sparse.linalg.lsqr(X0,y0,calc_var=False,atol=1e-16,btol=1e-16)
+
+    coeffs = result[0].squeeze()
+
+    Mpw = pd.Series(coeffs[:len(cols)],index=cols)
+    if verbose: print("Estimated Mpw")
+
+    scale = Mpw.std(ddof=0)
+    Mpw = Mpw/scale
+    b = (b*scale).squeeze()
+
+    mults = pd.Series(coeffs[len(cols):],
+                      index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],names=['t','m']),name='mult')
+
+    if return_se and bootstrap_tol is None: # See Greene-Seaks (1991)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            # X0inv = sparse.linalg.inv(X0)  # Too expensive!
+            # se = np.sqrt(sparse.csr_matrix.diagonal(X0inv))
+
+            # Use partioned matrix inverse to get just se of b
+            BB = BB*(scale**2)
+            # Note that BB is diagonal
+            R = R.sparse.to_coo()
+            n = B.shape[1]
+            m = R.shape[0]
+            Ainv = sparse.spdiags(1/BB.diagonal(),0,n,n)
+            V22 = sparse.spdiags(1/(R@Ainv@R.T).diagonal(),0,m,m)
+            V11 = Ainv - Ainv@R.T@V22@R@Ainv
+
+            se = np.sqrt(V11.diagonal())
+
+            if 'j' in Mpw.index.names:
+                Mpw = Mpw[MpMdy.index]
+
+            e1 = (MpMdy - B@Mpw)
+            sigma2 = e1.var(ddof=0)
+
+            mults_se = np.sqrt(V22.diagonal())*sigma2
+
+            seb = pd.Series(se[:len(b)]*sigma2,index=b.index)
+            mults_se = pd.Series(mults_se,
+                                index=pd.MultiIndex.from_tuples([tm[1:] for tm in TM],
+                                                                names=['t','m']),
+                                name='mults_se')
+    else:
+        mults_se = None
+        e1 = None
+
+    return b,Mpw,seb,mults,mults_se,e1
+
+
+#+end_src
+
+
+* SVD with missing data
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:27
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python
+import pandas as pd
+import numpy as np
+
+def svd_missing(X,gls=False):
+    """
+    Compute rank one approximation to X.
+    """
+    def ols(y,x,N=None):
+
+        use = y.index.droplevel(['i','t','m'])
+
+        if N is not None:
+            N = N[use]
+            x = x[use]*N
+            y = y*N
+
+        x = pd.DataFrame(x[use])
+
+        b = np.linalg.lstsq(x,y,rcond=None)[0].squeeze()
+
+        return b
+
+    Sigma = X.cov(ddof=0)
+    N = X.count()/X.count().sum()
+
+    s2,u = np.linalg.eigh(Sigma)
+    b = pd.Series(u[:,-1]*np.sqrt(s2[-1]),index=Sigma.index)
+
+    y = X.stack().dropna()
+
+    if gls:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x,N))
+    else:
+        v = y.groupby(['i','t','m']).apply(lambda y,x=b: ols(y,x))
+
+    scale = np.sqrt(v.T@v)
+    u = pd.Series(u[:,-1],index=b.index)
+
+    return u,np.sqrt(s2[-1])*scale,v/scale
+#+end_src
+
+
+* Angle between vectors (or series)
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:31
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+
+#+begin_src python
+"""
+Compute angle between two vectors, thx to https://stackoverflow.com/questions/2827393/angles-between-two-n-dimensional-vectors-in-python/13849249#13849249
+"""
+import numpy as np
+
+def unit_vector(vector):
+    """ Returns the unit vector of the vector.  """
+    return vector / np.linalg.norm(vector)
+
+def angle_between(v1, v2):
+    """ Returns the angle in radians between vectors 'v1' and 'v2'::
+
+            >>> angle_between((1, 0, 0), (0, 1, 0))
+            1.5707963267948966
+            >>> angle_between((1, 0, 0), (1, 0, 0))
+            0.0
+            >>> angle_between((1, 0, 0), (-1, 0, 0))
+            3.141592653589793
+    """
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
+#+end_src
+
+* OLS
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-02 Thu 13:32
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Generally available functions/Utilities
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python
+def ols(y,x):
+    try:
+        xcols = x.columns
+    except AttributeError:
+        xcols = x
+        x = y[xcols]
+        y = y[y.columns.difference(xcols)]
+
+    y,x = drop_missing([y,x])
+
+    b = np.linalg.lstsq(x,y,rcond=None)[0]
+
+    return pd.Series(b.squeeze(),index=x.columns)
+#+end_src
+
+* Estimate
+:PROPERTIES:
+:ARCHIVE_TIME: 2023-11-07 Tue 09:36
+:ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/regression.org
+:ARCHIVE_OLPATH: Description of =Regression=
+:ARCHIVE_CATEGORY: regression
+:END:
+#+begin_src python :tangle no
+    def estimate(self,beta=None):
+
+        if beta is not None:
+            beta = pd.DataFrame(beta)
+
+        R = estimation(self.y,self.d,
+                       K=self.attrs['K'],
+                       beta=beta,
+                       bootstrap_tol=self.attrs['bootstrap_tol'],
+                       return_se=self.attrs['return_se'],
+                       rectify=self.attrs['rectify'],
+                       verbose=self.attrs['verbose'])
+
+        for k,v in R.items():
+            try:
+                if getattr(self,k) is not None: continue
+                setattr(self,k,v)
+            except AttributeError:
+                setattr(self,k,v)
+
+#+end_src
+

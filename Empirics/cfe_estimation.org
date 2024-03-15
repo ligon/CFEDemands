@@ -16,10 +16,10 @@
 * Introduction
   This document describes a set of empirical methods for estimating
   demands of a form we'll call "Constant Frisch Elasticity," and
-  also provides =python= code which implements these methods.  
+  also provides =python= code which implements these methods.
   Both this document and the code it contains are licensed in a manner
   which permits non-commercial reuse (see
-  https://creativecommons.org/licenses/by-nc-sa/4.0/), subject to a 
+  https://creativecommons.org/licenses/by-nc-sa/4.0/), subject to a
   "attribution" requirement that you give appropriate credit to the
   present author.  In the case of uses of the code or methods in an
   written work such as a journal article, I ask that attribution
@@ -145,7 +145,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
                                 arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0.25',
                                 color='red'),fontsize='xx-small')
 
-                if mratio.iloc[i,0]<-0.2:
+                if mratio.iloc[i,0] < -0.2:
                     #pl.text(i,mratio.T.iloc[0][name],name,fontsize='xx-small')
                     ax.annotate(name, xy=(i,mratio.T.iloc[0][name]), xytext=(20,-10),
                                 textcoords='offset points', ha='left', va='top',
@@ -211,7 +211,7 @@ def group_expenditures(df,groups):
             try:
                 myX[k]=df[['$x_{%d}$' % int(i) for i in myv]].sum(axis=1)
             except KeyError: pass
-            
+
     return myX
 #+end_src
 
@@ -222,7 +222,7 @@ def group_expenditures(df,groups):
 Here's an approach that involves estimating a covariance matrix, and
 extracting $U$ and $\Sigma$ from that; then backing out estimated $V$,
 for columns satisfying a rank condition.  Unlike some alternative
-approaches estimates do not depend on the order of observations.  
+approaches estimates do not depend on the order of observations.
 
 A parameter =min_obs= governs how  conservative the algorithm is in
 estimating the covariance matrix; it's equal to  minimum number of
@@ -539,7 +539,7 @@ def test_equal_to_drop_cols(df):
 
 Once we've computed the SVD of a matrix we can construct an optimal rank one
 approximation to that matrix using just the  first left eigenvector,
-the first eigenvalue, andn the first right eigenvector.  
+the first eigenvalue, and the first right eigenvector.
 
 #+name: svd_rank1_approximation_with_missing_data
 #+begin_src python :noweb no-export :results output :tangle ../cfe/estimation.py
@@ -640,7 +640,7 @@ def test_accuracy_of_svd_rank1_approximation():
     Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
     error = X0 - Xhat
     assert np.max(np.max(error)<1e-2)
-  
+
 Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
 
@@ -679,14 +679,14 @@ import numpy as np
 import pandas as pd
 
 # Tangling may not include :vars from header
-try: 
+try:
     SEED
 except NameError: # :var inputs not set?
     n=12
     m=2000
     percent_missing=0.5
     SEED=0
-  
+
 <<svd_rank1_approximation_with_missing_data>>
 
 if SEED:
@@ -777,7 +777,7 @@ Note that not all goods for which household level expenditures are
 observed need to have  price supplied.  If prices for one good are
 supplied, it should be the numéraire; if prices for two or more goods
 are supplied it's possible to identify Frisch elasticities $\beta$ and
-to estimate any missing prices.  
+to estimate any missing prices.
 
 #+name: estimate_reduced_form
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/estimation.py
@@ -1111,7 +1111,7 @@ def test_se_a():
 
 import pandas as pd
 
-try: 
+try:
     from joblib import Parallel, delayed
     #import timeit
     PARALLEL=True
@@ -1128,8 +1128,8 @@ def get_loglambdas(e,TEST=False,time_index='t',max_rank=1,min_obs=None,VERBOSE=F
 
     Input e is the residual from a regression of log expenditures purged
     of the effects of prices and household characteristics.   The residuals
-    should be arranged as a matrix, with columns corresponding to goods. 
-    """ 
+    should be arranged as a matrix, with columns corresponding to goods.
+    """
 
     assert e.shape[0]>e.shape[1], "More goods than observations."
 
@@ -1191,7 +1191,7 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
         e = e - e.mean()
         return e
 
-    def new_draw(e,clusterby):      
+    def new_draw(e,clusterby):
         if clusterby:
             S=e.reset_index().groupby(clusterby,as_index=True)[e.columns].apply(resample)
         else:
@@ -1212,7 +1212,7 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
     assert chunksize>=2, "chunksize must be 2 or more."
     while delta>tol or i < minits:
         delta=np.nanmax(np.abs(old.values.reshape(-1)-new.values.reshape(-1)))
-        if VERBOSE and i>chunksize: 
+        if VERBOSE and i>chunksize:
             stat = np.nanmax(np.abs((std0.values.reshape(-1)-std1.values.reshape(-1))/std0.values.reshape(-1)))
             print("Draws %d, delta=%5.4f.  Measure of non-normality %6.5f." % (i, delta, stat))
         old=new
@@ -1226,7 +1226,7 @@ def bootstrap_elasticity_stderrs(e,clusterby=['t','m'],tol=1e-2,minits=30,return
             bees = [new_draw(e,clusterby) for chunk in range(chunksize)]
             #print(timeit.timeit() - start)
 
-        if outfn: 
+        if outfn:
             for bs in bees:
                 if np.any(np.isnan(bs)):
                     warnings.warn("Resampling draw with no data?")
@@ -1273,7 +1273,7 @@ import pandas as pd
 import warnings
 
 # Tangling may not include :vars from header
-try: 
+try:
     miss_percent
 except NameError: # :var inputs not set?
     miss_percent = 0.6
@@ -1344,10 +1344,10 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 
 def test_artificial_data(T=2,N=50,n=5,k=2):
     y,truth=artificial_data(T=T,N=N,k=k,n=n,sigma_e=1e-8)
-    
+
     assert y.shape == (N,T,1,n)
     assert truth['characteristics'].shape == (k,N,T,1)
-#+end_src 
+#+end_src
 
 *** Alternative approach to estimation using interactive fixed effects
 Rather than using an svd to factor residuals, here's an approach that
@@ -1440,7 +1440,7 @@ import numpy as np
 from cfe.result import to_dataframe
 
 try:
-    SEED 
+    SEED
 except NameError: # :var inputs not set?
     n=12
     m=2000
@@ -1512,7 +1512,7 @@ print("Mean of errors:")
 print(e.mean(axis=0))
 
 def test_mean():
-    assert np.abs(e.stack().mean())/e.stack().std() < 1e-2    
+    assert np.abs(e.stack().mean())/e.stack().std() < 1e-2
 
 test_mean()
 #+end_src
@@ -1524,7 +1524,7 @@ Correlation of log lambda with estimate (before normalization): nan
 Norm of (bphi,beta): 0.013563
 Correlation of log lambda with estimate (after normalization):
                   loglambda  loglambda0
-t m                                  
+t m
 0 1   loglambda    1.000000    0.815898
       loglambda0   0.815898    1.000000
 1 1   loglambda    1.000000    0.822589
@@ -1560,7 +1560,7 @@ dtype: float64
   \end{equation}
   given data on log prices $\log p_{itk}$ for good $i$ at time $t$ in
   market $k$, characteristics $z_t^j$, and either consumption
-  $c_{it}^j$ or expenditures $x_{it}^j$.  
+  $c_{it}^j$ or expenditures $x_{it}^j$.
 
 ** Direct estimation of price elasticities
   We do not assume that $\lambda^j_t$ is observed, but do assume that
@@ -1577,8 +1577,8 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
     """Estimate reduced-form Frisch expenditure/demand system.
 
        Inputs:
-         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m), 
-               where j indexes the household, t the period, and m the market.  
+         - y : pd.DataFrame of log expenditures or log quantities, indexed by (j,t,m),
+               where j indexes the household, t the period, and m the market.
                Columns are different expenditure items.
 
          - p : pd.DataFrame of log prices, indexed by (t,m), with
@@ -1613,7 +1613,7 @@ def direct_price_elasticities(y,p,z,VERBOSE=True,return_se=False,return_v=False)
 
         rhs['Constant']=1
 
-        myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True) 
+        myb,mye=ols(rhs,lhs,return_se=False,return_v=False,return_e=True)
         ce[Item]=mye
 
         if return_v or return_se:
@@ -1654,7 +1654,7 @@ def indirect_price_elasticities(a,p,zbar):
 
        Inputs:
          - a : pd.DataFrame of good-time-market effects estimated by =estimate_reduced_form=,
-               indexed by (t,m), where t indexes the period, and m the market.  
+               indexed by (t,m), where t indexes the period, and m the market.
                Columns are different expenditure items.
 
          - p : pd.DataFrame of log prices, indexed by (t,m), with
@@ -1680,7 +1680,7 @@ def indirect_price_elasticities(a,p,zbar):
     Xm = (X-X.mean()).values
 
     ym = (a-a.mean()).values
-  
+
     B=OrderedDict()
     SE=OrderedDict()
     for i,Item in enumerate(y.columns):
@@ -1692,19 +1692,19 @@ def indirect_price_elasticities(a,p,zbar):
     SE = pd.Series(SE)
     return B,SE
 #+END_SRC
-  
+
 
 ** Test
    The direct and indirect methods  should yield similar results.
    Below we construct a simple test of this.
 #+BEGIN_SRC python :var T=20 N=1000 n=6 :tangle ../cfe/stochastic_test/price_elasticities.py
 # Tangling may not include :vars from header
-try: 
+try:
     T
 except NameError: # :var inputs not set?
     n=6
     N = 1000
-    T =20 
+    T =20
 
 <<lambdas_dgp>>
 <<characteristics_dgp>>
@@ -1750,7 +1750,7 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
     its = 0
     while  (its < 5) or (np.linalg.norm(coeffs_last - coeffs) > tol) and (its < max_its):
 
-        if (its>1) and VERBOSE: 
+        if (its>1) and VERBOSE:
             print("Iteration %d, Norm: %g" % (its,np.linalg.norm(coeffs_last-coeffs)))
             print(coeffs - coeffs_last)
 
@@ -1812,7 +1812,7 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
             v = arellano_robust_cov(X[usecols],e[Item])
             V[Item] = v
             se = dict(zip(usecols,np.sqrt(np.diag(V[Item])))) # reduced form se on characteristics
-              
+
             stderrs = (e[Item].groupby(['t','m']).std()/np.sqrt(e[Item].groupby(['t','m']).count())).tolist()
             se.update(dict(zip(my_dm,stderrs)))
             SE[Item] = pd.Series(se)
@@ -1828,16 +1828,16 @@ def iterated_regression(y,z,return_se=False,return_v=False,VERBOSE=False,tol=1e-
   This describes a sort of `wrapper' routine which at a minimum takes
   as input a =pd.DataFrame= of log expenditures, indexed by household,
   period, and  market =("j","t","m")=, with  columns corresponding
-  to different goods.  
+  to different goods.
 
   In addition, one may provide a dataframe of household
   characteristics with a similar structure to the dataframe of
   expenditures, save that columns will correspond to different
-  household characteristics.  
+  household characteristics.
 
   Finally, one may provide a dataframe of prices.  The structure of
   this dataframe is described above in Section [[*Estimation of reduced form][Estimation of reduced
-  form]]. 
+  form]].
 
   The analysis omnibus performs a sequence of estimation steps,
   returning an "omnibus" of outputs in a dictionary.  These include
@@ -1871,7 +1871,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
     results={'y':y,'z':z}
     if prices is not None: results['prices'] = prices
 
-    firstround=y.reset_index().iloc[0]['t']  
+    firstround=y.reset_index().iloc[0]['t']
 
     # Deflate expenditures and prices by prices of numeraire good.
     if numeraire is not None and len(numeraire)>0:
@@ -1885,7 +1885,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
     y=y.loc[using_goods,use_goods] # Drop households with too few expenditure observations, keep selected goods
     y = drop_columns_wo_covariance(y,min_obs=min_xproducts,VERBOSE=False)
     # Only keep goods with observations in each (t,m)
-    y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0] 
+    y = y.loc[:,(y.groupby(level=['t','m']).count()==0).sum()==0]
 
     a,ce,d,sed,sea,V = estimate_reduced_form(y,z,return_se=True,return_v=True,VERBOSE=VERBOSE)
     ce.dropna(how='all',inplace=True)
@@ -1936,7 +1936,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
             pass
 
         # FIXME: Should really use weighted mean, since different precisions for a across different  markets
-        logalpha = a[firstround].T.mean() 
+        logalpha = a[firstround].T.mean()
         goodsdf[r'$\log\alpha_i$'] = logalpha
         pref_params += [r'$\log\alpha_i$']
     else:
@@ -2001,7 +2001,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
   \begin{equation}
   \label{eq:beta_distance}
      \min_\psi ||\psi\beta^1 - \beta^2||_W.
-  \end{equation}  
+  \end{equation}
   Note that $\psi$ should not be regarded as an estimate of the Pigou
   elasticity, but as the /ratio/ of the Pigou elasticities
   corresponding to the two different estimates of \beta.
@@ -2022,7 +2022,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
   $\beta^1$ and $\beta^2$.  More generally, if $\beta^1$ is a "pooled"
   estimate which relies on a matrix of regressors $\vec{X}$, with $N$
   rows, and $\beta^2$ is obtained by estimation on a subset $\vec{X^2}$ with
-  $N_2$ rows, then we have 
+  $N_2$ rows, then we have
   \[
      \Cov(\psi\beta^1 - \beta^2) = \psi^2\vec{V^1} + \vec{V^2}\left[\vec{I}-2\frac{N_2}{N}\left(\frac{\vec{X}^\T\vec{X}}{N}\right)^{-1}\left(\frac{\vec{X^2}^\T\vec{X^2}}{N_2}\right)\right]
   \]
@@ -2031,7 +2031,7 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
   Then supposing that estimates of the two covariance matrices
   $(\vec{V^1},\vec{V^2})$ can be
   obtained at the same time $\beta^1$ and $\beta^2$ are estimated, we
-  choose $\psi$ to minimize 
+  choose $\psi$ to minimize
   \begin{equation}
   \label{eq:min_chi2}
   H(\beta^1,\beta^2,\vec{V^1},\vec{V^2},\vec{S},\vec{S_2}) = \min_\psi \left(\psi\beta^1 - \beta^2\right)^\T\left[\psi^2\vec{V^1} + \vec{V^2}(\vec{I}-2 \vec{S}^{-1}\vec{S_2})\right]^{-1}\left(\psi\beta^1 - \beta^2\right).
@@ -2050,9 +2050,9 @@ def analysis_omnibus(y, z=None, prices=None, numeraire=None,min_xproducts=30,min
   on $\beta$ include $\E X=0$ and $\E X^\T X=1$.  Then the weighting
   matrix takes a form which is considerably simpler, but where the
   parameter $\psi$ enters in a more complicated fashion, with
-  weighting matrix 
-  \[ 
-     \vec{W}^{-1}(\psi) = \psi^2\vec{V^1} + \vec{V^2}(1 - 2\frac{N_2}{N}\psi^2).  
+  weighting matrix
+  \[
+     \vec{W}^{-1}(\psi) = \psi^2\vec{V^1} + \vec{V^2}(1 - 2\frac{N_2}{N}\psi^2).
   \]
 
   The following code provides an implementation of this test of
@@ -2115,7 +2115,7 @@ def elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=False,criterion=False):
 
     if criterion:
         outputs.append(Fcriterion)
-    
+
     return tuple(outputs)
 #+END_SRC
 
@@ -2181,7 +2181,7 @@ psi,F,p,crit = elasticities_equal(b1,b2,v1,v2,N,N2,pvalue=True,criterion=True)
 
 assert np.abs(psi-2)<0.05, "Value of psi should be about 2"
 assert p>0.01, "Should seldrom reject equality of elasticities."
-#+END_SRC  
+#+END_SRC
 
 * Predicted expenditures
 To construct unbiased estimates of /levels/ of expenditures---rather than the logarithms that emerge naturally from our estimation---we need to take into account the distribution of error terms.
@@ -2197,8 +2197,8 @@ import numpy as np
 def predicted_expenditures(yhat,e):
     """
     Return levels of predicted expenditures.
-   
-    =yhat= is a dataframe or xarray of predicted log item expenditures, 
+
+    =yhat= is a dataframe or xarray of predicted log item expenditures,
            with columns corresponding to different items.
        =e= is a dataframe or xarray of the residuals from the estimation which
            yielded =yhat=.
@@ -2226,14 +2226,14 @@ def predicted_expenditures(yhat,e):
   consumer to maintain their same level of \lambda will be
   $x(\lambda,p',z)$, so the proportional /change/ in expenditures is
   given by the price index
-  \[ 
+  \[
      R(\lambda,z,p',p) = \frac{x(\lambda,p',z)}{x(\lambda,p,z)}.
   \]
   Since the expenditure functions correspond to the CFE utility
   functions, we say that the index $R$ is /optimal/ for CFE utility.
   Note that since CFE generalized Constant Elasticity of Substitution
   (CES) utility, $R$ also generalizes the index which is optimal for CES
-  described by cite:feenstra94. 
+  described by cite:feenstra94.
 
   The following code defines a function =optimal_index= designed to take
   three inputs, each either supplied as a =pd.dataframe= or an
@@ -2248,7 +2248,7 @@ def predicted_expenditures(yhat,e):
 #name: optimal_index
 
 import warnings
-with warnings.catch_warnings():  
+with warnings.catch_warnings():
     warnings.filterwarnings("ignore",category=UserWarning)
     import xarray as xr
 
@@ -2275,7 +2275,7 @@ def optimal_index(a,yhat,e):
     x0 = predicted_expenditures(yhat - a,e)
 
     # (t0,m0) is 'home' setting
-    x0 = x0.rename({'t':'t0','m':'m0'}) 
+    x0 = x0.rename({'t':'t0','m':'m0'})
 
     xsum = x0*np.exp(a)    # Predicted x_i in different settings (t,m)
                            # for households in every setting (t0,m0).
@@ -2300,7 +2300,7 @@ import numpy as np
 <<optimal_index>>
 
 # Tangling may not include :vars from header
-try: 
+try:
     N
 except NameError: # :var inputs not set?
     N=5000
@@ -2311,7 +2311,7 @@ except NameError: # :var inputs not set?
 p = cfe.dgp.prices(T,M,n)
 for s in range(1,T):  # Just scale prices over time by constant
     p.loc[dict(t=s)] = p.loc[dict(t=0)] #*s
- 
+
 x,parts = cfe.dgp.expenditures(N,T,M,n,2,np.linspace(.5,3,n),sigma_phi=0.0,sigma_eps=0.01,p=p)
 x = x.where(x>0,np.nan)  # Zeros to missing
 
@@ -2361,7 +2361,7 @@ from scipy.stats.distributions import lognorm
 import numpy as np
 
 import warnings
-with warnings.catch_warnings():  
+with warnings.catch_warnings():
     warnings.filterwarnings("ignore",category=UserWarning)
     import xarray as xr
 
@@ -2382,7 +2382,7 @@ def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brown
                              coords={'j':range(N),'t':range(1,T),'m':range(M)})
 
     L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
-  
+
     # Add aggregate shocks Lbar:
     return L*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
@@ -2393,7 +2393,7 @@ def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brown
 #+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
 #name: characteristics_dgp
 
-def characteristics(N,T,M=1): 
+def characteristics(N,T,M=1):
     z = lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
     return z
 #+END_SRC
@@ -2416,7 +2416,7 @@ def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownia
                                coords={'i':range(n),'t':range(1,T),'m':range(M)})
 
     P = xr.concat((P0,innov),dim='t').transpose('t','m','i')
-    
+
     # Add aggregate shocks L0:
     return P*lambdabar(T,M,Fbar=Fbar)
 #+END_SRC
@@ -2440,10 +2440,10 @@ import numpy as np
 
 def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
     """Return samples from two measurement error processes; one additive, the other  multiplicative.
-  
+
     - The additive error (phi) is a normal distribution with mean
       =mu_phi= and standard deviation =sigma_phi=.
-    
+
     - The multiplicative error (eps) is a log-normal distribution with mean
       =mu_eps= and standard deviation =sigma_eps=.
     """
@@ -2461,7 +2461,7 @@ def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
 #+END_SRC
 
 ** Data-generating process for expenditures
-    
+
     We assume an addilog preference structure, generalized to allow
     for specific-substitution effects (but note that such effects
     violate symmetry of the Slutsky substitution matrix, and so should
@@ -2475,7 +2475,7 @@ def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
     \[
        U^j(c) = \sum_{i=1}^n\alpha^j_i\prod_{k=1}^n\frac{(c^j_{kt})^{1-1/\theta_{ik}} - 1}{1-1/\theta_{ik}}.
     \]
-    # 
+    #
     With this structure, log Frischian expenditures are
     #
     \[
@@ -2523,22 +2523,22 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
     beta=Theta.sum('ip') # Row sum of elasticity matrix
 
     l = lambdas(N,T,M,Fbar=Fbar)
-    
+
     foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
 
     z = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
 
-    l = l*(z**rho_lz).prod('k') 
+    l = l*(z**rho_lz).prod('k')
 
-    L = np.reshape(l,(N,T,M)) 
-    
+    L = np.reshape(l,(N,T,M))
+
     if p is None:
         p = prices(T,M,n)
 
     # Build x in steps
     #x = np.kron(np.log(L),-beta)
     x = np.log(L)*(-beta)
-    x = x + np.log(p) - (Theta*np.log(p)).sum('ip') 
+    x = x + np.log(p) - (Theta*np.log(p)).sum('ip')
     x = x + np.log(z).sum('k')
 
     x = np.exp(x)
@@ -2594,7 +2594,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bonus_stats=None):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_stats=None,math_delimiters=True):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2671,6 +2671,21 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
             line += stats.tolist()
             return ' | '.join(line)
 
+    def format_entry(x,stars='',se=False,float_fmt=float_fmt,math_delimiters=math_delimiters):
+        try:
+            fmt = float_fmt+stars
+            if se: fmt = f'({fmt})'
+            if math_delimiters:
+                entry='| \\('+fmt+'\\) '
+            else:
+                entry='| '+fmt+' '
+            if np.isnan(x):
+                return '| --- '
+            else:
+                return entry % x
+        except TypeError:
+            return '| %s ' % str(x)
+
     s = column_heading(df)
 
     if (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -2687,14 +2702,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
             lastidx =i
 
             for j in df.columns: # Point estimates
-                try:
-                    entry='| '+float_fmt+' '
-                    if np.isnan(df[j][i]):
-                        s+='| --- '
-                    else:
-                        s+=entry % df[j][i]
-                except TypeError:
-                    s += '| %s ' % str(df[j][i])
+                s += format_entry(df[j][i])
             s+='|\n'
         return s
     elif not (tdf is None) and (sedf is None) and (conf_ints is None):
@@ -2720,11 +2728,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         stars='^{'+'*'*stars + '}'
                     else: stars=''
                 except KeyError: stars=''
-                entry='| '+float_fmt+stars+' '
-                if np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
+
             s+='|\n'
 
         return s
@@ -2759,11 +2764,8 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| '+float_fmt+stars+'  '
-                if np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
+
             s+='|\n' + se_linestart(bonus_stats,i)
             for j in df.columns: # Now standard errors
                 s+='  '
@@ -2773,10 +2775,9 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                     elif np.isnan(sedf[j][i]):
                         se='(---)'
                     else:
-                        se='(' + float_fmt % sedf[j][i] + ')'
-                except KeyError: se=''
-                entry='| '+se+'  '
-                s+=entry
+                        se = format_entry(sedf[j][i],se=True)
+                except KeyError: se='|  '
+                s += se
             s+='|\n'
         return s
     elif not (conf_ints is None): # Print confidence intervals on alternate rows
@@ -2809,11 +2810,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='\\(%5.3f\\)',bo
                         else: stars=''
                     except KeyError: stars=''
                 else: stars=''
-                entry='| '+float_fmt+stars+' '
-                if type(df[j][i]) is not str and np.isnan(df[j][i]):
-                    s+='| --- '
-                else:
-                    s+=entry % df[j][i]
+                s += format_entry(df[j][i],stars)
             s+='|\n' + se_linestart(bonus_stats,i)
 
             for j in df.columns: # Now confidence intervals
@@ -2898,6 +2895,8 @@ def use_indices(df,idxnames):
     return df.reset_index()[idxnames].set_index(df.index)
 #+END_SRC
 
+#+results: df_utils
+
 #+name: test_df_norm
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/test/test_df_norm.py
 #name: test_df_norm
@@ -2905,7 +2904,7 @@ def use_indices(df,idxnames):
 import numpy as np
 import pandas as pd
 from cfe.df_utils import df_norm
-from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error  
+from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
 from cfe.result import to_dataframe
 import pytest
 
@@ -2916,7 +2915,7 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 
 a,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
 a = to_dataframe(a,['j','t','m']).T
-# create another random matrix for subtracting 
+# create another random matrix for subtracting
 b = pd.DataFrame(np.random.normal(size = a.shape), index = a.index, columns = a.columns)
 
 # introduce NAs for a test case
@@ -2956,8 +2955,6 @@ def test_norm_twomat(m, n):
 #+END_SRC
 
 #+name: test_df_to_orgtbl_tbl
-#name: test_df_to_orgtbl_tbl
-
 | A |  B | C |
 |---+----+---|
 | a |  1 | m |
@@ -2982,10 +2979,6 @@ print(s)
 #+END_SRC
 
 #+results: test_df_to_orgtbl
-|   | B         | C |
-|---+-----------+---|
-| a | \(1.000\) | m |
-| b | \(2.000\) | c |
 
 ** Some econometric routines
 
@@ -3006,8 +2999,8 @@ def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
     clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
     if  len(clusters)>1:
         # Take out time averages
-        ubar = u.groupby(level=clusterby).transform(np.mean)
-        Xbar = X.groupby(level=clusterby).transform(np.mean)
+        ubar = u.groupby(level=clusterby).transform("mean")
+        Xbar = X.groupby(level=clusterby).transform("mean")
     else:
         ubar = u.mean()
         Xbar = X.mean()
@@ -3378,7 +3371,7 @@ def fwl_regress(y,X,VERBOSE=False):
 
 #+begin_src python :tangle /tmp/fwl_test.py
 def test_fwl_regress_simple(n=100):
-    
+
     X = pd.DataFrame({'Constant':np.ones(n),
                       'X1':np.random.rand(n)})
     X = [X,pd.DataFrame({'X2':np.random.rand(n)})]
@@ -3413,7 +3406,7 @@ def test_fwl_regress_realdata():
     y,Z = drop_missing([y,Z])
 
     # Stacked regression, ordered by (i,t,m)
-    X = [Z,      
+    X = [Z,
          pd.get_dummies(pd.Series(list(zip(foo['t'],foo['m'])),index=y.index)),
          pd.get_dummies(pd.Series(foo['i'].values,index=y.index))]
 
@@ -3431,13 +3424,13 @@ if __name__=='__main__':
 
 ** Utility functions for dealing with some awkward multiindex issues
 
-#+name: broadcast_binary_op 
+#+name: broadcast_binary_op
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
 #name: broadcast_binary_op
 
 def merge_multi(df1, df2, on):
     """Merge on subset of multiindex.
-   
+
     Idea due to http://stackoverflow.com/questions/23937433/efficiently-joining-two-dataframes-based-on-multiple-levels-of-a-multiindex
     """
     return df1.reset_index().join(df2,on=on).set_index(df1.index.names)
@@ -3478,7 +3471,7 @@ Test the merge_multi() function, comparing it to pandas join().
 import numpy as np
 import pandas as pd
 from cfe.df_utils import merge_multi
-from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error  
+from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
 from cfe.result import to_dataframe
 import pytest
 
@@ -3493,7 +3486,7 @@ tol = 1e-4
 a,truth=artificial_data(T=2,N=N,k=2,n=10,sigma_e=1e-10)
 a = to_dataframe(a,['j','t','m']).T
 
-# make a dataframe with a subset of the index of the previous one 
+# make a dataframe with a subset of the index of the previous one
 b = pd.DataFrame(np.random.normal(size=(N,1)), columns = ['b'])
 b.index.names = ['j']
 
@@ -3586,7 +3579,7 @@ print(baz)
 #+results: test_broadcast_binary_op
 #+begin_example
                            0   1         2
-j       t      m                        
+j       t      m
 1002    2014Q3 SSD       NaN NaN       NaN
         2015Q2 SSD       NaN NaN       NaN
 1006    2014Q3 SSD       NaN NaN       NaN
@@ -3637,7 +3630,7 @@ assert baz.iloc[3,0]==6
 
 
 ** Utility functions related to transformations between xarray and pandas objects
-#+name: broadcast_binary_op 
+#+name: broadcast_binary_op
 
 #+BEGIN_SRC python :noweb no-export :tangle  ../cfe/df_utils.py
 #name: broadcast_binary_op

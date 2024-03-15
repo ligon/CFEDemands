@@ -1,4 +1,4 @@
-ORG_INPUTS = Empirics/cfe_estimation.org Empirics/result.org \
+ORG_INPUTS = Empirics/cfe_estimation.org \
 	     Empirics/regression.org Files/input_files.org
 
 .PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt
@@ -9,7 +9,7 @@ tangle: .tangle
 
 .tangle: $(ORG_INPUTS) 
 	(cd Empirics; ../tangle.sh cfe_estimation.org)
-	(cd Empirics; ../tangle.sh result.org)
+	#(cd Empirics; ../tangle.sh result.org)
 	(cd Empirics; ../tangle.sh regression.org)
 	(cd Files; ../tangle.sh input_files.org)
 	touch .tangle
@@ -20,7 +20,7 @@ test: .test
 	pytest cfe/test/
 	touch .test
 
-wheel: pyproject.toml tangle test CHANGES.txt cfe/requirements.txt
+wheel: pyproject.toml tangle test CHANGES.txt #cfe/requirements.txt
 	pip wheel --wheel-dir=dist/ .
 
 CHANGES.txt:
