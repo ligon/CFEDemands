@@ -1021,7 +1021,7 @@ class Regression:
         if self.gamma is not None:
             return self.gamma
         else:
-            gd = get_gamma_d(self,verbose=verbose)
+            gd = self.get_gamma_d(verbose=verbose)
             return self.gamma
 
     def get_w(self,verbose=None):
