@@ -27,10 +27,10 @@ CHANGES.txt:
 	git log --pretty='medium' > CHANGES.txt
 
 cfe/requirements.txt:
-	(cd cfe; pigar)
+	(cd cfe; pigar generate)
 
 localinstall: clean wheel
-	(cd dist; pip install CFEDemands*.whl --upgrade)
+	(cd dist; pip install CFEDemands*.whl) # --upgrade)
 
 devinstall: tangle test 
 	pip install -e .

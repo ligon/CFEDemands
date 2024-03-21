@@ -255,7 +255,7 @@ def Md_generator(X,d,method='categorical',expected=False):
         d['Constant'] = 1  # Constant just picks up means of X
 
         if 'j' in X.index.names:
-            Xj = X.groupby('j')
+            Xj = X.groupby('j',observed=True)
             if 'j' in d.index.names: dj = d.groupby('j')
             if expected: # Really return gamma_d,gamma
                 EdX = {}
@@ -471,8 +471,8 @@ def estimate_beta(MpMdy,
                 okay = False
                 while not okay:
                     try:
-                        b = estimate_beta(MpMdY.groupby(['t','m']).sample(frac=1,replace=True))[0]
-                        B = pd.concat([B,b.squeeze()],axis=1)
+                        _b = estimate_beta(MpMdY.groupby(['t','m']).sample(frac=1,replace=True))[0]
+                        B = pd.concat([B,_b.squeeze()],axis=1)
                         okay = True
                     except ValueError as msg:
                         print(msg)
@@ -866,7 +866,7 @@ class Regression:
                  method='linear',
                  K=None,
                  bootstrap_tol=None,
-                 return_se=False,
+                 compute_se=False,
                  rectify=False,
                  verbose=False,
                  min_obs=30,
@@ -894,7 +894,7 @@ class Regression:
             attrs['method'] = method
         attrs['K'] = K
         attrs['bootstrap_tol'] = bootstrap_tol
-        attrs['return_se'] = return_se
+        attrs['compute_se'] = compute_se
         attrs['rectify'] = rectify
         attrs['verbose'] = verbose
         attrs['min_obs'] = min_obs
@@ -970,26 +970,30 @@ class Regression:
 
         return MpMdy
 
-    def get_beta(self,verbose=None,return_se=None,bootstrap_tol=1e-2,heteroskedastic=False):
+    def get_beta(self,verbose=None,compute_se=None,bootstrap_tol=1e-2,heteroskedastic=False):
         """
-        Return beta, or if return_se=True, return beta_se.
-        If standard errors are computed obtain Variance matrix as a side-effect.
-        """
-        if return_se is None:
-            return_se = self.attrs['return_se']
+        Return beta.
 
-        if return_se:
-            if self.beta_se is not None:
-                return self.beta_se
-        else:
+        If estimate_se=True, compute standard errors and Variance matrix as a side-effect.
+        """
+        if compute_se is None:
+            compute_se = self.attrs['compute_se']
+
+        if not compute_se:
             if self.beta is not None:
                 return self.beta
+
+        if compute_se:
+            if self.beta_se is not None:
+                return self.beta # Always return beta!
+
+        # If we get here, we want to compute beta_se, and haven't yet.
 
         MpMdy = self.get_MpMdy()
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb, V = estimate_beta(MpMdy,verbose=verbose,return_se=return_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
+        b, seb, V = estimate_beta(MpMdy,verbose=verbose,return_se=compute_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
         b = b.squeeze()
         if seb is not None:
             self.beta_se = seb.squeeze()
@@ -997,10 +1001,20 @@ class Regression:
 
         self.beta = b
 
-        if return_se:
-            return self.beta_se
-        else:
-            return self.beta
+        return self.beta
+
+    def get_beta_se(self,verbose=None,bootstrap_tol=1e-2,heteroskedastic=False):
+        """
+        Return estimated standard errors of beta.
+
+        If estimate_se=True, compute standard errors and Variance matrix as a side-effect.
+        """
+        if self.beta_se is not None:
+            return self.beta_se # Always return beta!
+
+        b = self.get_beta(compute_se=True)
+
+        return self.beta_se
 
     def get_gamma_d(self,verbose=None):
 
@@ -1296,7 +1310,7 @@ class Regression:
         import matplotlib.pyplot as plt
 
         if self.beta is None or self.beta_se is None:
-            self.get_beta(return_se=True,heteroskedastic=heteroskedastic)
+            self.get_beta(compute_se=True,heteroskedastic=heteroskedastic)
 
         beta = self.beta.sort_values()
         se = self.beta_se
@@ -1630,7 +1644,7 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
 
 def main():
     y,d,truth = data(N=1000,J=10,return_truth=True)
-    r = rgsn.Regression(y=y,d=d,return_se=False,K=None,bootstrap_tol=0.005,verbose=False)
+    r = rgsn.Regression(y=y,d=d,compute_se=False,K=None,bootstrap_tol=0.005,verbose=False)
     r.get_predicted_log_expenditures()
     #r.to_sql('/tmp/foo.rgsn',overwrite=True)
     #s = read_sql('/tmp/foo.rgsn')

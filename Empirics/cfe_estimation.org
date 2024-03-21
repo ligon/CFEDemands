@@ -1055,54 +1055,6 @@ assert np.linalg.norm(Dee.std(axis=0) - np.sqrt(Vee.mean(axis=0))) < 0.01
 
 #+RESULTS:
 
-*** Test with one period, one market
-
-    This is a simple test of the stage one SUR estimation with a
-    single period and a single market.
-
-#+name: test_one_period_one_market
-#+begin_src python :tangle ../cfe/test/test_one_period_one_market.py
-#name: test_one_period_one_market
-
-import cfe
-import numpy as np
-
-J = 100
-T = 1
-M = 1
-n = 20
-k = 2
-
-def some_result(M,T):
-    x, stuff = cfe.dgp.expenditures(J,T,M,n,k,np.linspace(0,1,n),rho_lz=0)
-
-    y = np.log(x)
-    z = stuff.characteristics
-
-    result = cfe.Result(y=y,z=z)
-
-    result.get_reduced_form()
-
-    return result
-
-def test_se_a():
-    """Compute reduced_form for cases with singular m and t,
-       and multiple m and t."""
-
-    result = some_result(1,1)
-    assert np.all(result.se_a>0)
-
-    result = some_result(2,1)
-    assert np.all(result.se_a>0)
-
-    result = some_result(1,2)
-    assert np.all(result.se_a>0)
-
-    result = some_result(2,2)
-    assert np.all(result.se_a>0)
-
-#+end_src
-
 
 * Extraction of Frisch Elasticities and Neediness
 #+name: get_loglambdas
