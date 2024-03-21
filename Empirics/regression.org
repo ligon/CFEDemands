@@ -954,8 +954,9 @@ class Regression:
 
         d['attrs'] = self.attrs.copy()
 
-        with open(fn,'wb') as f:
-            pickle.dump(d,f)
+        #with open(fn,'wb') as f:
+        #    pickle.dump(d,f)
+        pd.to_pickle(d,fn)
 
 #+end_src
 ** Accessors
