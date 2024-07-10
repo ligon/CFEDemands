@@ -7,5 +7,10 @@ from . import input_files
 from consumerdemands import engel_curves
 from .regression import Regression, read_pickle #,read_sql
 
-from importlib.metadata import version # Set in file VERSION
+try: 
+    from importlib.metadata import version # Set in file VERSION
+except:
+    from importlib_metadata import version # for python 3.7.9
+
 __version__ = version('CFEDemands')
+
