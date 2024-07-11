@@ -24,17 +24,8 @@ https://pip.pypa.io/en/stable/installing/
         sudo python setup.py install
 
   3. Using git: Clone the repository found at
-     https://bitbucket.org/ligonresearch/cfedemands to someplace in
+     https://github.com/ligon/CFEDemands to someplace in
      your filesystem, e.g. (for user jrandom, on a machine with user
      directories under /home/)::
 
-        git clone git@bitbucket.org:ligonresearch/cfedemands.git /home/jrandom/CFEDemands
-
-
-
-   
-
-
-
-
-  
+        git clone git@github.com:ligon/CFEDemands.git /home/jrandom/CFEDemands
