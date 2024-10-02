@@ -2546,7 +2546,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
 
-def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_stats=None,math_delimiters=True):
+def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_stats=None,math_delimiters=True,print_heading=True):
     """
     Returns a pd.DataFrame in format which forms an org-table in an emacs buffer.
     Note that headers for code block should include ":results table raw".
@@ -2565,6 +2565,37 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_st
     BUGS: Dataframes that have multiindex columns can't be nicely represented as orgmode tables,
     but we do our best.
     """
+    def mypop(x,index=-1):
+        """Pop like a list, but pop of non-iterables returns x."""
+        if isinstance(x,str):
+            return x
+        try:
+            return x.pop(index)
+        except (IndexError,AttributeError):
+            return x
+        
+                
+    if isinstance(df,list):
+        if len(df)==0: return ''
+        col0 = df[0].columns  
+
+        current = df_to_orgtbl(mypop(df,0),mypop(tdf,0),mypop(sedf,0),conf_ints=mypop(conf_ints,0),
+                            float_fmt=mypop(float_fmt,0),bonus_stats=mypop(bonus_stats,0),
+                            math_delimiters=mypop(math_delimiters,0),print_heading=print_heading)
+
+        if len(df):
+            if np.all(df[0].columns==col0):
+                print_heading=False
+            else:
+                print_heading=True
+
+            return (current + '|-\n' +
+                df_to_orgtbl(df,tdf=tdf,sedf=sedf,conf_ints=conf_ints,float_fmt=float_fmt,
+                             bonus_stats=bonus_stats,math_delimiters=math_delimiters,print_heading=print_heading))
+        else:
+            return current
+            
+
     if len(df.shape)==1: # We have a series?
         df = pd.DataFrame(df)
 
@@ -2638,7 +2669,10 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_st
         except TypeError:
             return '| %s ' % str(x)
 
-    s = column_heading(df)
+    if print_heading:
+        s = column_heading(df)
+    else:
+        s = ''
 
     if (tdf is None) and (sedf is None) and (conf_ints is None):
         lastidx = ['']*levels
