@@ -2648,11 +2648,14 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_st
         if stats is None:
             return '|'*levels
         else:
-            stats = stats.loc[i]
-            assert levels >= len(stats), "Too many columns of bonus stats"
-            line = ['']*(levels-len(stats)+1)
-            line += stats.tolist()
-            return ' | '.join(line)
+            try:
+                statline = stats.loc[i]
+                assert levels >= len(statline), "Too many columns of bonus stats"
+                line = ['']*(levels-len(statline)+1)
+                line += statline.tolist()
+                return ' | '.join(line)
+            except (AttributeError,TypeError): # stats a dict or series?
+                return ' | ' + str(stats[i])
 
     def format_entry(x,stars='',se=False,float_fmt=float_fmt,math_delimiters=math_delimiters):
         try:
