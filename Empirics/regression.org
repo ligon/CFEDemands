@@ -537,7 +537,7 @@ def estimate_stderrs(y,scale):
 from scipy import sparse
 from timeit import default_timer as timer
 
-def estimate_w(y,beta,return_se=False,verbose=False):
+def estimate_w(y,beta,verbose=False):
     """
     Estimate regression $Mpi(Y - widehat{gamma(d)})  =  A(r) + hat{beta}w + e$.
     """
@@ -608,6 +608,21 @@ def estimate_w(y,beta,return_se=False,verbose=False):
     what = pd.Series(b[len(A.columns):(len(A.columns)+len(B.columns))],index=B.columns)
 
     return what,Ar,Ar_se,e3
+#+end_src
+
+#+name: code:wvar
+#+begin_src python
+def w_var(e,beta):
+
+    if len(e.shape)==1:
+        e = e.unstack('j')
+
+    sigma2=(beta@beta) # Should be principal eigenvalue of MdMpY
+
+    v = (e.multiply(beta,axis=1)**2).mean(axis=1)/sigma2
+
+    return v
+
 #+end_src
 ** Estimating Price Indices
 #+name: code:pi
@@ -1017,6 +1032,18 @@ class Regression:
 
         return self.beta_se
 
+    def w_se(self):
+        """Compute standard errors of estimated ws.
+        """
+        beta = self.get_beta()
+
+        if self.e3 is None: self.get_w()
+
+        v = w_var(self.e3,beta)
+
+        return np.sqrt(v)
+
+
     def get_gamma_d(self,verbose=None):
 
         if self.gamma_d is not None:
@@ -1280,6 +1307,16 @@ class Regression:
 
 
 #+end_src
+*** Predicted \lambda
+Here we want estimates of \lambda, or the antilog of $-w$.  We have a CLT for $w$ [cite:@bai03] and an expression for the asymptotic variance of $w$, say $\hat\sigma^2$.  Accordingly, we should have $\lambda = e^{-w}\approx \E e^{-\hat w + \hat\sigma^2/2}$.
+#+begin_src python
+    def predicted_lambda(self):
+        """Expected value of minus the antilog of $w$.
+        """
+        v = self.w_se()**2
+        lhat = np.exp(-self.w + v/2)
+
+        return lhat
 
 *** Estimate Everything
 #+begin_src python
