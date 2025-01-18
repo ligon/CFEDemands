@@ -2516,6 +2516,7 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
 import numpy as np
 from scipy import sparse
 import pandas as pd
+from pandas.errors import InvalidIndexError
 from warnings import warn
 
 def df_norm(a,b=None,ignore_nan=True,ord=None):
@@ -2573,11 +2574,11 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_st
             return x.pop(index)
         except (IndexError,AttributeError):
             return x
-        
-                
+
+
     if isinstance(df,list):
         if len(df)==0: return ''
-        col0 = df[0].columns  
+        col0 = df[0].columns
 
         current = df_to_orgtbl(mypop(df,0),mypop(tdf,0),mypop(sedf,0),conf_ints=mypop(conf_ints,0),
                             float_fmt=mypop(float_fmt,0),bonus_stats=mypop(bonus_stats,0),
@@ -2594,7 +2595,7 @@ def df_to_orgtbl(df,tdf=None,sedf=None,conf_ints=None,float_fmt='%5.3f',bonus_st
                              bonus_stats=bonus_stats,math_delimiters=math_delimiters,print_heading=print_heading))
         else:
             return current
-            
+
 
     if len(df.shape)==1: # We have a series?
         df = pd.DataFrame(df)
@@ -2881,7 +2882,10 @@ def drop_missing(X,infinities=False):
     return tuple(Y)
 
 def use_indices(df,idxnames):
-    return df.reset_index()[idxnames].set_index(df.index)
+    try:
+        return df.reset_index()[idxnames].set_index(df.index)
+    except InvalidIndexError:
+        return df
 #+END_SRC
 
 #+results: df_utils

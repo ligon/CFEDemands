@@ -1317,7 +1317,7 @@ Here we want estimates of \lambda, or the antilog of $-w$.  We have a CLT for $w
         lhat = np.exp(-self.w + v/2)
 
         return lhat
-
+#+end_src
 *** Estimate Everything
 #+begin_src python
     def estimate_all(self,verbose=None,heteroskedastic=False):
