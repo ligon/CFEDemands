@@ -824,7 +824,6 @@ def validate(y,pi,Ar,d,w,beta,gamma,GramSchmidt=False):
 import numpy as np
 import pandas as pd
 import warnings
-from sqlalchemy import create_engine
 from pathlib import Path
 from collections import namedtuple, OrderedDict
 from cfe.df_utils import is_none
@@ -927,34 +926,6 @@ class Regression:
 #+end_src
 ** Persistence
 #+begin_src python
-    def to_sql(self,fn=None,overwrite=False):
-        """
-        Save to sql database fn.
-        """
-        if overwrite: if_exists = 'replace'
-        else: if_exists = 'fail'
-
-        if fn is not None:
-            if not Path(fn).is_absolute():
-                fn = str(Path(__file__).absolute().parent.joinpath(fn))
-            loc = f'sqlite:///{fn}'
-        else:
-            loc = f'sqlite://'
-
-        engine = create_engine(loc, echo=False)
-        with engine.begin() as connection:
-            try:
-                for k in arrs.keys():
-                    try:
-                        x = getattr(self,k)
-                        if x is not None:
-                            x.to_sql(k,connection,if_exists=if_exists)
-                    except AttributeError:
-                        continue
-                pd.Series(self.attrs).to_sql('attrs',connection,if_exists=if_exists)
-            except ValueError:
-                raise IOError("To_sql would overwrite existing data.  Pass 'overwrite=True' if this is what you want.") from None
-
     def to_pickle(self,fn):
         """
         Write dictionary of attributes to a pickle.
@@ -1559,50 +1530,6 @@ Regression.relative_risk_aversion = _relative_risk_aversion
 
 
 * Read persistent Regression object
-** =read_sql=
-First =read_sql= provides the other half of an interface to a =sqlite= database.
-#+begin_src python
-from sqlalchemy import inspect, create_engine
-from ast import literal_eval as make_tuple
-
-def read_sql(fn):
-    """
-    Read Regression object from file fn.
-    """
-    if not Path(fn).is_absolute():
-        fn = str(Path(__file__).absolute().parent.joinpath(fn))
-    loc = f'sqlite:///{fn}'
-    engine = create_engine(loc, echo=False)
-
-    inspector = inspect(engine)
-
-    R = {}
-    with engine.begin() as connection:
-        for t in inspector.get_table_names():
-            R[t] = pd.read_sql(t,connection)
-            try:
-                R[t] = R[t].set_index(list(arrs[t][0])).squeeze()
-                if len(R[t].shape)>1: # still a dataframe
-                    colnames = []
-                    for l in arrs[t][1]:
-                        if l not in R[t].columns:
-                            colnames.append(l)
-                        else:
-                            R[t] = R[t].stack(l)
-                    if len(colnames)==1: # Just an index
-                        R[t].columns.names = colnames
-                    else: # Need a multiindex
-                        cols = [make_tuple(s) for s in R[t].columns]
-                        R[t].columns = pd.MultiIndex.from_tuples(cols,names=colnames)
-            except KeyError:
-                pass
-
-        if not len(R):
-            raise OSError(f'Trying to read empty file?  Check {loc}.')
-
-    return Regression(**R)
-
-#+end_src
 ** =read_pickle=
 #+begin_src python
 import pickle
