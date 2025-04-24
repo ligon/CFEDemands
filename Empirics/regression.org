@@ -695,6 +695,10 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     if 'k' in d.index.names:
         d = d.unstack('k')
 
+    assert d.index.names = ['i','t','m'], "Check names of index for d."
+    for l in range(3):
+        assert d.index.levels[l].dtype == y.index.levels[l].dtype, f"Mis-matched types for index of d & y in level {y.index.names[l]}."
+
     # Match up rows of d with y
     YD = pd.DataFrame({'y':y}).join(d,how='left')
 
