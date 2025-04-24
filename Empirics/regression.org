@@ -676,7 +676,7 @@ from types import SimpleNamespace
 from scipy.optimize import minimize_scalar
 
 def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
-    assert y.index.names == ['i','t','m','j']
+    assert y.index.names == ['i','t','m','j'], "Fix index names."
 
     # Drop household observations with fewer items than
     # min_prop_items*number of items
@@ -699,6 +699,8 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     YD = pd.DataFrame({'y':y}).join(d,how='left')
 
     YD = YD.dropna()
+
+    assert YD.shape[0]>0, "Join of y & d is empty."
 
     y = YD['y']  # Drops expenditures that lack corresponding d
 
