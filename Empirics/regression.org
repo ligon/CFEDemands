@@ -1352,7 +1352,7 @@ Here we want estimates of \lambda, or the antilog of $-w$.  We have a CLT for $w
 * Interface to demand module
 We've tucked code to calculate demands and related objects into =cfe.demands=.  The functions defined there generally take a list of parameters which define utility, along with variables such as price and budget that are mapped into quantities demanded, or other outcomes.
 
-Since after estimation a =result= instance has utility parameters recorded as attributes, it's convenient to provide the various demand functions as methods associated with the =Regression= class.
+Since after estimation a =Regression= instance has utility parameters recorded as attributes, it's convenient to provide the various demand functions as methods associated with the =Regression= class.
 
 #+name: regression_demand_interface
 #+begin_src python :noweb no-export :results output :tangle ../cfe/regression.py
