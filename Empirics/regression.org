@@ -678,9 +678,15 @@ from scipy.optimize import minimize_scalar
 def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     assert y.index.names == ['i','t','m','j'], "Fix index names."
 
+    # Deal with repeated observations
+    y = np.log(np.exp(y).groupby(y.index.names).sum())
+
+    y_in = y.copy()
+
+    Y = y.unstack('j')
+
     # Drop household observations with fewer items than
     # min_prop_items*number of items
-    Y = y.unstack('j')
     items = Y.count(axis=1)
     Y = Y[items>(min_prop_items*Y.shape[1])]
 
@@ -695,7 +701,7 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     if 'k' in d.index.names:
         d = d.unstack('k')
 
-    assert d.index.names = ['i','t','m'], "Check names of index for d."
+    assert d.index.names==['i','t','m'], "Check names of index for d."
     for l in range(3):
         assert d.index.levels[l].dtype == y.index.levels[l].dtype, f"Mis-matched types for index of d & y in level {y.index.names[l]}."
 
@@ -729,8 +735,14 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
     assert d.index.names == ['i','t','m']
     d.columns.name='k'
 
-    return y,d
-
+    if y_in.shape==y.shape:
+        return y,d
+    else:
+        # Repeat this, because if we drop some goods because not alltm,
+        # then that may drop some households below min_prop_item threshold
+        # and vice versa.
+        return prepare_data(y,d,min_obs=min_obs,min_prop_items=min_prop_items,alltm=alltm)
+ 
 def find_optimal_K(y,d,shuffles=30,verbose=False):
     nstar = int(minimize_scalar(lambda k: -kmean_controls(k,Mp(y),Mp(d),
                                                           shuffles=30,
