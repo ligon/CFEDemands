@@ -1356,6 +1356,16 @@ Here we want estimates of \lambda, or the antilog of $-w$.  We have a CLT for $w
 
         return lhat
 #+end_src
+*** Average Estimator of =w=
+It's possible to estimate =w= without first estimating \beta, etc. or using factor analysis.  We simply compute =Mpdy= (residuals from the SUR regression), then compute the mean across $j$ for every $(i,t,m)$.  The defect in this simple plan is that it relies on all households reporting positive expenditures for the same number of goods.  Still, this may not matter than much in practice.  It should be more efficient to weight by the reciprocal of the standard deviation of errors for each good, using a GLS sort of logic; this is made an option.
+#+begin_src python
+    def average_to_get_w(self,weight=False):
+        e = self.get_Mpdy()
+        sigmaj = e.groupby('j').transform('std')
+        w = (e/sigmaj).groupby(['i','t','m']).mean()
+
+        return w
+#+end_src
 *** Estimate Everything
 #+begin_src python
     def estimate_all(self,verbose=None,heteroskedastic=False):
