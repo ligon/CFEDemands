@@ -1,5 +1,6 @@
 # -*- org-src-preserve-indentation: t; -*-
 #+title: Regression
+#+auto_tangle: t
 #+PROPERTY: header-args:python :noweb no-export :results output :tangle ../cfe/regression.py :exports code :comments link :prologue (format "# Tangled on %s" (current-time-string)) :shebang "#!/usr/bin/env python"
 
 This file defines a class =Regression= which takes a regression approach to the estimation of a CFE demand system.  In contrast to the =Result= class we don't rely on =xarray=, and estimation is (hopefully!) more transparent.
@@ -225,7 +226,7 @@ Evaluate usefulness of clustering for predicting expenditures.
 ** \(\mathcal{M}_d\) operator
 Construct =Md= operator.  This can involve strictly categorical variables, in which case we can construct a non-parametric estimator of $\E(X|d=\tau)$ simply by taking means for every value of $\tau$ observed in the sample.    When the method is linear, we instead employ a linear projection.
 #+begin_src python
-def Md_generator(X,d,method='categorical',expected=False):
+def Md_generator(X,d,method='categorical',expected=False,Mpd=False):
     """
     Md operator, for either categorical or linear expectations.
 
@@ -238,6 +239,9 @@ def Md_generator(X,d,method='categorical',expected=False):
             if d.name is None: d.name = 'tau'
             groups = [d.name]
         if 'j' in X.index.names: groups += 'j'
+        if Mpd: groups += ['t','m']
+        groups = list(set(groups)) # Eliminate dupes
+
         Xg = pd.DataFrame({'X':X}).join(d,how='left').groupby(groups)
 
         gamma_d = Xg.transform("mean").squeeze()
@@ -248,9 +252,9 @@ def Md_generator(X,d,method='categorical',expected=False):
         MdX = X - gamma_d
 
     elif method=='linear':
-        # Add constant column if one doesn't exist in d
         d = pd.DataFrame(d)
 
+        # Add constant column if one doesn't exist in d
         d = d - d.mean()
         d['Constant'] = 1  # Constant just picks up means of X
 
@@ -265,7 +269,7 @@ def Md_generator(X,d,method='categorical',expected=False):
                         x = dj.get_group(j).droplevel('j')
                     else:
                         x = d
-                    EdX[j],Gamma[j] = Md_generator(y.droplevel('j'),x,method='linear',expected=True)
+                    EdX[j],Gamma[j] = Md_generator(y.droplevel('j'),x,method='linear',expected=True,Mpd=Mpd)
                 EdX = pd.DataFrame(EdX)
                 EdX.columns.name = 'j'
                 Gamma = pd.DataFrame(Gamma).T
@@ -286,7 +290,8 @@ def Md_generator(X,d,method='categorical',expected=False):
                         x = dj.get_group(j).droplevel('j')
                     else:
                         x = d
-                    MdX[j] = Md_generator(y.droplevel('j'),x,method='linear',expected=False)
+                    MdX[j] = Md_generator(y.droplevel('j'),x,
+                                          method='linear',expected=False,Mpd=Mpd)
                 MdX = pd.DataFrame(MdX)
                 MdX.columns.name = 'j'
 
@@ -300,12 +305,25 @@ def Md_generator(X,d,method='categorical',expected=False):
                 return MdX
         else:
             y,x = drop_missing([X,d])
+
+            if Mpd:
+                y = y - y.groupby(['t','m']).transform('mean')
+                x = x - x.groupby(['t','m']).transform('mean')
+
             gamma = np.linalg.lstsq(x,y,rcond=None)[0]
-            gamma_d = (d@gamma).squeeze()
-            gamma_d.name = 'gamma_d'
+
             gamma = pd.Series(gamma.squeeze(),index=x.columns)
 
-            if expected: return gamma_d,gamma
+            if expected:
+                # NB: d, not x? Yes, because we can predict even missing values
+                # this way.
+                gamma_d = (d@gamma).squeeze()
+                gamma_d.name = 'gamma_d'
+
+                return gamma_d,gamma
+            else:
+                gamma_d = (x@gamma).squeeze()
+                gamma_d.name = 'gamma_d'
 
             MdX = pd.Series(y.squeeze() - gamma_d,index=y.index)
 
@@ -334,14 +352,17 @@ def Md_generator(X,d,method='categorical',expected=False):
     return MdX
 
 def Ed(X,d,method='categorical'):
-    return Md_generator(X,d,method=method,expected=True)
+    return Md_generator(X,d,method=method,expected=True,Mpd=False)
+
+def Epd(X,d,method='categorical'):
+    return Md_generator(X,d,method=method,expected=True,Mpd=True)
 
 #+end_src
 
 ** \(\mathcal{M}_{(p,d)}\) operator
 
-#+begin_src python :tangle no
-def Mpd_generator(X,tau,method='categorical'):
+#+begin_src python
+def Mpd_generator(X,tau,method='categorical',Mpd=False):
     """
     Md operator, for either categorical or linear expectations.
 
@@ -398,7 +419,7 @@ def Mpd_generator(X,tau,method='categorical'):
 
 ** Compute $\MpMdy$
 #+begin_src python
-def estimate_MpMdy(y,d,K=None):
+def estimate_MpMdy(y,d,K=None,Mpd=False):
 
     if K is not None:
         d  = kmean_controls(K,Mp(y),Mp(d),classifiers=d.loc[:,d.dtypes == 'category'])
@@ -411,8 +432,11 @@ def estimate_MpMdy(y,d,K=None):
         if len(cats):
             d[cats] = d[cats].apply(lambda x: x.cat.codes)
 
-    Md = lambda x: Md_generator(x,d,method=method)
-    MpMd = lambda x: Mp(Md(x))
+    Md = lambda x: Md_generator(x,d,method=method,Mpd=False)
+    if Mpd:
+        MpMd = lambda x: Md_generator(x,d,method=method,Mpd=True)
+    else:
+        MpMd = lambda x: Mp(Md(x))
 
     MpMdy = MpMd(y)
 
@@ -891,7 +915,7 @@ class Regression:
     """
 
 
-    __slots__ = list(arrs.keys()) + ['attrs','Md','MpMd','Mp']
+    __slots__ = list(arrs.keys()) + ['attrs','Md','MpMd','Mp','Mpd']
 
     def __init__(self,
                  correct_miss=False,
@@ -904,6 +928,7 @@ class Regression:
                  min_obs=30,
                  min_prop_items=0.1,
                  alltm=True,
+                 Mpd=False,
                  ,**kwargs):
         """To load data, use cfe.read_sql() or cfe.read_pickle().
 
@@ -932,6 +957,7 @@ class Regression:
         attrs['min_obs'] = min_obs
         attrs['min_prop_items'] = min_prop_items
         attrs['alltm'] = alltm
+        attrs['Mpd'] = Mpd
 
         if self.attrs is None:
             self.attrs=attrs
@@ -965,8 +991,21 @@ class Regression:
 #+end_src
 ** Accessors
 #+begin_src python
+    def get_Mpdy(self):
+        """Residualize y, conditioning joint on p (via time-market-good fes) and d.
+        """
+
+        Mpdy,Md,Mpd,d = estimate_MpMdy(self.y,self.d,self.attrs['K'],Mpd=True)
+
+        self.Mpd = Mpd
+
+        return Mpdy
+
     def get_MpMdy(self):
-        MpMdy,Md,MpMd,d = estimate_MpMdy(self.y,self.d,self.attrs['K'])
+        """Residualize y, conditioning sequentially on d and then p (via time-market-good fes).
+        """
+
+        MpMdy,Md,MpMd,d = estimate_MpMdy(self.y,self.d,self.attrs['K'],Mpd=False)
 
         self.d = d
 
@@ -981,6 +1020,12 @@ class Regression:
 
         If estimate_se=True, compute standard errors and Variance matrix as a side-effect.
         """
+
+        if 'Mpd' in self.attrs and self.attrs['Mpd']:
+            residualize = self.get_Mpdy
+        else:
+            residualize = self.get_MpMdy
+
         if compute_se is None:
             compute_se = self.attrs['compute_se']
 
@@ -994,11 +1039,10 @@ class Regression:
 
         # If we get here, we want to compute beta_se, and haven't yet.
 
-        MpMdy = self.get_MpMdy()
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        b, seb, V = estimate_beta(MpMdy,verbose=verbose,return_se=compute_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
+        b, seb, V = estimate_beta(residualize(),verbose=verbose,return_se=compute_se,bootstrap_tol=bootstrap_tol,heteroskedastic=heteroskedastic)
         b = b.squeeze()
         if seb is not None:
             self.beta_se = seb.squeeze()
@@ -1033,10 +1077,15 @@ class Regression:
         return np.sqrt(v)
 
 
-    def get_gamma_d(self,verbose=None):
+    def get_gamma_d(self,verbose=None,Mpd=None):
 
         if self.gamma_d is not None:
             return self.gamma_d
+
+        if Mpd is None and 'Mpd' in self.attrs:
+            Mpd = self.attrs['Mpd']
+        else:
+            Mpd = False # Legacy
 
         gamma_d,gamma = Ed(self.y,self.d,method=self.attrs['method'])
 
@@ -1065,7 +1114,7 @@ class Regression:
         if verbose is None:
             verbose = self.attrs['verbose']
 
-        gamma_d = self.get_gamma_d(verbose=verbose)
+        gamma_d = self.get_gamma_d(verbose=verbose,Mpd=False)
 
         y0 = (Mpi(self.y - gamma_d)).dropna()
 
@@ -1310,6 +1359,11 @@ Here we want estimates of \lambda, or the antilog of $-w$.  We have a CLT for $w
 *** Estimate Everything
 #+begin_src python
     def estimate_all(self,verbose=None,heteroskedastic=False):
+        warnings.warn(
+            "estimate_all is deprecated. Use other methods, e.g. get_pi instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
         lhs = self.y
         # 1. Estimate gamma
