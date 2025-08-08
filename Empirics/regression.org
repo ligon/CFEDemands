@@ -1361,7 +1361,10 @@ It's possible to estimate =w= without first estimating \beta, etc. or using fact
 #+begin_src python
     def average_to_get_w(self,weight=False):
         e = self.get_Mpdy()
-        sigmaj = e.groupby('j').transform('std')
+        if weight:
+            sigmaj = e.groupby('j').transform('std')
+        else:
+            sigmaj = 1
         w = (e/sigmaj).groupby(['i','t','m']).mean()
 
         return w
