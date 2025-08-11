@@ -709,14 +709,16 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
 
     Y = y.unstack('j')
 
+    if alltm:
+        alltm = Y.groupby(['t','m']).count().replace(0,np.nan).dropna(axis=1).columns.tolist()
+        Y = Y[alltm]
+    else:
+        Y.loc[:,Y.count()>min_obs] # Guaranteed to drop in drop_covariance
+
     # Drop household observations with fewer items than
     # min_prop_items*number of items
     items = Y.count(axis=1)
     Y = Y[items>(min_prop_items*Y.shape[1])]
-
-    if alltm:
-        alltm = Y.groupby(['t','m']).count().replace(0,np.nan).dropna(axis=1).columns.tolist()
-        Y = Y[alltm]
 
     y = Y.stack('j').dropna()
 
@@ -766,7 +768,7 @@ def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
         # then that may drop some households below min_prop_item threshold
         # and vice versa.
         return prepare_data(y,d,min_obs=min_obs,min_prop_items=min_prop_items,alltm=alltm)
- 
+
 def find_optimal_K(y,d,shuffles=30,verbose=False):
     nstar = int(minimize_scalar(lambda k: -kmean_controls(k,Mp(y),Mp(d),
                                                           shuffles=30,
