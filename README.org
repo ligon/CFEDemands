@@ -1,0 +1,55 @@
+#+TITLE: Constant Frisch Elasticity Demand Systems
+#+AUTHOR: 
+#+DATE: 
+
+* Overview
+
+This repository contains code for working with Constant Frisch
+Elasticity (CFE) demand systems.
+
+#+CAPTION: DOI
+[[https://doi.org/10.5281/zenodo.17258292][https://zenodo.org/badge/827044619.svg]]
+
+* Installation
+
+The preferred installation method uses =pip=. If you don't have it
+installed (or if your installation is old), see
+https://pip.pypa.io/en/stable/installing/
+
+** Method 1: Using pip
+
+#+begin_src sh
+pip install CFEDemands
+#+end_src
+
+** Method 2: As a Python package
+
+Download and unzip/untar the relevant archive from
+https://pypi.python.org/pypi/CFEDemands/, then:
+
+#+begin_src sh
+cd CFEDemands-[version]/
+sudo python setup.py install
+#+end_src
+
+** Method 3: Using git
+
+Clone the repository from https://github.com/ligon/CFEDemands to a
+location in your filesystem, e.g. (for user jrandom, on a machine with
+user directories under /home/):
+
+#+begin_src sh
+git clone git@github.com:ligon/CFEDemands.git /home/jrandom/CFEDemands
+#+end_src
+
+* Usage
+
+After installation, import the package in Python using:
+
+#+begin_src python
+import cfe
+#+end_src
+
+Note: The package name for installation is =CFEDemands=, but the
+import name is =cfe=.
+
