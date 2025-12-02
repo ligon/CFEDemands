@@ -95,7 +95,7 @@ def agg_shares_and_mean_shares(df,figname=None,ConfidenceIntervals=False,ax=None
     if sort.lower() == 'first':
         tab['sort'] = tab[('Agg. shares',meanshares.columns[0])]
     elif sort.lower() == 'average':
-        tab['sort'] = tab.groupby('l',axis=1).mean()['Agg. shares']
+        tab['sort'] = tab.T.groupby('l').mean()['Agg. shares']
     else:
         raise ValueError("Invalid sort option")
 
