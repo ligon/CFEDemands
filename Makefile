@@ -14,33 +14,29 @@ tangle: .tangle
 	(cd Files; ../tangle.sh input_files.org)
 	touch .tangle
 
-test: .test 
+test: .test
 
 .test: .tangle
-	pytest cfe/test/
+	poetry run pytest cfe/test/
 	touch .test
 
-wheel: pyproject.toml tangle test CHANGES.txt #cfe/requirements.txt
-	pip wheel --wheel-dir=dist/ .
+wheel: pyproject.toml tangle test CHANGES.txt
+	poetry build
 
 CHANGES.txt:
 	git log --pretty='medium' > CHANGES.txt
 
-cfe/requirements.txt:
-	(cd cfe; pigar generate)
-
 localinstall: clean wheel
-	(cd dist; pip install CFEDemands*.whl) # --upgrade)
+	poetry install
 
-devinstall: tangle test 
-	pip install -e .
+devinstall: tangle test
+	poetry install
 
 upload: wheel
-	twine upload dist/cfedemands*.whl
+	poetry publish
 
-clean: 
+clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
-	-rm -f cfe/requirements.txt
 	-rm -f CHANGES.txt
 	-rm -f .test
 	-rm -f .tangle
