@@ -1657,7 +1657,6 @@ def read_pickle(fn,cache_dir=None):
 * Example of Use
 ** Artificial Data & Test
 #+begin_src python :tangle ../cfe/test/test_regression.py
-from cfe.df_utils import to_dataframe, df_to_orgtbl
 import pandas as pd
 import numpy as np
 from cfe.dgp import prices, expenditures, geometric_brownian
@@ -1668,18 +1667,20 @@ def data(N=10000,T=2,M=1,J=60,k=1,return_truth=False):
     Return data on log expenditures & household characteristics.
     """
     p = prices(T,M,J,geometric_brownian(sigma=2))
-    #print(np.log(p).mean('i'))
 
     x,truth = expenditures(N,T,M,J,k,np.linspace(.2,5,J),mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,p=p)
 
-    d = to_dataframe(truth.characteristics,'k')
-    d.index.names = ['i','t','m']
+    # truth['characteristics'] is a DataFrame with MultiIndex (j,t,m) and columns k
+    d = truth['characteristics'].copy()
+    # Rename index to match expected convention (i instead of j for households)
+    d.index = d.index.set_names(['i','t','m'])
 
     # Missing data on y, but not d?
     assert d.shape[0] == d.dropna().shape[0]
 
-    y = to_dataframe(np.log(x))
-    y.index.names = ['i','t','m','j']
+    # x is a Series with MultiIndex (j,t,m,i); take log and rename index
+    y = np.log(x)
+    y.index = y.index.set_names(['i','t','m','j'])
 
     # Match up rows of d with y
     YD = pd.DataFrame({'y':y}).join(d,how='left')
@@ -1699,8 +1700,6 @@ def main():
     y,d,truth = data(N=1000,J=10,return_truth=True)
     r = rgsn.Regression(y=y,d=d,compute_se=False,K=None,bootstrap_tol=0.005,verbose=False)
     r.get_predicted_log_expenditures()
-    #r.to_sql('/tmp/foo.rgsn',overwrite=True)
-    #s = read_sql('/tmp/foo.rgsn')
 
     return r
 

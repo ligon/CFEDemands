@@ -1268,19 +1268,13 @@ We begin by generating some artificial data on expenditures.
 #+BEGIN_SRC python :noweb no-export :results output
 #name: artificial_data
 
+import numpy as np
 import pandas as pd
-<<lambdas_dgp>> #lambdas
-<<prices_dgp>> # prices
-<<characteristics_dgp>> # characteristics
-
-<<expenditures_dgp>>
+from cfe.dgp import expenditures
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
-
     x,truth=expenditures(N,T,M,n,k,beta=np.linspace(1,3,n),sigma_phi=sigma_phi,sigma_eps=sigma_e)
-
     y=np.log(x)
-
     return y,truth
 
 #+END_SRC
@@ -1297,8 +1291,10 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
 def test_artificial_data(T=2,N=50,n=5,k=2):
     y,truth=artificial_data(T=T,N=N,k=k,n=n,sigma_e=1e-8)
 
-    assert y.shape == (N,T,1,n)
-    assert truth['characteristics'].shape == (k,N,T,1)
+    # y is a pandas Series with MultiIndex (j,t,m,i)
+    assert len(y) == N * T * 1 * n
+    # characteristics is a DataFrame with shape (N*T*M, k)
+    assert truth['characteristics'].shape == (N * T * 1, k)
 #+end_src
 
 *** Alternative approach to estimation using interactive fixed effects
@@ -3024,8 +3020,7 @@ def use_indices(df,idxnames):
 import numpy as np
 import pandas as pd
 from cfe.df_utils import df_norm
-from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
-from cfe.df_utils import to_dataframe
+from cfe.dgp import expenditures
 import pytest
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
@@ -3034,7 +3029,8 @@ def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
     return y,truth
 
 a,truth=artificial_data(T=2,N=5000,k=2,n=10,sigma_e=1e-10)
-a = to_dataframe(a,['j','t','m']).T
+# expenditures returns Series with MultiIndex (j,t,m,i); unstack to DataFrame
+a = a.unstack('i')
 # create another random matrix for subtracting
 b = pd.DataFrame(np.random.normal(size = a.shape), index = a.index, columns = a.columns)
 
@@ -3591,8 +3587,7 @@ Test the merge_multi() function, comparing it to pandas join().
 import numpy as np
 import pandas as pd
 from cfe.df_utils import merge_multi
-from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
-from cfe.df_utils import to_dataframe
+from cfe.dgp import expenditures
 import pytest
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
@@ -3604,7 +3599,8 @@ N = 5000
 tol = 1e-4
 
 a,truth=artificial_data(T=2,N=N,k=2,n=10,sigma_e=1e-10)
-a = to_dataframe(a,['j','t','m']).T
+# expenditures returns Series with MultiIndex (j,t,m,i); unstack to DataFrame
+a = a.unstack('i')
 
 # make a dataframe with a subset of the index of the previous one
 b = pd.DataFrame(np.random.normal(size=(N,1)), columns = ['b'])
