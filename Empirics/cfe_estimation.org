@@ -1389,7 +1389,7 @@ plt.scatter(u[:,0],np.log(truth['lambdas']).squeeze())
 #name: test_estimate_with_missing
 
 import numpy as np
-from cfe.result import to_dataframe
+from cfe.df_utils import to_dataframe
 
 try:
     SEED
@@ -2898,7 +2898,7 @@ import numpy as np
 import pandas as pd
 from cfe.df_utils import df_norm
 from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
-from cfe.result import to_dataframe
+from cfe.df_utils import to_dataframe
 import pytest
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
@@ -3113,7 +3113,7 @@ import numpy as np
 import pandas as pd
 
 from cfe.dgp import geometric_brownian
-from cfe.result import to_dataframe
+from cfe.df_utils import to_dataframe
 
 J=100
 n=12
@@ -3137,7 +3137,7 @@ import numpy as np
 
 from cfe.df_utils import arellano_robust_cov, ols, use_indices, drop_missing
 from cfe.dgp import expenditures
-from cfe.result import to_dataframe
+from cfe.df_utils import to_dataframe
 
 # r packages
 try:
@@ -3465,7 +3465,7 @@ import numpy as np
 import pandas as pd
 from cfe.df_utils import merge_multi
 from cfe.dgp import expenditures #, lambdas, characteristics, measurement_error
-from cfe.result import to_dataframe
+from cfe.df_utils import to_dataframe
 import pytest
 
 def artificial_data(T=2,N=120,M=1,k=2,n=4,sigma_e=0.001,sigma_phi=0.1):
