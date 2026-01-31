@@ -242,3 +242,128 @@ it may not be positive definite.
   B=pd.concat(B,axis=1,names=range(11))
 
 #+END_SRC
+
+
+* xarray-based Data Generating Process (replaced by pandas version)
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2026-01-30
+  :ARCHIVE_FILE: ~/Research/CFEDemands/Empirics/cfe_estimation.org
+  :ARCHIVE_OLPATH: Monte Carlo Data Generating Process
+  :ARCHIVE_CATEGORY: cfe_estimation
+  :END:
+
+The following xarray-based DGP code was replaced by a pandas-only
+implementation to remove the xarray dependency.
+
+** lambdas_dgp
+#+BEGIN_SRC python :tangle no
+from scipy.stats.distributions import lognorm
+import numpy as np
+
+import warnings
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore",category=UserWarning)
+    import xarray as xr
+
+
+def geometric_brownian(sigma=1.):
+    return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
+
+def lambdabar(T,M,Fbar):
+    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
+                        dims=('t','m'),
+                        coords={'t':range(T),'m':range(M)})
+
+def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
+
+    L0 = xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
+                    coords={'j':range(N),'t':range(1),'m':range(M)})
+    innov = xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
+                             coords={'j':range(N),'t':range(1,T),'m':range(M)})
+
+    L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
+
+    return L*lambdabar(T,M,Fbar=Fbar)
+#+END_SRC
+
+** characteristics_dgp
+#+BEGIN_SRC python :tangle no
+def characteristics(N,T,M=1):
+    z = lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
+    return z
+#+END_SRC
+
+** prices_dgp
+#+BEGIN_SRC python :tangle no
+def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownian(.2)):
+
+    P0 = xr.DataArray(G0.rvs(size=(n,1,M)),dims=('i','t','m'),
+                      coords={'i':range(n),'t':range(1),'m':range(M)})
+    innov = xr.DataArray(F.rvs(size=(n,T-1,M)),dims=('i','t','m'),
+                               coords={'i':range(n),'t':range(1,T),'m':range(M)})
+
+    P = xr.concat((P0,innov),dim='t').transpose('t','m','i')
+
+    return P*lambdabar(T,M,Fbar=Fbar)
+#+END_SRC
+
+** measurement_error_dgp
+#+BEGIN_SRC python :tangle no
+import pandas as pd
+from scipy.stats import distributions
+import numpy as np
+
+def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
+    def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
+        return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
+
+    def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
+        return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
+
+    phi=additive_error(N,T,M,n,sigma=sigma_phi)
+    eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
+
+    return phi,eps
+#+END_SRC
+
+** expenditures_dgp
+#+BEGIN_SRC python :tangle no
+def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None,rho_lz=0):
+
+    if len(beta.shape)<2:
+        Theta=xr.DataArray(np.diag(beta),dims=('i','ip'))
+    else:
+        Theta=xr.DataArray(beta,dims=('i','ip'))
+
+    beta=Theta.sum('ip')
+
+    l = lambdas(N,T,M,Fbar=Fbar)
+
+    foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
+
+    z = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
+
+    l = l*(z**rho_lz).prod('k')
+
+    L = np.reshape(l,(N,T,M))
+
+    if p is None:
+        p = prices(T,M,n)
+
+    x = np.log(L)*(-beta)
+    x = x + np.log(p) - (Theta*np.log(p)).sum('ip')
+    x = x + np.log(z).sum('k')
+
+    x = np.exp(x)
+
+    phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
+
+    truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':z,'prices':p,'x0':x})
+
+    x = (x + p*phi)
+    x = x*e
+
+    x = x*(x>0)
+
+    return x,truth
+#+END_SRC

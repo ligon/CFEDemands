@@ -2305,215 +2305,16 @@ We randomly generate several different kinds of data: "neediness"  $\lambda_{it}
    geometric innovation is one, by construction, so both individual
    and aggregate \lambda processes are martingales.
 
-#+name: lambdas_dgp
+   The xarray-based implementation has been archived to
+   =cfe_estimation.org_archive= and replaced with a pandas-only
+   version below.
+
+** Data Generating Process
+   This module generates synthetic expenditure data for testing and
+   simulation. It uses pandas DataFrames and Series with MultiIndex.
+
+#+name: dgp
 #+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp.py
-#name: lambdas_dgp
-
-from scipy.stats.distributions import lognorm
-import numpy as np
-
-import warnings
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=UserWarning)
-    import xarray as xr
-
-
-def geometric_brownian(sigma=1.):
-    return lognorm(s=sigma,scale=np.exp(-(sigma**2)/2))
-
-def lambdabar(T,M,Fbar):
-    return xr.DataArray(np.cumprod(Fbar.rvs(size=(T,M)),axis=0),
-                        dims=('t','m'),
-                        coords={'t':range(T),'m':range(M)})
-
-def lambdas(N,T,M=1,G0=lognorm(.5),Fbar=geometric_brownian(.1),F=geometric_brownian(.2)):
-
-    L0 = xr.DataArray(G0.rvs(size=(N,1,M)),dims=('j','t','m'),
-                    coords={'j':range(N),'t':range(1),'m':range(M)})  # Initial lambdas
-    innov = xr.DataArray(F.rvs(size=(N,T-1,M)),dims=('j','t','m'),
-                             coords={'j':range(N),'t':range(1,T),'m':range(M)})
-
-    L = xr.concat((L0,innov),dim='t').transpose('j','t','m')
-
-    # Add aggregate shocks Lbar:
-    return L*lambdabar(T,M,Fbar=Fbar)
-#+END_SRC
-
-  In addition, time-varying household characteristics can affect
-  demands.
-#+name: characteristics_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-#name: characteristics_dgp
-
-def characteristics(N,T,M=1):
-    z = lambdas(N,T,M,Fbar=geometric_brownian(.05),F=geometric_brownian(0.1))
-    return z
-#+END_SRC
-
-
-** Data-generating process for $\{p_t\}$
-    Next we construct an $n\times T$ matrix of prices for different
-    consumption goods.  As with the process generating the
-    $\lambda_{it}$, these are also assumed to satisfy a martingale
-    process (so we can re-purpose code for generating \(\lambda\)s here):
-#+name: prices_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-#name: prices_dgp
-
-def prices(T,M,n,G0=lognorm(.5),Fbar=geometric_brownian(.05),F=geometric_brownian(.2)):
-
-    P0 = xr.DataArray(G0.rvs(size=(n,1,M)),dims=('i','t','m'),
-                      coords={'i':range(n),'t':range(1),'m':range(M)})  # Initial lambdas
-    innov = xr.DataArray(F.rvs(size=(n,T-1,M)),dims=('i','t','m'),
-                               coords={'i':range(n),'t':range(1,T),'m':range(M)})
-
-    P = xr.concat((P0,innov),dim='t').transpose('t','m','i')
-
-    # Add aggregate shocks L0:
-    return P*lambdabar(T,M,Fbar=Fbar)
-#+END_SRC
-
-** Data-generating process for measurement error
-    As discussed above, there are three sources of measurement error
-    in expenditures; an additive error; a multiplicative error, and
-    truncation.
-
-    The following routine returns a normally distributed additive
-    error, and a log-normally distributed multiplicative error.
-    Truncation can only be accomplished after the "true" expenditures
-    are generated below.
-#+name: measurement_error_dgp
-#+BEGIN_SRC python :results value
-#name: measurement_error_dgp
-
-import pandas as pd
-from scipy.stats import distributions
-import numpy as np
-
-def measurement_error(N,T,M,n,mu_phi=0.,sigma_phi=0.,mu_eps=0.,sigma_eps=1.):
-    """Return samples from two measurement error processes; one additive, the other  multiplicative.
-
-    - The additive error (phi) is a normal distribution with mean
-      =mu_phi= and standard deviation =sigma_phi=.
-
-    - The multiplicative error (eps) is a log-normal distribution with mean
-      =mu_eps= and standard deviation =sigma_eps=.
-    """
-
-    def additive_error(N=N,T=T,M=M,n=n,sigma=sigma_phi):
-        return xr.DataArray(distributions.norm.rvs(scale=sigma,size=(N,T,M,n)) + mu_phi,dims=('j','t','m','i'))
-
-    def multiplicative_error(N=N,T=T,M=M,n=n,sigma=sigma_eps):
-        return xr.DataArray(np.exp(distributions.norm.rvs(loc=-sigma/2.,scale=sigma,size=(N,T,M,n)) + mu_eps),dims=('j','t','m','i'))
-
-    phi=additive_error(N,T,M,n,sigma=sigma_phi)
-    eps=multiplicative_error(N,T,M,n,sigma=sigma_eps)
-
-    return phi,eps
-#+END_SRC
-
-** Data-generating process for expenditures
-
-    We assume an addilog preference structure, generalized to allow
-    for specific-substitution effects (but note that such effects
-    violate symmetry of the Slutsky substitution matrix, and so should
-    be regarded as a form of  specification error).  These
-    elasticities are taken to be common across households (i.e., the
-    curvature parameters in the addilog utilities are assumed equal);
-    however, multiplicative terms are allowed to vary across
-    households and goods, so that the direct momentary utility
-    function for household $j$ can be written
-    #
-    \[
-       U^j(c) = \sum_{i=1}^n\alpha^j_i\prod_{k=1}^n\frac{(c^j_{kt})^{1-1/\theta_{ik}} - 1}{1-1/\theta_{ik}}.
-    \]
-    #
-    With this structure, log Frischian expenditures are
-    #
-    \[
-       \log x^j_{it} = \log\alpha^j_i + \log p_{it} - \sum_{k=1}^n(\theta_{ik})\log p_{kt} - \beta_i\log\lambda^j_t,
-    \]
-    #
-    where $\beta_i=\sum_{k=1}^n(\theta_{ik})$ is the \(i\)th row-sum
-    of the matrix $\Theta$.  Instantiated in code:
-#+name: expenditures_dgp
-#+BEGIN_SRC python :noweb no-export :results silent :exports code :tangle ../cfe/dgp.py
-#name: expenditures_dgp
-
-<<measurement_error_dgp>>
-
-def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar=geometric_brownian(.001),p=None,rho_lz=0):
-    """Generate artificial expenditures for $N$ households in $M$ markets
-    over $T$ periods on $n$ items.  Return dataframe of expenditures
-    and a dictionary of "true" underlying variables, the latter as
-    type =xarray.DataArray=.
-
-    Households are distinguished by a $k$-vector of characteristics,
-    but common Frisch elasticities expressed as an $n$-vector beta.
-
-    If supplied, optional arguments
-    (mu_phi,sigma_phi,mu_eps,sigma_eps) describe the parameters of two
-    different measurement error processes.  The first is a normally
-    distributed additive measurement error process, with mean =mu_phi=
-    and standard deviation =sigma_phi=.  The second is a
-    multiplicative log-normal error process, with (log) mean =mu_eps=
-    and (log) standard deviation =sigma_eps=.
-
-    An optional xarray of prices =p= can also be provided.
-
-    A parameter rho_lz (with default of zero) can be specified to
-    induce a correlation between characteristics z and log lambdas.
-
-    Ethan Ligon                                                     January 2018
-    """
-
-    if len(beta.shape)<2:
-        Theta=xr.DataArray(np.diag(beta),dims=('i','ip'))
-    else:
-        Theta=xr.DataArray(beta,dims=('i','ip'))
-
-    beta=Theta.sum('ip') # Row sum of elasticity matrix
-
-    l = lambdas(N,T,M,Fbar=Fbar)
-
-    foo = xr.DataArray(data=[chr(i) for i in range(ord('a'),ord('a')+k)],name='k',dims='k')
-
-    z = xr.concat([characteristics(N,T,M) for i in range(k)],dim=foo)
-
-    l = l*(z**rho_lz).prod('k')
-
-    L = np.reshape(l,(N,T,M))
-
-    if p is None:
-        p = prices(T,M,n)
-
-    # Build x in steps
-    #x = np.kron(np.log(L),-beta)
-    x = np.log(L)*(-beta)
-    x = x + np.log(p) - (Theta*np.log(p)).sum('ip')
-    x = x + np.log(z).sum('k')
-
-    x = np.exp(x)
-
-    phi,e=measurement_error(N,T,M,n,mu_phi=mu_phi,sigma_phi=sigma_phi,mu_eps=mu_eps,sigma_eps=sigma_eps)
-
-    truth = xr.Dataset({'beta':beta,'lambdas':l,'characteristics':z,'prices':p,'x0':x})
-
-    x = (x + p*phi) # Additive error
-    x = x*e # Multiplicative error
-
-    x = x*(x>0) # Truncation
-
-    return x,truth
-#+END_SRC
-
-** Pandas-only DGP (no xarray dependency)
-   This module provides the same functionality as =cfe.dgp= but uses pandas
-   DataFrames and Series with MultiIndex instead of xarray DataArrays.
-   This allows removing the xarray dependency.
-
-#+name: dgp_pandas
-#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp_pandas.py
 """Data generating process for CFE demands using pandas (no xarray dependency)."""
 
 from scipy.stats.distributions import lognorm
@@ -2740,19 +2541,18 @@ def expenditures(N, T, M, n, k, beta, mu_phi=0, sigma_phi=0., mu_eps=0, sigma_ep
     return x_out, truth
 #+END_SRC
 
-*** Test equivalence of xarray and pandas DGP
-#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/test/test_dgp_equivalence.py
-"""Test equivalence between xarray-based dgp and pandas-based dgp_pandas."""
+*** Test DGP module
+#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/test/test_dgp.py
+"""Tests for the data generating process module."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-# Set seed for reproducibility
 SEED = 42
 
-def test_existing_dgp_smoke():
-    """Smoke test for existing xarray-based dgp."""
+def test_dgp_expenditures():
+    """Test that dgp.expenditures produces valid output."""
     np.random.seed(SEED)
     from cfe import dgp
 
@@ -2761,111 +2561,77 @@ def test_existing_dgp_smoke():
 
     x, truth = dgp.expenditures(N, T, M, n, k, beta)
 
-    # Check shapes
-    assert x.shape == (N, T, M, n), f"Expected {(N, T, M, n)}, got {x.shape}"
-    assert truth['beta'].shape == (n,)
-    assert truth['lambdas'].shape == (N, T, M)
-    assert truth['characteristics'].shape == (k, N, T, M)
-    assert truth['prices'].shape == (T, M, n)
-    assert truth['x0'].shape == (N, T, M, n)
+    # x should be a Series with MultiIndex
+    assert isinstance(x, pd.Series)
+    assert len(x) == N * T * M * n
+    assert x.index.names == ['j', 't', 'm', 'i']
 
-    # Check no NaNs in core outputs
-    assert not np.isnan(x.values).all()
-    assert not np.isnan(truth['lambdas'].values).any()
-
-
-def test_pandas_dgp_smoke():
-    """Smoke test for pandas-based dgp."""
-    np.random.seed(SEED)
-    from cfe import dgp_pandas
-
-    N, T, M, n, k = 10, 5, 2, 8, 3
-    beta = np.ones(n) * 0.5
-
-    x, truth = dgp_pandas.expenditures(N, T, M, n, k, beta)
-
-    # x should be a DataFrame or Series with MultiIndex
-    assert isinstance(x, (pd.DataFrame, pd.Series))
-    assert len(x) == N * T * M * n  # Total observations
-
-    # truth should be a dict of pandas objects
+    # truth should be a dict with expected keys
     assert isinstance(truth, dict)
-    assert 'beta' in truth
-    assert 'lambdas' in truth
-    assert 'characteristics' in truth
-    assert 'prices' in truth
-    assert 'x0' in truth
+    assert set(truth.keys()) == {'beta', 'lambdas', 'characteristics', 'prices', 'x0'}
+
+    # Check beta shape
+    assert len(truth['beta']) == n
+
+    # Check lambdas
+    assert isinstance(truth['lambdas'], pd.Series)
+    assert len(truth['lambdas']) == N * T * M
+
+    # Check characteristics
+    assert isinstance(truth['characteristics'], pd.DataFrame)
+    assert truth['characteristics'].shape == (N * T * M, k)
+
+    # Check prices
+    assert isinstance(truth['prices'], pd.Series)
+    assert len(truth['prices']) == T * M * n
+
+    # Check no unexpected NaNs
+    assert not truth['lambdas'].isna().any()
+    assert not truth['prices'].isna().any()
 
 
-def test_dgp_equivalence():
-    """Test that xarray and pandas dgp produce equivalent results."""
-    N, T, M, n, k = 10, 5, 2, 8, 3
+def test_dgp_lambdas():
+    """Test lambdas function."""
+    np.random.seed(SEED)
+    from cfe import dgp
+
+    N, T, M = 10, 5, 2
+    l = dgp.lambdas(N, T, M)
+
+    assert isinstance(l, pd.Series)
+    assert len(l) == N * T * M
+    assert l.index.names == ['j', 't', 'm']
+    assert (l > 0).all()  # Lambdas should be positive
+
+
+def test_dgp_prices():
+    """Test prices function."""
+    np.random.seed(SEED)
+    from cfe import dgp
+
+    T, M, n = 5, 2, 8
+    p = dgp.prices(T, M, n)
+
+    assert isinstance(p, pd.Series)
+    assert len(p) == T * M * n
+    assert p.index.names == ['t', 'm', 'i']
+    assert (p > 0).all()  # Prices should be positive
+
+
+def test_dgp_reproducibility():
+    """Test that setting seed produces reproducible results."""
+    from cfe import dgp
+
+    N, T, M, n, k = 5, 3, 2, 4, 2
     beta = np.ones(n) * 0.5
 
-    # Generate with same seed
     np.random.seed(SEED)
-    from cfe import dgp
-    x_xr, truth_xr = dgp.expenditures(N, T, M, n, k, beta)
+    x1, _ = dgp.expenditures(N, T, M, n, k, beta)
 
     np.random.seed(SEED)
-    from cfe import dgp_pandas
-    x_pd, truth_pd = dgp_pandas.expenditures(N, T, M, n, k, beta)
+    x2, _ = dgp.expenditures(N, T, M, n, k, beta)
 
-    # Convert xarray to comparable format
-    x_xr_flat = x_xr.values.flatten()
-    x_pd_flat = x_pd.values.flatten() if hasattr(x_pd, 'values') else np.array(x_pd).flatten()
-
-    # Compare expenditures
-    np.testing.assert_allclose(x_xr_flat, x_pd_flat, rtol=1e-10,
-                               err_msg="Expenditures don't match")
-
-    # Compare beta
-    beta_xr = truth_xr['beta'].values
-    beta_pd = truth_pd['beta'].values if hasattr(truth_pd['beta'], 'values') else np.array(truth_pd['beta'])
-    np.testing.assert_allclose(beta_xr, beta_pd, rtol=1e-10,
-                               err_msg="Beta doesn't match")
-
-    # Compare lambdas
-    l_xr = truth_xr['lambdas'].values.flatten()
-    l_pd = truth_pd['lambdas'].values.flatten()
-    np.testing.assert_allclose(l_xr, l_pd, rtol=1e-10,
-                               err_msg="Lambdas don't match")
-
-
-def test_lambdas_equivalence():
-    """Test lambdas function equivalence."""
-    N, T, M = 10, 5, 2
-
-    np.random.seed(SEED)
-    from cfe import dgp
-    l_xr = dgp.lambdas(N, T, M)
-
-    np.random.seed(SEED)
-    from cfe import dgp_pandas
-    l_pd = dgp_pandas.lambdas(N, T, M)
-
-    l_xr_flat = l_xr.values.flatten()
-    l_pd_flat = l_pd.values.flatten()
-
-    np.testing.assert_allclose(l_xr_flat, l_pd_flat, rtol=1e-10)
-
-
-def test_prices_equivalence():
-    """Test prices function equivalence."""
-    T, M, n = 5, 2, 8
-
-    np.random.seed(SEED)
-    from cfe import dgp
-    p_xr = dgp.prices(T, M, n)
-
-    np.random.seed(SEED)
-    from cfe import dgp_pandas
-    p_pd = dgp_pandas.prices(T, M, n)
-
-    p_xr_flat = p_xr.values.flatten()
-    p_pd_flat = p_pd.values.flatten()
-
-    np.testing.assert_allclose(p_xr_flat, p_pd_flat, rtol=1e-10)
+    pd.testing.assert_series_equal(x1, x2)
 #+END_SRC
 
 * Utility Functions
