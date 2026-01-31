@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "CFEDemands"
-version = "0.8.0"
+version = "0.8.1"
 description = "Tools for estimating and computing Constant Frisch Elasticity (CFE) demands."
 authors = ["Ethan Ligon <ligon@berkeley.edu>"]
 license = "CC-BY-NC-SA-4.0"
