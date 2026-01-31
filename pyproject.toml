@@ -17,6 +17,8 @@ pandas = ">=1.3.5"
 scipy = ">=1.7.3"
 importlib-metadata = ">=6.7.0"
 fsspec = "*"
+xarray = "*"
+scikit-learn = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

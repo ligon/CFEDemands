@@ -490,19 +490,19 @@ min_obs_list.append(None)
 
 # create test cases by introducing na values
 line = rectandf.copy()
-line.iloc[1, :] = np.NaN
+line.iloc[1, :] = np.nan
 
 rand = rectandf.copy()
-rand.iloc[1, 1] = np.NaN
-rand.iloc[3, 2] = np.NaN
+rand.iloc[1, 1] = np.nan
+rand.iloc[3, 2] = np.nan
 
 single = rectandf.copy()
-single.iloc[2,2] = np.NaN
+single.iloc[2,2] = np.nan
 
 another = rectandf.copy()
-another.iloc[0,1] = np.NaN
-another.iloc[1,1] = np.NaN
-another.iloc[2,1] = np.NaN
+another.iloc[0,1] = np.nan
+another.iloc[1,1] = np.nan
+another.iloc[2,1] = np.nan
 
 @pytest.mark.parametrize("df", [
     line,
@@ -2542,7 +2542,7 @@ def df_norm(a,b=None,ignore_nan=True,ord=None):
       b=pd.DataFrame(np.zeros(a.shape),columns=a.columns,index=a.index)
 
     if ignore_nan:
-        missing=(a.isnull()+0.).replace([1],[np.NaN]) +  (b.isnull()+0.).replace([1],[np.NaN])
+        missing=(a.isnull()+0.).replace([1],[np.nan]) +  (b.isnull()+0.).replace([1],[np.nan])
         a=a+missing
         b=b+missing
     return np.linalg.norm(a.fillna(0).values - b.fillna(0).values)
@@ -2917,11 +2917,11 @@ b_missing = b.copy()
 for i in range(5000):
     row_a = np.random.randint(low=0, high = a.shape[0])
     col_a = np.random.randint(low=0, high = a.shape[1])
-    a_missing.iloc[row_a, col_a] = np.NaN
+    a_missing.iloc[row_a, col_a] = np.nan
 
     row_b = np.random.randint(low=0, high = b.shape[0])
     col_b = np.random.randint(low=0, high = b.shape[1])
-    b_missing.iloc[row_b, col_b] = np.NaN
+    b_missing.iloc[row_b, col_b] = np.nan
 
 tol = 1e-4
 
