@@ -2507,6 +2507,367 @@ def expenditures(N,T,M,n,k,beta,mu_phi=0,sigma_phi=0.,mu_eps=0,sigma_eps=0.,Fbar
     return x,truth
 #+END_SRC
 
+** Pandas-only DGP (no xarray dependency)
+   This module provides the same functionality as =cfe.dgp= but uses pandas
+   DataFrames and Series with MultiIndex instead of xarray DataArrays.
+   This allows removing the xarray dependency.
+
+#+name: dgp_pandas
+#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/dgp_pandas.py
+"""Data generating process for CFE demands using pandas (no xarray dependency)."""
+
+from scipy.stats.distributions import lognorm
+from scipy.stats import distributions
+import numpy as np
+import pandas as pd
+
+
+def geometric_brownian(sigma=1.):
+    """Return a lognormal distribution for geometric Brownian motion."""
+    return lognorm(s=sigma, scale=np.exp(-(sigma**2)/2))
+
+
+def lambdabar(T, M, Fbar):
+    """Generate aggregate shocks.
+
+    Returns:
+        pd.Series with MultiIndex (t, m)
+    """
+    data = np.cumprod(Fbar.rvs(size=(T, M)), axis=0)
+    index = pd.MultiIndex.from_product([range(T), range(M)], names=['t', 'm'])
+    return pd.Series(data.flatten(), index=index)
+
+
+def lambdas(N, T, M=1, G0=lognorm(.5), Fbar=geometric_brownian(.1), F=geometric_brownian(.2)):
+    """Generate household-good specific lambdas (marginal utilities).
+
+    Returns:
+        pd.Series with MultiIndex (j, t, m)
+    """
+    # Initial lambdas (t=0)
+    L0 = G0.rvs(size=(N, 1, M))
+
+    # Innovations for t=1,...,T-1
+    innov = F.rvs(size=(N, T-1, M))
+
+    # Concatenate along time dimension
+    L = np.concatenate((L0, innov), axis=1)  # Shape: (N, T, M)
+
+    # Add aggregate shocks
+    Lbar = lambdabar(T, M, Fbar=Fbar)
+    Lbar_array = Lbar.values.reshape(T, M)
+    L = L * Lbar_array  # Broadcasting: (N, T, M) * (T, M)
+
+    # Create MultiIndex Series
+    index = pd.MultiIndex.from_product([range(N), range(T), range(M)], names=['j', 't', 'm'])
+    return pd.Series(L.flatten(), index=index)
+
+
+def characteristics(N, T, M=1):
+    """Generate household characteristics.
+
+    Returns:
+        pd.Series with MultiIndex (j, t, m)
+    """
+    return lambdas(N, T, M, Fbar=geometric_brownian(.05), F=geometric_brownian(0.1))
+
+
+def prices(T, M, n, G0=lognorm(.5), Fbar=geometric_brownian(.05), F=geometric_brownian(.2)):
+    """Generate prices.
+
+    Returns:
+        pd.Series with MultiIndex (t, m, i)
+    """
+    # Initial prices (t=0)
+    P0 = G0.rvs(size=(n, 1, M))
+
+    # Innovations for t=1,...,T-1
+    innov = F.rvs(size=(n, T-1, M))
+
+    # Concatenate along time dimension
+    P = np.concatenate((P0, innov), axis=1)  # Shape: (n, T, M)
+
+    # Transpose to (T, M, n) to match xarray version
+    P = P.transpose(1, 2, 0)
+
+    # Add aggregate shocks
+    Lbar = lambdabar(T, M, Fbar=Fbar)
+    Lbar_array = Lbar.values.reshape(T, M, 1)
+    P = P * Lbar_array  # Broadcasting: (T, M, n) * (T, M, 1)
+
+    # Create MultiIndex Series
+    index = pd.MultiIndex.from_product([range(T), range(M), range(n)], names=['t', 'm', 'i'])
+    return pd.Series(P.flatten(), index=index)
+
+
+def measurement_error(N, T, M, n, mu_phi=0., sigma_phi=0., mu_eps=0., sigma_eps=1.):
+    """Return samples from two measurement error processes.
+
+    - The additive error (phi) is normal with mean mu_phi and std sigma_phi.
+    - The multiplicative error (eps) is log-normal with mean mu_eps and std sigma_eps.
+
+    Returns:
+        Tuple of (phi, eps) as pd.Series with MultiIndex (j, t, m, i)
+    """
+    index = pd.MultiIndex.from_product(
+        [range(N), range(T), range(M), range(n)],
+        names=['j', 't', 'm', 'i']
+    )
+
+    # Additive error
+    phi_data = distributions.norm.rvs(scale=sigma_phi, size=(N, T, M, n)) + mu_phi
+    phi = pd.Series(phi_data.flatten(), index=index)
+
+    # Multiplicative error
+    eps_data = np.exp(distributions.norm.rvs(loc=-sigma_eps/2., scale=sigma_eps, size=(N, T, M, n)) + mu_eps)
+    eps = pd.Series(eps_data.flatten(), index=index)
+
+    return phi, eps
+
+
+def expenditures(N, T, M, n, k, beta, mu_phi=0, sigma_phi=0., mu_eps=0, sigma_eps=0.,
+                 Fbar=geometric_brownian(.001), p=None, rho_lz=0):
+    """Generate artificial expenditures.
+
+    Generate artificial expenditures for N households in M markets over T periods
+    on n items. Returns Series of expenditures and a dictionary of "true"
+    underlying variables as pandas objects.
+
+    Args:
+        N: Number of goods/households
+        T: Number of time periods
+        M: Number of markets
+        n: Number of items
+        k: Number of characteristics
+        beta: Frisch elasticities (n-vector or n x n matrix)
+        mu_phi, sigma_phi: Additive measurement error parameters
+        mu_eps, sigma_eps: Multiplicative measurement error parameters
+        Fbar: Distribution for aggregate shocks
+        p: Optional prices (pd.Series with MultiIndex (t, m, i))
+        rho_lz: Correlation between characteristics and log lambdas
+
+    Returns:
+        Tuple of (x, truth) where:
+        - x: pd.Series of expenditures with MultiIndex (j, t, m, i)
+        - truth: dict with 'beta', 'lambdas', 'characteristics', 'prices', 'x0'
+    """
+    # Handle beta as diagonal or full matrix
+    if len(beta.shape) < 2:
+        Theta = np.diag(beta)
+    else:
+        Theta = beta
+
+    beta_sum = Theta.sum(axis=1)  # Row sums
+
+    # Generate lambdas: (j, t, m)
+    l = lambdas(N, T, M, Fbar=Fbar)
+
+    # Generate characteristics: k Series each with index (j, t, m)
+    char_labels = [chr(i) for i in range(ord('a'), ord('a') + k)]
+    z_list = [characteristics(N, T, M) for _ in range(k)]
+    z = pd.concat(z_list, axis=1, keys=char_labels)
+    z.columns.name = 'k'
+
+    # Apply rho_lz correction to lambdas
+    if rho_lz != 0:
+        z_prod = (z ** rho_lz).prod(axis=1)
+        l = l * z_prod
+
+    # Reshape l for broadcasting: (N, T, M)
+    L = l.values.reshape(N, T, M)
+
+    # Generate or use provided prices
+    if p is None:
+        p = prices(T, M, n)
+
+    # Reshape prices for broadcasting: (T, M, n)
+    P = p.values.reshape(T, M, n)
+
+    # Build x in steps (matching xarray broadcasting)
+    # x = log(L) * (-beta) + log(p) - (Theta @ log(p)) + sum_k(log(z))
+
+    # log(L) * (-beta): (N, T, M, 1) * (n,) -> (N, T, M, n)
+    x = np.log(L)[:, :, :, np.newaxis] * (-beta_sum)
+
+    # + log(p): (N, T, M, n) + (T, M, n) -> (N, T, M, n)
+    x = x + np.log(P)
+
+    # - (Theta @ log(p)): sum over ip dimension
+    # Theta is (n, n), log(P) is (T, M, n)
+    # Result should be (T, M, n) then broadcast to (N, T, M, n)
+    theta_logp = np.einsum('ij,tmj->tmi', Theta, np.log(P))
+    x = x - theta_logp
+
+    # + sum_k(log(z)): z is (N*T*M, k), sum over k -> (N*T*M,) -> (N, T, M)
+    log_z_sum = np.log(z).sum(axis=1).values.reshape(N, T, M)
+    x = x + log_z_sum[:, :, :, np.newaxis]
+
+    x = np.exp(x)
+
+    # Measurement error
+    phi, e = measurement_error(N, T, M, n, mu_phi=mu_phi, sigma_phi=sigma_phi,
+                               mu_eps=mu_eps, sigma_eps=sigma_eps)
+
+    # Store truth before adding measurement error
+    index_jtmi = pd.MultiIndex.from_product(
+        [range(N), range(T), range(M), range(n)],
+        names=['j', 't', 'm', 'i']
+    )
+    x0 = pd.Series(x.flatten(), index=index_jtmi)
+
+    truth = {
+        'beta': pd.Series(beta_sum, index=pd.Index(range(n), name='i')),
+        'lambdas': l,
+        'characteristics': z,
+        'prices': p,
+        'x0': x0
+    }
+
+    # Apply measurement errors
+    # Additive: x + p * phi
+    P_flat = np.tile(P, (N, 1, 1, 1)).reshape(-1)  # Broadcast P to (N, T, M, n)
+    x_flat = x.flatten()
+    x_flat = x_flat + P_flat * phi.values
+
+    # Multiplicative: x * e
+    x_flat = x_flat * e.values
+
+    # Truncation: x * (x > 0)
+    x_flat = x_flat * (x_flat > 0)
+
+    x_out = pd.Series(x_flat, index=index_jtmi)
+
+    return x_out, truth
+#+END_SRC
+
+*** Test equivalence of xarray and pandas DGP
+#+BEGIN_SRC python :results silent :exports code :tangle ../cfe/test/test_dgp_equivalence.py
+"""Test equivalence between xarray-based dgp and pandas-based dgp_pandas."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+# Set seed for reproducibility
+SEED = 42
+
+def test_existing_dgp_smoke():
+    """Smoke test for existing xarray-based dgp."""
+    np.random.seed(SEED)
+    from cfe import dgp
+
+    N, T, M, n, k = 10, 5, 2, 8, 3
+    beta = np.ones(n) * 0.5
+
+    x, truth = dgp.expenditures(N, T, M, n, k, beta)
+
+    # Check shapes
+    assert x.shape == (N, T, M, n), f"Expected {(N, T, M, n)}, got {x.shape}"
+    assert truth['beta'].shape == (n,)
+    assert truth['lambdas'].shape == (N, T, M)
+    assert truth['characteristics'].shape == (k, N, T, M)
+    assert truth['prices'].shape == (T, M, n)
+    assert truth['x0'].shape == (N, T, M, n)
+
+    # Check no NaNs in core outputs
+    assert not np.isnan(x.values).all()
+    assert not np.isnan(truth['lambdas'].values).any()
+
+
+def test_pandas_dgp_smoke():
+    """Smoke test for pandas-based dgp."""
+    np.random.seed(SEED)
+    from cfe import dgp_pandas
+
+    N, T, M, n, k = 10, 5, 2, 8, 3
+    beta = np.ones(n) * 0.5
+
+    x, truth = dgp_pandas.expenditures(N, T, M, n, k, beta)
+
+    # x should be a DataFrame or Series with MultiIndex
+    assert isinstance(x, (pd.DataFrame, pd.Series))
+    assert len(x) == N * T * M * n  # Total observations
+
+    # truth should be a dict of pandas objects
+    assert isinstance(truth, dict)
+    assert 'beta' in truth
+    assert 'lambdas' in truth
+    assert 'characteristics' in truth
+    assert 'prices' in truth
+    assert 'x0' in truth
+
+
+def test_dgp_equivalence():
+    """Test that xarray and pandas dgp produce equivalent results."""
+    N, T, M, n, k = 10, 5, 2, 8, 3
+    beta = np.ones(n) * 0.5
+
+    # Generate with same seed
+    np.random.seed(SEED)
+    from cfe import dgp
+    x_xr, truth_xr = dgp.expenditures(N, T, M, n, k, beta)
+
+    np.random.seed(SEED)
+    from cfe import dgp_pandas
+    x_pd, truth_pd = dgp_pandas.expenditures(N, T, M, n, k, beta)
+
+    # Convert xarray to comparable format
+    x_xr_flat = x_xr.values.flatten()
+    x_pd_flat = x_pd.values.flatten() if hasattr(x_pd, 'values') else np.array(x_pd).flatten()
+
+    # Compare expenditures
+    np.testing.assert_allclose(x_xr_flat, x_pd_flat, rtol=1e-10,
+                               err_msg="Expenditures don't match")
+
+    # Compare beta
+    beta_xr = truth_xr['beta'].values
+    beta_pd = truth_pd['beta'].values if hasattr(truth_pd['beta'], 'values') else np.array(truth_pd['beta'])
+    np.testing.assert_allclose(beta_xr, beta_pd, rtol=1e-10,
+                               err_msg="Beta doesn't match")
+
+    # Compare lambdas
+    l_xr = truth_xr['lambdas'].values.flatten()
+    l_pd = truth_pd['lambdas'].values.flatten()
+    np.testing.assert_allclose(l_xr, l_pd, rtol=1e-10,
+                               err_msg="Lambdas don't match")
+
+
+def test_lambdas_equivalence():
+    """Test lambdas function equivalence."""
+    N, T, M = 10, 5, 2
+
+    np.random.seed(SEED)
+    from cfe import dgp
+    l_xr = dgp.lambdas(N, T, M)
+
+    np.random.seed(SEED)
+    from cfe import dgp_pandas
+    l_pd = dgp_pandas.lambdas(N, T, M)
+
+    l_xr_flat = l_xr.values.flatten()
+    l_pd_flat = l_pd.values.flatten()
+
+    np.testing.assert_allclose(l_xr_flat, l_pd_flat, rtol=1e-10)
+
+
+def test_prices_equivalence():
+    """Test prices function equivalence."""
+    T, M, n = 5, 2, 8
+
+    np.random.seed(SEED)
+    from cfe import dgp
+    p_xr = dgp.prices(T, M, n)
+
+    np.random.seed(SEED)
+    from cfe import dgp_pandas
+    p_pd = dgp_pandas.prices(T, M, n)
+
+    p_xr_flat = p_xr.values.flatten()
+    p_pd_flat = p_pd.values.flatten()
+
+    np.testing.assert_allclose(p_xr_flat, p_pd_flat, rtol=1e-10)
+#+END_SRC
+
 * Utility Functions
 
 #+name: df_utils
