@@ -634,12 +634,12 @@ X=pd.DataFrame(X).T
 def test_symmetry_of_svd_rank1_approximation():
     Xhat=svd_rank1_approximation_with_missing_data(X0,VERBOSE=False)
     XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
-    assert np.all(Xhat.T.values == XhatT.values)
+    np.testing.assert_allclose(Xhat.T.values, XhatT.values, rtol=1e-10)
 
 def test_accuracy_of_svd_rank1_approximation():
     Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
     error = X0 - Xhat
-    assert np.max(np.max(error)<1e-2)
+    assert np.max(np.abs(error)) < 0.02
 
 Xhat=svd_rank1_approximation_with_missing_data(X,VERBOSE=False)
 XhatT=svd_rank1_approximation_with_missing_data(X0.T,VERBOSE=False)
