@@ -610,6 +610,8 @@ import numpy as np
 import pandas as pd
 <<svd_rank1_approximation_with_missing_data>>
 
+np.random.seed(42)  # Set seed for reproducibility
+
 (n,m)=(1000,500)
 a=np.random.normal(size=(n,1))
 b=np.random.normal(size=(1,m))
@@ -923,7 +925,8 @@ def estimate_reduced_form(y,z,return_v=False,return_se=False,VERBOSE=False):
   if return_se:
       out += [sed,sea]
   if return_v:
-      V = xr.Dataset(V).to_array(dim='i')
+      # V is already an OrderedDict of DataFrames keyed by item name
+      # (formerly converted to xarray DataArray; now returned as dict)
       out += [V]
   return out
 #+END_SRC
@@ -2196,14 +2199,13 @@ def predicted_expenditures(yhat,e):
 #name: optimal_index
 
 import warnings
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=UserWarning)
-    import xarray as xr
-
-import pandas as pd
 
 def optimal_index(a,yhat,e):
     """Return individual optimal price indices for each household in all settings.
+
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        It requires xarray which is being phased out of the package.
 
     Given log shadow prices =a=, predicted log expenditures =yhat=,
     and residuals from prediction =e= calculate optimal price indices
@@ -2216,6 +2218,13 @@ def optimal_index(a,yhat,e):
 
     Ethan Ligon                                                 July 2018
     """
+    warnings.warn(
+        "optimal_index is deprecated and will be removed in a future version. "
+        "It requires xarray which is being phased out.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    import xarray as xr
 
     # Begin by obtaining predicted expenditure shares in null setting.
     # Subtract relevant actual prices for household;
@@ -3099,17 +3108,15 @@ print(s)
 ** Some econometric routines
 
 #+BEGIN_SRC python :noweb no-export :results output :tangle ../cfe/df_utils.py
-import warnings
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=UserWarning)
-    import xarray as xr
-
 from scipy.linalg import block_diag
 
 def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
     """
     Compute clustered estimates of covariance matrix, per Arellano (1987).
     Estimates of variance of fixed effects use OLS estimator.
+
+    Returns a pd.DataFrame representing the covariance matrix, with
+    row index 'k' and column index 'kp'.
     """
     X,u = drop_missing([X,u])
     clusters = set(zip(*tuple(use_indices(u,clusterby)[i] for i in clusterby)))
@@ -3144,9 +3151,17 @@ def arellano_robust_cov(X,u,clusterby=['t','m'],tol=1e-12):
     try:
         Allvars = Cvars.values.tolist() + Xvars.values.tolist()
         if len(Cvars):
-            V = xr.DataArray(block_diag(v.squeeze('variable').values,Vhat),dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+            # v is a DataFrame (single y column case) or dict of DataFrames
+            if isinstance(v, dict):
+                # Multiple y columns - get the single one we need
+                v_arr = list(v.values())[0].values
+            else:
+                v_arr = v.values
+            V = pd.DataFrame(block_diag(v_arr, Vhat), index=Allvars, columns=Allvars)
         else:
-            V = xr.DataArray(Vhat,dims=['k','kp'],coords={'k':Allvars,'kp':Allvars})
+            V = pd.DataFrame(Vhat, index=Allvars, columns=Allvars)
+        V.index.name = 'k'
+        V.columns.name = 'kp'
         return V
     except AttributeError:
         if len(Cvars):
@@ -3162,6 +3177,10 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
     (return_v=True) are returned, these are Seemingly Unrelated
     Regression (SUR) estimates if y has multiple columns, or the
     simple OLS estimator var(u)(X'X)^{-1} otherwise.
+
+    When return_v=True:
+      - If y has a single column: returns a DataFrame (k x k covariance matrix)
+      - If y has multiple columns: returns a dict of DataFrames keyed by column name
     """
 
     x=pd.DataFrame(x) # Deal with possibility that x & y are series.
@@ -3194,11 +3213,15 @@ def ols(x,y,return_se=True,return_v=False,return_e=False):
             out.append(se)
 
         if return_v:
-            # Extract blocks along diagonal; return a k x kp x n array
+            # Extract blocks along diagonal
             col0 = x.columns
-            col1 = col0.rename(name='kp')
+            col1 = col0.rename('kp')
             v = {y.columns[i]:pd.DataFrame(V[i*k:(i+1)*k,i*k:(i+1)*k],index=col0,columns=col1) for i in range(n)}
-            V = xr.Dataset(v).to_array()
+            # If single y column, return DataFrame directly; otherwise return dict
+            if n == 1:
+                V = v[y.columns[0]]
+            else:
+                V = v
             out.append(V)
 
         if return_e:
@@ -3357,6 +3380,134 @@ try:
             assert np.all(np.sum(np.abs((V - myV)/V) < tol)), "Variances differ substantially"
 except ModuleNotFoundError:
     pass # Can't run test, as R stuff not available.
+#+end_src
+
+*** Unit tests for covariance functions
+These tests verify the interface contract for =arellano_robust_cov= and =ols=
+with =return_v=True=. They ensure that return values have the expected
+structure (indexable arrays with =.values= attribute).
+
+#+begin_src python :noweb no-export :results output :tangle ../cfe/test/test_covariance_interface.py
+# Unit tests for covariance matrix functions interface
+# These tests guard against regressions when refactoring xarray to pandas
+
+import numpy as np
+import pandas as pd
+import pytest
+from cfe.df_utils import ols, arellano_robust_cov
+
+def test_ols_basic():
+    """Test basic OLS returns coefficients as DataFrame."""
+    np.random.seed(42)
+    N = 100
+    X = pd.DataFrame({'const': 1, 'x': np.random.normal(size=N)})
+    y = pd.DataFrame({'y': 2 + 3*X['x'] + np.random.normal(size=N)*0.1})
+
+    b, = ols(X, y, return_se=False)
+
+    assert isinstance(b, pd.DataFrame)
+    assert 'y' in b.columns
+    assert 'const' in b.index
+    assert 'x' in b.index
+
+def test_ols_return_se():
+    """Test OLS with standard errors."""
+    np.random.seed(42)
+    N = 100
+    X = pd.DataFrame({'const': 1, 'x': np.random.normal(size=N)})
+    y = pd.DataFrame({'y': 2 + 3*X['x'] + np.random.normal(size=N)*0.1})
+
+    b, se = ols(X, y, return_se=True)
+
+    assert isinstance(se, pd.DataFrame)
+    assert se.shape == b.shape
+    assert np.all(se.values > 0)  # SEs should be positive
+
+def test_ols_return_v_single_column():
+    """Test OLS with return_v for single y column returns DataFrame."""
+    np.random.seed(42)
+    N = 100
+    X = pd.DataFrame({'const': 1, 'x': np.random.normal(size=N)})
+    y = pd.DataFrame({'y': 2 + 3*X['x'] + np.random.normal(size=N)*0.1})
+
+    b, V = ols(X, y, return_se=False, return_v=True)
+
+    # V should be a DataFrame for single y column
+    assert isinstance(V, pd.DataFrame)
+    assert V.shape == (X.shape[1], X.shape[1])  # k x k covariance matrix
+    # Should be able to access values
+    assert hasattr(V, 'values')
+    assert V.values[0, 0] > 0  # Variance should be positive
+
+def test_ols_return_v_multi_column():
+    """Test OLS with return_v for multiple y columns returns dict."""
+    np.random.seed(42)
+    N = 100
+    X = pd.DataFrame({'const': 1, 'x': np.random.normal(size=N)})
+    y = pd.DataFrame({'y1': 2 + 3*X['x'] + np.random.normal(size=N)*0.1,
+                      'y2': 1 + 2*X['x'] + np.random.normal(size=N)*0.1})
+
+    b, V = ols(X, y, return_se=False, return_v=True)
+
+    # V should be a dict of DataFrames for multiple y columns
+    assert isinstance(V, dict)
+    assert 'y1' in V and 'y2' in V
+    # Each value should be a DataFrame
+    for key, df in V.items():
+        assert isinstance(df, pd.DataFrame)
+        assert df.shape == (X.shape[1], X.shape[1])
+
+def test_ols_return_e():
+    """Test OLS residuals."""
+    np.random.seed(42)
+    N = 100
+    X = pd.DataFrame({'const': 1, 'x': np.random.normal(size=N)})
+    y = pd.DataFrame({'y': 2 + 3*X['x'] + np.random.normal(size=N)*0.1})
+
+    b, se, e = ols(X, y, return_se=True, return_e=True)
+
+    assert isinstance(e, pd.DataFrame)
+    assert e.shape == y.shape
+    # Residuals should be approximately mean-zero
+    np.testing.assert_allclose(e.mean().values, 0, atol=0.1)
+
+
+def test_arellano_robust_cov_structure():
+    """Test arellano_robust_cov returns indexable covariance structure."""
+    np.random.seed(42)
+    N = 200
+
+    # Create panel-like data with t and m indices
+    idx = pd.MultiIndex.from_product([range(N//4), range(2), range(2)],
+                                      names=['j', 't', 'm'])
+    X = pd.DataFrame({'x': np.random.normal(size=len(idx))}, index=idx)
+    u = pd.Series(np.random.normal(size=len(idx)), index=idx, name='u')
+
+    V = arellano_robust_cov(X, u)
+
+    # V should have a .values attribute
+    assert hasattr(V, 'values')
+    # Should be able to index into the values array
+    val = V.values[0, 0]
+    assert np.isfinite(val)
+    assert val > 0  # Variance should be positive
+
+
+def test_arellano_robust_cov_single_cluster():
+    """Test arellano_robust_cov with single cluster."""
+    np.random.seed(42)
+    N = 50
+
+    # Single cluster (same t,m for all)
+    idx = pd.MultiIndex.from_arrays([range(N), [0]*N, [0]*N],
+                                     names=['j', 't', 'm'])
+    X = pd.DataFrame({'x': np.random.normal(size=N)}, index=idx)
+    u = pd.Series(np.random.normal(size=N), index=idx, name='u')
+
+    V = arellano_robust_cov(X, u)
+
+    # Should still return something with .values
+    assert hasattr(V, 'values')
 #+end_src
 
 ** Implementation of iterative Frisch-Waugh-Lovell least squares estimator
@@ -3752,10 +3903,6 @@ assert baz.iloc[3,0]==6
 #name: broadcast_binary_op
 
 import warnings
-with warnings.catch_warnings():
-    warnings.filterwarnings("ignore",category=UserWarning)
-    import xarray as xr
-
 
 def is_none(x):
     """
@@ -3781,7 +3928,17 @@ def is_none(x):
 
 def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
     """Convert =xarray.DataArray= into a =pd.DataFrame= with indices etc. usable by =cfe=.
+
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        It requires xarray which is being phased out of the package.
     """
+    warnings.warn(
+        "to_dataframe is deprecated and will be removed in a future version. "
+        "It requires xarray which is being phased out.",
+        DeprecationWarning,
+        stacklevel=2
+    )
 
     if name is None:
         dims = arr.dims
@@ -3801,7 +3958,18 @@ def to_dataframe(arr,column_index=None,name=None,dropna_all=True):
 
 def from_dataframe(df,index_name=None):
     """Convert from dataframe used in cfe.estimation to xarray.DataArray.
+
+    .. deprecated::
+        This function is deprecated and will be removed in a future version.
+        It requires xarray which is being phased out of the package.
     """
+    warnings.warn(
+        "from_dataframe is deprecated and will be removed in a future version. "
+        "It requires xarray which is being phased out.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     if index_name is not None:
         df.index = df.index.set_names(index_name)
 
