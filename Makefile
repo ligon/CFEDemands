@@ -1,7 +1,7 @@
 ORG_INPUTS = Empirics/cfe_estimation.org \
 	     Empirics/regression.org Files/input_files.org
 
-.PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt
+.PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt release
 
 all: tangle test devinstall wheel
 
@@ -34,6 +34,15 @@ devinstall: tangle test
 
 upload: wheel
 	poetry publish
+
+# Usage: make release BUMP=patch  (or minor, major, prepatch, etc.)
+BUMP ?= patch
+release: wheel
+	$(eval NEW_VER := $(shell poetry version $(BUMP) -s))
+	git add pyproject.toml
+	git commit -m "Bump version to $(NEW_VER)"
+	git tag v$(NEW_VER)
+	@echo "Tagged v$(NEW_VER). Run 'git push && git push --tags && make upload' to publish."
 
 clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
