@@ -44,3 +44,7 @@ cfe/test/*.py
 /env/
 /cfe/regression.py
 cfe/stochastic_test/
+
+# Python/build artifacts
+.venv/
+__pycache__/
