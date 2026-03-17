@@ -1,12 +1,17 @@
 [tool.poetry]
 name = "CFEDemands"
-version = "0.8.1"
+version = "0.8.2"
 description = "Tools for estimating and computing Constant Frisch Elasticity (CFE) demands."
 authors = ["Ethan Ligon <ligon@berkeley.edu>"]
 license = "CC-BY-NC-SA-4.0"
 readme = "README.org"
 repository = "https://github.com/ligon/CFEDemands"
 packages = [{include = "cfe"}]
+include = [
+    { path = "cfe/*.py", format = ["sdist", "wheel"] },
+    { path = "cfe/test/*.py", format = ["sdist", "wheel"] },
+    { path = "cfe/stochastic_test/*.py", format = ["sdist", "wheel"] },
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"
