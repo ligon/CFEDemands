@@ -1,7 +1,7 @@
 ORG_INPUTS = Empirics/cfe_estimation.org \
 	     Empirics/regression.org Files/input_files.org
 
-.PHONY: tangle wheel upload localinstall devinstall clean test CHANGES.txt release
+.PHONY: tangle wheel build upload localinstall devinstall clean test CHANGES.txt release
 
 all: tangle test devinstall wheel
 
@@ -20,8 +20,10 @@ test: .test
 	poetry run pytest cfe/test/
 	touch .test
 
-wheel: pyproject.toml tangle test CHANGES.txt
+build: pyproject.toml tangle test CHANGES.txt
 	poetry build
+
+wheel: build
 
 CHANGES.txt:
 	git log --pretty='medium' > CHANGES.txt
