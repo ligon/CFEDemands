@@ -1035,6 +1035,100 @@ def rectify_w(y,gamma_d,beta,w,Ar,max_iter=10,tol=1e-4,
     return w,Ar,pi,Delta,history,e3
 #+end_src
 
+*** Inference on $\delta$ (generated-regressor s.e. via =w_cov=)
+The one-pass slope $\hat\delta=(z'u)/(z'z)$ --- with $u=M_{tm}(y-\gamma d-A(r))$
+and $z=M_{tm}(\beta w)$ --- is a /generated-regressor/ statistic: the
+regressor $z$ is built from the estimated $\hat w$.  Two channels feed
+$\Var(\hat\delta)$:
+1. the level-regression noise (the usual OLS term, "naive"); and
+2. the sampling error in $\hat w$, whose covariance $V_w$ we already have
+   from =w_cov=.
+
+Conditioning on $A(r)$, $\hat\delta$ is a smooth function of the cell vector
+$\hat w$, so the delta method gives
+\[
+   \Var(\hat\delta) \approx \underbrace{\frac{\sigma_e^2}{z'z}}_{\text{naive}}
+      \;+\; g'\,V_w\,g,\qquad
+   g_a=\frac{\partial\hat\delta}{\partial \hat w_a},
+\]
+with (writing $s_c=\sum_{j\in O_c}\beta_j$, $n_{tm}$ the obs count, and
+$\phi_{cj}=(u_{cj}-2\hat\delta z_{cj})/z'z$)
+\[
+   g_a=\sum_{j\in O_a}\beta_j\phi_{aj}
+       \;-\;\frac{s_a}{n_{tm(a)}}\sum_{c\in tm(a)}\sum_j\phi_{cj}.
+\]
+The quadratic form $g'V_wg$ uses the =w_cov= factors directly (no dense
+matrix).  The statistic $z=(\hat\delta-1)/\se(\hat\delta)$ tests the null
+that $\beta w$ at its SVD scale needs no rescaling --- i.e. a specification
+check that the two residualizations agree.  (This is the one-pass test;
+inference on the /iterated/ cumulative $\Delta$ is a further step.)
+#+name: code:wdelta
+#+begin_src python
+from collections import namedtuple
+
+WDelta = namedtuple('WDelta',['delta','se','se_naive','se_gen','z','grad'])
+
+def _delta_components(L,beta,w,Ar):
+    """One-pass delta and the demeaned pieces. L = (y - gamma_d).dropna()."""
+    def offset(A):
+        return pd.Series(A.reindex(L.index.droplevel('i')).values,index=L.index)
+    bw  = outer(w,beta).stack().reindex(L.index)
+    lhs = L - offset(Ar)
+    u = lhs - lhs.groupby(['t','m']).transform('mean')   # M_tm(y - gamma_d - A(r))
+    z = bw  - bw.groupby(['t','m']).transform('mean')    # M_tm(beta*w)
+    den = (z**2).sum()
+    delta = (u*z).sum()/den
+    return delta,u,z,den
+
+def w_delta(y,gamma_d,beta,w,Ar,V=None):
+    """One-pass global scale delta on beta*w, with generated-regressor s.e.
+
+    Parameters
+    ----------
+    V : WCov or None
+        If given (e.g. from ``w_cov``), add the propagated uncertainty in the
+        estimated w to the naive level-regression variance.  Conditions on
+        A(r); see notes.  Cells with <2 observed goods have undefined V_w and
+        do not contribute to the generated-regressor term, so se_gen is mildly
+        understated (the delta=1 test slightly anti-conservative) under heavy
+        missingness.
+
+    Returns
+    -------
+    WDelta(delta, se, se_naive, se_gen, z, grad)
+        z = (delta-1)/se tests the null that the SVD scale of w is right.
+    """
+    L = (y - gamma_d).dropna()
+    beta = pd.Series(beta).squeeze() if hasattr(beta,'squeeze') else pd.Series(beta)
+    delta,u,z,den = _delta_components(L,beta,w,Ar)
+
+    e = u - delta*z                                   # level-regression residual
+    sigma2 = (e**2).sum()/(e.shape[0]-1)
+    var_naive = sigma2/den
+
+    var_gen = 0.0
+    grad = None
+    if V is not None:
+        bj = pd.Series(beta.reindex(u.index.get_level_values('j')).values,index=u.index)
+        phi = (u - 2*delta*z)/den
+        G      = (phi*bj).groupby(['i','t','m']).sum()         # sum_j beta_j phi_cj
+        gcell  = phi.groupby(['i','t','m']).sum()              # sum_j phi_cj
+        s      = bj.groupby(['i','t','m']).sum()               # s_c = sum_{O_c} beta_j
+        ntm    = u.groupby(['t','m']).size()                   # n_tm
+        tm_sum = gcell.groupby(['t','m']).sum()                # sum_{c in tm} sum_j phi_cj
+        tm = G.index.droplevel('i')
+        grad = G - s*(tm_sum.reindex(tm).values)/(ntm.reindex(tm).values)
+        # g' V_w g via factors (cells with undefined V_w contribute 0)
+        D  = V.D.reindex(grad.index).fillna(0.0)
+        Uc = V.U.reindex(grad.index).fillna(0.0)
+        gtm = (Uc*grad).groupby(['t','m']).sum()
+        var_gen = (D*grad**2).sum() + V.sigma2*(V.V22*gtm**2).sum()
+
+    se = np.sqrt(var_naive + var_gen)
+    zstat = (delta-1)/se if se>0 else np.nan
+    return WDelta(delta,se,np.sqrt(var_naive),np.sqrt(var_gen),zstat,grad)
+#+end_src
+
 ** Predicting $y$
 #+name: code:predict
 #+begin_src python
@@ -1598,6 +1692,20 @@ class Regression:
             self.e4 = None
         return Delta,history
 
+    def delta_test(self):
+        """PROTOTYPE: one-pass global scale delta with generated-regressor s.e.
+
+        Propagates the uncertainty in the estimated w (via w_cov) into the
+        slope on beta*w, conditioning on A(r).  Returns a WDelta; the z-stat
+        (delta-1)/se tests the null that w's SVD scale needs no rescaling --
+        a specification check that the two residualizations agree.
+        """
+        beta = self.get_beta()
+        gamma_d = self.get_gamma_d()
+        self.get_w()
+        V = w_cov(self.e3,beta)
+        return w_delta(self.y,gamma_d,beta,self.w,self.Ar,V=V)
+
 
     def get_predicted_log_expenditures(self,fill_missing=True,verbose=None):
         """
@@ -2144,7 +2252,8 @@ handling, and the finite-$J$ coverage behavior of the =cov= options.
 import numpy as np
 import pandas as pd
 import pytest
-from cfe.regression import w_var, w_cov, rectify_w, outer
+from cfe.regression import (w_var, w_cov, rectify_w, outer,
+                            w_delta, _delta_components)
 
 
 def _cells(rows):
@@ -2336,6 +2445,67 @@ def test_rectify_sign_flip_raises():
         rectify_w(y,gd,-beta,w,Ar)
 
 
+def _messy_w_model(N=120, J=6, miss=0.3, seed=5):
+    # Missing goods + noise, so delta != 1 and the gradient is nontrivial.
+    rng = np.random.default_rng(seed)
+    beta = pd.Series(np.linspace(.4,3,J), index=pd.Index(range(J),name='j'))
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(N), np.zeros(N,int), np.zeros(N,int)], names=['i','t','m'])
+    w = pd.Series(rng.standard_normal(N), index=cells)
+    aj = rng.standard_normal(J); aj -= aj.mean()
+    Ar = pd.Series(aj, index=pd.MultiIndex.from_tuples(
+        [(0,0,j) for j in range(J)], names=['t','m','j']))
+    bw = outer(w,beta).stack(); bw.index.names=['i','t','m','j']
+    y = (bw + pd.Series(Ar.reindex(bw.index.droplevel('i')).values, index=bw.index)
+         + rng.standard_normal(len(bw))*0.4)
+    keep = rng.random(len(y)) >= miss
+    y = y[keep]
+    return y, y*0, beta, w, Ar
+
+
+def test_w_delta_gradient_matches_finite_difference():
+    # The hard part: verify grad = d delta / d w (conditioning on A(r)).
+    y,gd,beta,w,Ar = _messy_w_model()
+    V = w_cov((y-gd), beta)
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    L = (y-gd).dropna()
+    rng = np.random.default_rng(7)
+    v = pd.Series(rng.standard_normal(len(w)), index=w.index)
+    h = 1e-6
+    dp = _delta_components(L, beta, w+h*v, Ar)[0]
+    dm = _delta_components(L, beta, w-h*v, Ar)[0]
+    numerical = (dp - dm)/(2*h)
+    analytic = float((wd.grad*v).sum())
+    assert abs(numerical - analytic) < 1e-4*(abs(analytic)+1), (numerical, analytic)
+
+
+def test_w_delta_gen_variance_equals_dense_quadratic_form():
+    # var_gen (factor form) must equal grad' V_w grad (dense) on clean data.
+    rng = np.random.default_rng(9)
+    y,gd,beta,w,Ar = _exact_w_model(N=150, J=5)
+    y = y + pd.Series(rng.standard_normal(len(y))*0.3, index=y.index)
+    gd = y*0
+    V = w_cov((y-gd), beta)
+    assert not V.D.isna().any()                # complete data -> no undefined cells
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    Vd = V.todense((0,0)); g = wd.grad.reindex(Vd.index).values
+    assert np.isclose(wd.se_gen, np.sqrt(g @ Vd.values @ g))
+
+
+def test_w_delta_se_components():
+    y,gd,beta,w,Ar = _messy_w_model()
+    V = w_cov((y-gd), beta)
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    # combined se exceeds the naive (generated-regressor adds variance)
+    assert wd.se >= wd.se_naive - 1e-12
+    assert wd.se_gen > 0
+    assert np.isclose(wd.se, np.sqrt(wd.se_naive**2 + wd.se_gen**2))
+    # complete, exact data -> delta==1 and z ~ 0
+    y2,gd2,b2,w2,Ar2 = _exact_w_model()
+    wd2 = w_delta(y2, gd2, b2, w2, Ar2, V=w_cov((y2-gd2), b2))
+    assert abs(wd2.delta - 1) < 1e-6
+
+
 if __name__=='__main__':
     test_hc0_matches_sandwich_scale()
     test_hc2_leverage_correction()
@@ -2347,5 +2517,8 @@ if __name__=='__main__':
     test_w_cov_diag_exceeds_homoskedastic_marginal()
     test_rectify_complete_data_delta_one()
     test_rectify_sign_flip_raises()
+    test_w_delta_gradient_matches_finite_difference()
+    test_w_delta_gen_variance_equals_dense_quadratic_form()
+    test_w_delta_se_components()
     print("ok")
 #+end_src
