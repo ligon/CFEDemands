@@ -459,7 +459,18 @@ def estimate_beta(MpMdy,
                   heteroskedastic=False,
                   cov = lambda X : pd.DataFrame.cov(X,ddof=0),
                   return_se=False,bootstrap_tol=None,verbose=False):
+    """Estimate beta as the rank-1 factor of the residual covariance.
 
+    With return_se=False (the default) this is a single cheap SVD.  With
+    return_se=True and a bootstrap_tol it runs a resampling bootstrap of at
+    least 30 iterations to get standard errors.
+
+    WARNING (nested-bootstrap footgun): do not call with return_se=True
+    inside an *outer* whole-pipeline bootstrap -- the inner >=30-iteration
+    beta bootstrap then nests, blowing up cost ~30x with no benefit (the
+    point estimate is all the outer loop needs).  In bootstrap loops pass
+    return_se=False, or call Regression.get_beta with compute_se=False.
+    """
     if verbose:
         print("estimate_beta")
 
@@ -785,6 +796,114 @@ def w_var(e,beta,cov=None):
 
     return (num/den**2).where(Jc>=2)
 
+#+end_src
+** Full covariance of $w$
+=w_var= gives only the marginal variances (the diagonal of $V_w$).  For
+propagating $w$-uncertainty into a downstream generated-regressor problem
+the cross-cell covariance is needed too.  Because the $w$-stage is linear
+given \beta --- the joint design is $y_0 = a_{tm} + \beta_j w_{itm} + e$
+with an $(t,m)$-intercept block $A$ and a \beta-loaded block $B$ --- the
+covariance factors and never needs to be formed as the dense
+$N_w\times N_w$ matrix.
+
+Writing $d_c=\sum_{j\in O_c}\beta_j^2$, $s_c=\sum_{j\in O_c}\beta_j$, the
+$B$-block normal matrix $B'B=\diag(d_c)$ is diagonal and $A'A=\diag(n_{tm})$
+counts observations per market-period.  By the partitioned inverse (FWL),
+$\Var(\hat w)=\sigma^2(B'M_AB)^{-1}$ with $M_A=I-A(A'A)^{-1}A'$, and Woodbury
+gives the low-rank factoring
+\[
+   V_w = \sigma^2\bigl[\diag(1/d_c) + U\,V_{22}\,U'\bigr],\quad
+   U_{c}=s_c/d_c,\quad
+   V_{22,tm}=\frac{1}{\,n_{tm}-\sum_{c\in tm}s_c^2/d_c\,},
+\]
+where the $V_{22}$ block is /diagonal/ in $(t,m)$ (no cross-market
+coupling), so cells are correlated only /within/ a market-period, rank-1
+each.  The off-diagonal term is positive: fitting the $(t,m)$ intercept out
+inflates $\Var(\hat w)$ above the naive $\sigma^2/d_c$.  This is the
+homoskedastic covariance with \beta treated as known; for robust marginals
+use =w_var= with a =cov= option.
+#+name: code:wcov
+#+begin_src python
+class WCov:
+    """Factored sampling covariance of the welfare-weight estimates w_hat.
+
+    Conditional on beta the w-stage is linear, so V_w is a diagonal plus a
+    within-(t,m) rank-1 term and is stored by its factors (the dense
+    N_w x N_w matrix is never formed):
+
+        V_w = diag(D) + sigma2 * U V22 U',  cells coupled only within (t,m).
+
+    Attributes
+    ----------
+    sigma2 : float        pooled error variance
+    D : Series (i,t,m)     diagonal part, sigma2 / sum_{O_c} beta_j^2
+    U : Series (i,t,m)     loadings s_c/d_c, s_c = sum_{O_c} beta_j
+    V22 : Series (t,m)     1 / (n_tm - sum_{c in tm} s_c^2/d_c)
+    """
+    __slots__ = ['sigma2','D','U','V22']
+
+    def __init__(self,sigma2,D,U,V22):
+        self.sigma2,self.D,self.U,self.V22 = sigma2,D,U,V22
+
+    def _v22_by_cell(self):
+        return self.V22.reindex(self.U.index.droplevel('i')).values
+
+    def var(self):
+        """Marginal variances Var(w_c), the diagonal of V_w."""
+        return self.D + self.sigma2*self.U**2*self._v22_by_cell()
+
+    def matvec(self,x):
+        """Return V_w @ x without forming V_w (x a Series indexed by cell)."""
+        x = x.reindex(self.D.index)
+        g = (self.U*x).groupby(['t','m']).sum()*self.V22     # v22_tm * sum_c U_c x_c
+        gc = g.reindex(self.U.index.droplevel('i')).values
+        return self.D*x + self.sigma2*self.U*gc
+
+    def todense(self,tm):
+        """Dense covariance block for one market-period tm=(t,m) (small)."""
+        idx = self.U.xs(tm,level=['t','m'],drop_level=False).index
+        U = self.U.loc[idx].values; D = self.D.loc[idx].values
+        return pd.DataFrame(np.diag(D) + self.sigma2*self.V22[tm]*np.outer(U,U),
+                            index=idx,columns=idx)
+
+
+def w_cov(e,beta):
+    """Factored covariance of w_hat (homoskedastic, beta treated as known).
+
+    Parameters
+    ----------
+    e : Series or DataFrame
+        Regression residuals (e.g. ``self.e3``); Series indexed (i,t,m,j) or
+        a wide (i,t,m) x j DataFrame.
+    beta : Series
+        Frisch elasticities, indexed by good ``j``.
+
+    Returns
+    -------
+    WCov
+        Factored covariance with ``.var()``, ``.matvec(x)`` and
+        ``.todense((t,m))`` helpers.  The diagonal's leading term matches
+        ``w_var(e, beta, cov='homoskedastic')``; the extra positive term is
+        the cost of estimating the (t,m) intercept.
+    """
+    E = e.unstack('j') if e.ndim==1 else e
+    beta = pd.Series(beta).reindex(E.columns)
+    obs = E.notna()
+    d = obs.multiply(beta**2,axis=1).sum(axis=1)         # d_c = sum_{O_c} beta_j^2
+    s = obs.multiply(beta,axis=1).sum(axis=1)            # s_c = sum_{O_c} beta_j
+    Jc = obs.sum(axis=1)                                 # |O_c|
+    keep = Jc>=2
+
+    sigma2 = (E**2).sum().sum()/(Jc-1).clip(lower=0).sum()  # matches w_var homoskedastic
+
+    D = (sigma2/d).where(keep)
+    U = (s/d).where(keep)
+
+    n_tm = Jc.groupby(['t','m']).sum()                   # total obs per market-period
+    corr = (s**2/d).where(d>0).groupby(['t','m']).sum()  # sum_c s_c^2/d_c (saturated cells net to 0)
+    V22 = 1/(n_tm - corr)
+
+    return WCov(sigma2,D,U,V22)
 #+end_src
 ** Estimating Price Indices
 #+name: code:pi
@@ -1159,7 +1278,14 @@ class Regression:
         """
         Return beta.
 
-        If estimate_se=True, compute standard errors and Variance matrix as a side-effect.
+        If compute_se=True, compute standard errors and the variance matrix
+        as a side-effect (via a resampling bootstrap in estimate_beta).
+
+        WARNING (nested-bootstrap footgun): the compute_se=True path runs an
+        inner >=30-iteration bootstrap.  When resampling the whole pipeline
+        in an outer loop, call with compute_se=False (the point-estimate
+        path) so the beta bootstrap does not nest ~30x inside each outer
+        draw.  compute_se defaults to self.attrs['compute_se'].
         """
 
         if 'Mpd' in self.attrs and self.attrs['Mpd']:
@@ -1237,6 +1363,21 @@ class Regression:
         v = w_var(self.e3,beta,cov=cov)
 
         return np.sqrt(v)
+
+    def w_cov(self):
+        """Factored sampling covariance of the welfare weights (see w_cov).
+
+        Homoskedastic, beta treated as known.  Returns a WCov exposing
+        ``.var()``, ``.matvec(x)`` and ``.todense((t,m))``; the dense
+        N_w x N_w matrix is never formed.  Use this (rather than bootstrapping
+        the whole pipeline) to propagate w-uncertainty into downstream
+        generated-regressor problems.
+        """
+        beta = self.get_beta()
+
+        if self.e3 is None: self.get_w()
+
+        return w_cov(self.e3,beta)
 
 
     def get_gamma_d(self,verbose=None,Mpd=None):
@@ -1877,7 +2018,7 @@ handling, and the finite-$J$ coverage behavior of the =cov= options.
 import numpy as np
 import pandas as pd
 import pytest
-from cfe.regression import w_var
+from cfe.regression import w_var, w_cov
 
 
 def _cells(rows):
@@ -1983,6 +2124,63 @@ def test_coverage_hc2_unbiased_hc0_low():
     assert hc0/emp < 0.85, f"hc0 should be biased low: {hc0/emp}"
 
 
+def _brute_force_w_cov(eS, beta, tmlist):
+    # Build the joint design [A | B] explicitly and form sigma^2 (B'M_A B)^{-1}
+    # for a fully-observed dataset, as a check on the factored w_cov.
+    E = eS.unstack('j'); cells = E.index; J = E.shape[1]
+    b = beta.reindex(E.columns).values
+    cell_tm = [(t,m) for (i,t,m) in cells]
+    nobs = len(cells)*J
+    A = np.zeros((nobs, len(tmlist))); B = np.zeros((nobs, len(cells)))
+    y = np.zeros(nobs); r = 0
+    for ci,(i,t,m) in enumerate(cells):
+        for jj in range(J):
+            A[r, tmlist.index((t,m))] = 1.0
+            B[r, ci] = b[jj]
+            r += 1
+    MA = np.eye(nobs) - A@np.linalg.inv(A.T@A)@A.T
+    BMB = B.T@MA@B
+    from cfe.regression import w_cov as _wc
+    sigma2 = _wc(eS, beta).sigma2
+    return sigma2*np.linalg.inv(BMB), cells
+
+
+def test_w_cov_matches_partitioned_inverse():
+    rng = np.random.default_rng(1)
+    J, Ncell = 5, 16
+    beta = np.linspace(.5,3,J)
+    e = rng.standard_normal((Ncell,J))*0.6
+    e = e - e.mean(0)                          # mimic e3 ((t,m,j)-demeaned)
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(Ncell), np.zeros(Ncell,int), np.zeros(Ncell,int)],
+        names=['i','t','m'])
+    eS = pd.DataFrame(e, index=cells, columns=pd.Index(range(J),name='j')).stack()
+    bS = pd.Series(beta, index=pd.Index(range(J),name='j'))
+
+    W = w_cov(eS, bS)
+    Vexact, _ = _brute_force_w_cov(eS, bS, [(0,0)])
+
+    assert np.allclose(W.todense((0,0)).values, Vexact)
+    assert np.allclose(W.var().values, np.diag(Vexact))
+    x = pd.Series(rng.standard_normal(Ncell), index=cells)
+    assert np.allclose(W.matvec(x).values, Vexact@x.values)
+
+
+def test_w_cov_diag_exceeds_homoskedastic_marginal():
+    # The (t,m)-intercept correction makes Var(w_c) exceed sigma^2/d_c.
+    rng = np.random.default_rng(2)
+    J, Ncell = 6, 30
+    beta = np.linspace(.2,4,J)
+    e = rng.standard_normal((Ncell,J))*0.5; e = e - e.mean(0)
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(Ncell), np.zeros(Ncell,int), np.zeros(Ncell,int)], names=['i','t','m'])
+    eS = pd.DataFrame(e, index=cells, columns=pd.Index(range(J),name='j')).stack()
+    bS = pd.Series(beta, index=pd.Index(range(J),name='j'))
+    W = w_cov(eS, bS)
+    homo = w_var(eS, bS, cov='homoskedastic')
+    assert np.all(W.var().values >= homo.values - 1e-12)
+
+
 if __name__=='__main__':
     test_hc0_matches_sandwich_scale()
     test_hc2_leverage_correction()
@@ -1990,5 +2188,7 @@ if __name__=='__main__':
     test_fewer_than_two_goods_is_nan()
     test_default_warns_explicit_silent()
     test_coverage_hc2_unbiased_hc0_low()
+    test_w_cov_matches_partitioned_inverse()
+    test_w_cov_diag_exceeds_homoskedastic_marginal()
     print("ok")
 #+end_src
