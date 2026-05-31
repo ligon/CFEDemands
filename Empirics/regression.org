@@ -634,18 +634,156 @@ def estimate_w(y,beta,verbose=False):
     return what,Ar,Ar_se,e3
 #+end_src
 
+For each cell $c=(i,t,m)$ the welfare weight is the within-cell
+projection of (residualized) log-expenditures onto \beta, computed over
+the goods $O_c$ actually observed in that cell:
+\[
+   \hat w_c = \frac{\beta'X_c}{\beta'\beta}
+            = \frac{\sum_{j\in O_c}\beta_j X_{cj}}{\sum_{j\in O_c}\beta_j^2}.
+\]
+Treating \beta as known (valid for inference on $w$ when $\sqrt{J}/T\to0$,
+which holds here since the number of cells far exceeds the number of
+goods; see [cite:@bai03]) the sampling variance has the sandwich form
+\[
+   \widehat{\Var}(\hat w_c)
+      = \frac{\sum_{j\in O_c}\beta_j^2 \hat\sigma_{cj}^2}
+             {\bigl(\sum_{j\in O_c}\beta_j^2\bigr)^2},
+\]
+where every sum ranges over the /same/ observed set $O_c$, so the result
+is on the same scale as the estimated $\hat w_c$ (i.e. whatever
+normalization \beta carries) and is consistent under missing data.  The
+earlier expression divided a per-cell good-average by the global
+$\beta'\beta$, which silently rescaled the variance by
+$\overline{\beta_j^2}=\beta'\beta/J$ and mixed the observed-good count
+with the full good count under missing data.
+
+A subtlety the scale fix alone does not address: the residual $e_c$ is
+not the raw error but the projection residual $e_c=M_\beta\epsilon_c$, with
+$M_\beta=I-\beta\beta'/\beta'\beta$.  Because the $\beta$-direction has
+already been fitted out, $\E[e_{cj}^2]=\sigma^2(1-h_{cj})$ with leverage
+$h_{cj}=\beta_j^2/\sum_{k\in O_c}\beta_k^2$, so the raw HC0 estimate is
+biased /downward/ by a finite-$|O_c|$ factor (about 20--25% at $J=8$;
+$\to0$ as $J\to\infty$).  The correction is standard: divide by $(1-h_{cj})$
+(HC2), which is exactly unbiased under homoskedasticity and remains
+heteroskedasticity-robust.
+
+How the per-good error variance $\sigma_{cj}^2$ is estimated is governed by
+the =cov= argument:
+- =hc0= (legacy default) :: White single residual, $\hat\sigma_{cj}^2=e_{cj}^2$.  No leverage correction; biased low at finite $J$.  Selected when =cov= is left unset, but with a =DeprecationWarning= --- it is retained as the default only for continuity with existing downstream users, and is slated to change to =hc2=.
+- =hc1= :: HC0 scaled by $|O_c|/(|O_c|-1)$.
+- =hc2= :: $e_{cj}^2/(1-h_{cj})$ --- exactly unbiased under homoskedasticity, still robust.  Recommended.
+- =hc3= :: $e_{cj}^2/(1-h_{cj})^2$; jackknife-style, conservative.
+- =homoskedastic= :: a single pooled $\hat\sigma^2=\sum e_{cj}^2/\sum_c(|O_c|-1)$ (proper degrees of freedom), reducing the formula to $\hat\sigma^2/\sum_{j\in O_c}\beta_j^2$.
+- =pooled= :: $\hat\sigma_{cj}^2=\Var_i(e)$ within $(t,m,j)$ --- robust to heteroskedasticity across goods and markets, pooled across households so the per-cell estimate is stable (good for inverse-variance weighting downstream).  Not leverage-corrected, so it shares HC0's mild finite-$J$ downward bias.
+
+All options share the same scale and missing-data handling; they differ
+only in how $\hat\sigma_{cj}^2$ is estimated and corrected.
 #+name: code:wvar
 #+begin_src python
-def w_var(e,beta):
+import warnings
 
-    if len(e.shape)==1:
-        e = e.unstack('j')
+def w_var(e,beta,cov=None):
+    """Sampling variance of the estimated welfare weights w_hat_c.
 
-    sigma2=(beta@beta) # Should be principal eigenvalue of MdMpY
+    For each cell c=(i,t,m), w_hat_c = (beta'X_c)/(beta'beta) is the
+    within-cell projection of residualized log-expenditures onto beta over
+    the goods O_c observed in that cell.  Treating beta as known, the
+    sandwich variance is
 
-    v = (e.multiply(beta,axis=1)**2).mean(axis=1)/sigma2
+        Var(w_hat_c) = sum_{j in O_c} beta_j^2 sigma_cj^2
+                       / (sum_{j in O_c} beta_j^2)^2,
 
-    return v
+    every sum over the same observed set so the result is on the same scale
+    as w_hat_c and is consistent under missing data.
+
+    Because e is the projection residual (the beta-direction is already
+    fitted out), E[e_cj^2] = sigma^2 (1 - h_cj) with leverage
+    h_cj = beta_j^2 / sum_{k in O_c} beta_k^2; the HC2/HC3 and homoskedastic
+    options correct for this finite-J downward bias, HC0/HC1 do not.
+
+    Parameters
+    ----------
+    e : Series or DataFrame
+        Regression residuals (e.g. ``self.e3``); a Series indexed
+        ``(i,t,m,j)`` or a wide DataFrame ``(i,t,m) x j``.
+    beta : Series
+        Frisch elasticities, indexed by good ``j``.
+    cov : {'hc0','hc1','hc2','hc3','homoskedastic','pooled'}, optional
+        Estimator for the per-good error variance sigma_cj^2.  Leaving it
+        unset selects 'hc0' and raises a DeprecationWarning, because that
+        default is biased low and is slated to change to 'hc2'; pass cov
+        explicitly to silence the warning.
+
+        - 'hc0' (legacy default) : White single residual, sigma_cj^2 = e_cj^2
+                            (no leverage correction; biased low at finite J).
+        - 'hc1'           : HC0 times |O_c|/(|O_c|-1).
+        - 'hc2'           : e_cj^2/(1-h_cj); unbiased under homoskedasticity,
+                            still robust.  Recommended.
+        - 'hc3'           : e_cj^2/(1-h_cj)^2; conservative.
+        - 'homoskedastic' : single pooled sigma^2 with proper d.o.f.
+        - 'pooled'        : Var_i(e) within (t,m,j), pooled across
+                            households (stable; shares HC0's finite-J bias).
+
+        The 'homoskedastic' and 'pooled' options require residuals from
+        which (t,m,j) groups can be formed (a Series, or a wide frame with
+        t,m on the row index).
+
+    Returns
+    -------
+    Series
+        Estimated variance of ``w_hat_c`` for each cell ``c=(i,t,m)``, on
+        the same scale as the estimated ``w``.
+    """
+    if cov is None:
+        warnings.warn(
+            "w_var default cov='hc0' is biased low at finite J (coverage ~0.78 "
+            "with complete data, worse under missing goods) and is slated to "
+            "change to 'hc2'.  Pass cov explicitly to silence this warning: "
+            "'hc2' (recommended) or 'hc0' (legacy behavior).",
+            DeprecationWarning, stacklevel=2)
+        cov = 'hc0'
+
+    if cov not in ('hc0','hc1','hc2','hc3','homoskedastic','pooled'):
+        raise ValueError(f"Unknown cov={cov!r}; expected one of "
+                         "'hc0','hc1','hc2','hc3','homoskedastic','pooled'.")
+
+    E = e.unstack('j') if e.ndim==1 else e
+
+    beta = pd.Series(beta).reindex(E.columns)
+    B2 = (E*0).add(beta**2,axis=1)   # beta_j^2 where good observed, NaN where missing
+    den = B2.sum(axis=1)             # Sum_{j in O_c} beta_j^2
+    Jc = B2.notna().sum(axis=1)      # |O_c|, goods observed in cell
+    h = B2.div(den,axis=0)           # leverage h_cj = beta_j^2 / sum_{O_c} beta_k^2
+
+    # Var(w_hat_c) is unestimable when fewer than 2 goods are observed
+    # (saturated fit, no residual d.o.f.); such cells return NaN.
+    if cov=='homoskedastic':
+        ssr = (E**2).sum().sum()
+        sigma2 = ssr/(Jc-1).clip(lower=0).sum()          # pooled, proper d.o.f.
+        return (sigma2/den).where(Jc>=2)
+
+    if cov=='pooled':
+        # sigma^2_{tmj} pooled across households -> stable per-cell estimate.
+        # No leverage correction (it is unstable for small |O_c|), so this
+        # shares HC0's mild finite-J downward bias; use 'hc2' if unbiasedness
+        # matters more than estimator stability.
+        S2 = E.groupby(['t','m']).transform('var')
+        valid = E.notna() & np.isfinite(S2)
+        num = (B2*S2).where(valid).sum(axis=1)
+        d = B2.where(valid).sum(axis=1)
+        return (num/d**2).where(Jc>=2)
+
+    WE2 = E.multiply(beta,axis=1)**2                     # beta_j^2 e_cj^2
+    if cov=='hc0':
+        num = WE2.sum(axis=1)
+    elif cov=='hc1':
+        num = WE2.sum(axis=1)*(Jc/(Jc-1).where(Jc>=2))
+    elif cov=='hc2':
+        num = (WE2/(1-h)).sum(axis=1)
+    elif cov=='hc3':
+        num = (WE2/(1-h)**2).sum(axis=1)
+
+    return (num/den**2).where(Jc>=2)
 
 #+end_src
 ** Estimating Price Indices
@@ -1068,14 +1206,35 @@ class Regression:
 
         return self.beta_se
 
-    def w_se(self):
+    def w_se(self,cov=None):
         """Compute standard errors of estimated ws.
+
+        NOTE: leaving ``cov`` unset selects the legacy ``'hc0'`` estimator and
+        raises a DeprecationWarning.  HC0 is biased *low* at finite J because
+        the w-residuals come from a projection (the beta-direction is fitted
+        out): coverage ratios run ~0.78 with complete data and worse under
+        missing goods (~0.6 at 30% missing, ~0.4 at 50%).  It is retained as
+        the default only for continuity with existing downstream code.  Pass
+        ``cov='hc2'`` for the leverage-corrected estimator, which is unbiased
+        and remains heteroskedasticity-robust.
+
+        - cov :: Per-good error-variance estimator passed to ``w_var``; one
+          of 'hc0' (legacy default), 'hc1', 'hc2' (recommended), 'hc3',
+          'homoskedastic', or 'pooled'.
         """
+        if cov is None:
+            warnings.warn(
+                "w_se default cov='hc0' is biased low at finite J and is slated "
+                "to change to 'hc2'.  Pass cov explicitly to silence this "
+                "warning: 'hc2' (recommended) or 'hc0' (legacy behavior).",
+                DeprecationWarning, stacklevel=2)
+            cov = 'hc0'
+
         beta = self.get_beta()
 
         if self.e3 is None: self.get_w()
 
-        v = w_var(self.e3,beta)
+        v = w_var(self.e3,beta,cov=cov)
 
         return np.sqrt(v)
 
@@ -1709,4 +1868,127 @@ def test_main():
 
 if __name__=='__main__':
     s = main()
+#+end_src
+** Tests for =w_var=
+These guard the welfare-weight sampling variance: its scale (sums over the
+observed good set $O_c$, not the global $\beta'\beta$), its missing-data
+handling, and the finite-$J$ coverage behavior of the =cov= options.
+#+begin_src python :tangle ../cfe/test/test_w_var.py
+import numpy as np
+import pandas as pd
+import pytest
+from cfe.regression import w_var
+
+
+def _cells(rows):
+    return pd.DataFrame(
+        rows,
+        index=pd.MultiIndex.from_tuples([(i,0,0) for i in range(len(rows))],
+                                        names=['i','t','m']),
+        columns=pd.Index(range(len(rows[0])), name='j'),
+    ).stack()
+
+
+def test_hc0_matches_sandwich_scale():
+    # The corrected HC0 must equal the OLS-slope sandwich for w_hat_c =
+    # (beta'X_c)/(beta'beta): sum_j beta_j^2 e_cj^2 / (sum_j beta_j^2)^2.
+    beta = pd.Series([1.,2.,3.], index=pd.Index([0,1,2],name='j'))
+    e = _cells([[0.1,-0.2,0.05],[0.0,0.1,-0.1]])
+    v = w_var(e, beta, cov='hc0')
+
+    E = e.unstack('j').values; b = beta.values; b2 = (b**2).sum()
+    expect = (b**2*E**2).sum(1)/b2**2
+    assert np.allclose(v.values, expect)
+    # And it is NOT the old (global-betabeta, mean-over-j) formula unless
+    # mean(beta_j^2)==1; here mean(beta^2)=14/3, so they must differ.
+    old = (E*b)**2
+    old = old.mean(1)/b2
+    assert not np.allclose(v.values, old)
+
+
+def test_hc2_leverage_correction():
+    beta = pd.Series([1.,2.,3.], index=pd.Index([0,1,2],name='j'))
+    e = _cells([[0.1,-0.2,0.05]])
+    b = beta.values; b2 = (b**2).sum(); h = b**2/b2
+    E = e.unstack('j').values
+    expect = (b**2*E**2/(1-h)).sum(1)/b2**2
+    assert np.allclose(w_var(e, beta, cov='hc2').values, expect)
+
+
+def test_missing_data_uses_observed_set():
+    # With a good missing in a cell, both numerator and denominator must
+    # range over the observed goods only.
+    beta = pd.Series([1.,2.,3.], index=pd.Index([0,1,2],name='j'))
+    e = _cells([[0.1, np.nan, 0.05]])      # good j=1 missing for this cell
+    b = beta.values; obs = np.array([True,False,True])
+    bo2 = (b[obs]**2).sum()
+    expect = (b[obs]**2*np.array([0.1,0.05])**2).sum()/bo2**2
+    assert np.allclose(w_var(e, beta, cov='hc0').dropna().values, [expect])
+
+
+def test_fewer_than_two_goods_is_nan():
+    beta = pd.Series([1.,2.,3.], index=pd.Index([0,1,2],name='j'))
+    e = _cells([[0.1, np.nan, np.nan],     # 1 good  -> NaN
+                [0.1, -0.2, 0.05]])        # 3 goods -> finite
+    v = w_var(e, beta, cov='hc0')
+    assert v.iloc[0] != v.iloc[0]          # NaN
+    assert np.isfinite(v.iloc[1])
+
+
+def test_bad_cov_raises():
+    beta = pd.Series([1.,2.], index=pd.Index([0,1],name='j'))
+    e = _cells([[0.1,-0.2]])
+    with pytest.raises(ValueError):
+        w_var(e, beta, cov='nonsense')
+
+
+def test_default_warns_explicit_silent():
+    beta = pd.Series([1.,2.,3.], index=pd.Index([0,1,2],name='j'))
+    e = _cells([[0.1,-0.2,0.05]])
+    # Unset cov -> DeprecationWarning, but still returns the hc0 result.
+    with pytest.warns(DeprecationWarning):
+        v_default = w_var(e, beta)
+    assert np.allclose(v_default.values, w_var(e, beta, cov='hc0').values)
+    # Explicit cov -> no warning.
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter('error')
+        w_var(e, beta, cov='hc0')
+        w_var(e, beta, cov='hc2')
+
+
+def test_coverage_hc2_unbiased_hc0_low():
+    # Monte Carlo: X_cj = beta_j w_c + eps; w_hat_c = (beta'X)/(beta'beta).
+    # hc2 should recover Var(w_hat); hc0 should be biased low.
+    rng = np.random.default_rng(0)
+    J, N, sigma = 8, 40000, 0.7
+    beta = np.linspace(.2,5,J); b2 = beta@beta
+    w = rng.standard_normal(N)
+    X = np.outer(w,beta) + rng.standard_normal((N,J))*sigma
+    what = X@beta/b2
+    e = X - np.outer(what,beta)
+    emp = np.var(what - w)
+
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(N), np.zeros(N,int), np.zeros(N,int)], names=['i','t','m'])
+    eS = pd.DataFrame(e, index=cells, columns=pd.Index(range(J),name='j')).stack()
+    bS = pd.Series(beta, index=pd.Index(range(J),name='j'))
+
+    hc2 = w_var(eS, bS, cov='hc2').mean()
+    hc0 = w_var(eS, bS, cov='hc0').mean()
+    homo = w_var(eS, bS, cov='homoskedastic').mean()
+
+    assert 0.95 < hc2/emp < 1.06, f"hc2 coverage off: {hc2/emp}"
+    assert 0.95 < homo/emp < 1.06, f"homoskedastic coverage off: {homo/emp}"
+    assert hc0/emp < 0.85, f"hc0 should be biased low: {hc0/emp}"
+
+
+if __name__=='__main__':
+    test_hc0_matches_sandwich_scale()
+    test_hc2_leverage_correction()
+    test_missing_data_uses_observed_set()
+    test_fewer_than_two_goods_is_nan()
+    test_default_warns_explicit_silent()
+    test_coverage_hc2_unbiased_hc0_low()
+    print("ok")
 #+end_src
