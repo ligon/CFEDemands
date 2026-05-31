@@ -936,6 +936,232 @@ def estimate_pi(y,b,w,Ar,gamma_d,verbose=False):
     return pi, pi_se, e4
 #+end_src
 
+** Rectifying the global scale of $w$ (prototype)
+=estimate_pi= forces the coefficient on $\beta w$ to one --- it is the
+$\delta=1$ restriction of the level/scale regression
+\[
+   y_{itmj} - (\gamma d)_{itmj} = \pi_{tm} + A(r)_{tmj} + \delta\,(\beta_j w_{itm}) + e_{itmj}.
+\]
+Freeing $\delta$ pins the /global scale/ of $w$: the SVD scale that $\beta$
+carries (from the doubly-residualized covariance) need not be the scale at
+which $\beta w$ best reproduces the level equation (built from the
+singly-residualized data), and $\delta$ is the correction.  We rescale
+$\tilde w=\delta w$ (so $\beta$ keeps its SVD scale).
+
+This iterates, recomputing $A(r)$ each pass (it was built under $\delta=1$):
+given $w$, partial the $(t,m)$ level out of both $y-\gamma d-A(r)$ and
+$\beta w$ and read off $\delta$ (OLS slope, $A(r)$ held as offset); rescale
+$w\leftarrow\delta w$; recompute $A(r)$ as the $(t,m,j)$ mean of
+$y-\gamma d-\beta w$, centered over $j$.  At a fixed point $\delta\to1$ and
+the cumulative $\Delta=\prod_k\delta_k$ settles.  A sign flip ($\delta\le0$)
+raises (the $\beta$-direction is anti-correlated with the $w$-variation ---
+something is badly wrong); non-convergence or a $\Delta$ far from 1 warns.
+
+This is a prototype: it is /not/ wired into =get_pi= yet.  Inference on
+$\delta$ (a generated-regressor slope; its s.e. follows from =w_cov=) is
+deferred --- see notes.
+#+name: code:rectify_w
+#+begin_src python
+def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,accelerate=True,
+              warn_band=None,verbose=False):
+    """Estimate a global scale delta on beta*w, iterating with A(r) recomputed.
+
+    Model: y - gamma_d = pi_tm + A(r)_tmj + delta*(beta_j w_itm) + e.
+
+    Convergence is geometric and can be slow (~10-15 passes under heavy
+    missingness).  Since the net effect is always w = Delta * w_in and the
+    cumulative-Delta sequence converges geometrically, accelerate=True
+    (default) applies Aitken delta^2 to extrapolate the limit and jump there
+    in a few passes.  Sign flip (delta<=0) raises; non-convergence warns.
+    warn_band, if given, warns when the cumulative Delta leaves the band --
+    but the economic+statistical gate lives in Regression.rectify (which has
+    the delta s.e.).
+
+    Returns
+    -------
+    (w, Ar, pi, Delta, history, e3)
+        Rectified w (= Delta * w_in), recomputed A(r), pi and (t,m,j)-demeaned
+        residual e3, the cumulative scale Delta = prod_k delta_k, and the
+        per-iteration delta history.
+    """
+    L = (y - gamma_d).dropna()
+    beta = pd.Series(beta).squeeze() if hasattr(beta,'squeeze') else pd.Series(beta)
+    w0 = w.copy()                       # net effect is always w = Delta * w0
+    Ar = Ar.copy()
+    Delta = 1.0
+    history = []
+    Dseq = []
+    aitken_prev = None
+    converged = False
+
+    def offset(Ar):
+        return pd.Series(Ar.reindex(L.index.droplevel('i')).values,index=L.index)
+
+    def recompute_Ar(w):
+        # A(r): (t,m,j) mean of (y - gamma_d - beta*w), centered over j.
+        bw = outer(w,beta).stack().reindex(L.index)
+        A = (L - bw).groupby(['t','m','j']).mean()
+        return A - A.groupby(['t','m']).transform('mean')
+
+    for it in range(max_iter):
+        delta = _delta_components(L,beta,w,Ar)[0]   # FWL slope on beta*w (A(r) offset)
+
+        if not np.isfinite(delta):
+            raise ValueError(f"rectify: non-finite delta at iter {it}.")
+        if delta <= 0:
+            raise ValueError(
+                f"rectify: delta={delta:.3g} <= 0 at iter {it}; the beta-direction "
+                "is anti-correlated with the w-variation -- something is "
+                "dramatically wrong upstream (sign of beta or w?).")
+
+        history.append(delta)
+        Delta *= delta
+        Dseq.append(Delta)
+        w = delta*w
+        Ar = recompute_Ar(w)
+
+        if verbose:
+            print(f"  rectify iter {it}: delta={delta:.6f}  Delta={Delta:.6f}")
+        if abs(delta-1) < tol:
+            converged = True
+            break
+
+        # Aitken delta^2 on the (geometrically convergent) cumulative-Delta
+        # sequence: extrapolate the limit and jump w = Delta_inf * w0.
+        if accelerate and len(Dseq) >= 3:
+            d0,d1,d2 = Dseq[-3:]
+            denom = d2 - 2*d1 + d0
+            if abs(denom) > 1e-12:
+                aitken = d0 - (d1-d0)**2/denom
+                if (1e-3 < aitken < 1e3 and aitken_prev is not None
+                        and abs(aitken-aitken_prev) < tol):
+                    Delta = aitken
+                    w = Delta*w0
+                    Ar = recompute_Ar(w)
+                    converged = True
+                    if verbose:
+                        print(f"  rectify: Aitken-accelerated to Delta={Delta:.6f} "
+                              f"at iter {it}")
+                    break
+                aitken_prev = aitken
+
+    if not converged:
+        warnings.warn(
+            f"rectify did not converge in {max_iter} iterations "
+            f"(last delta={history[-1]:.4g}, Delta={Delta:.4g}).")
+
+    if warn_band is not None and not (warn_band[0] <= Delta <= warn_band[1]):
+        warnings.warn(
+            f"rectify: cumulative Delta={Delta:.4g} outside {warn_band}; "
+            "large global w-rescaling -- check specification.")
+
+    bw = outer(w,beta).stack().reindex(L.index)
+    resid = L - offset(Ar) - bw
+    pi = resid.groupby(['t','m']).mean()
+    pi.name = 'pi'
+
+    pi_b = pd.Series(pi.reindex(L.index.droplevel(['i','j'])).values,index=L.index)
+    e = resid - pi_b
+    e3 = e - e.groupby(['t','m','j']).transform('mean')
+
+    return w,Ar,pi,Delta,history,e3
+#+end_src
+
+*** Inference on $\delta$ (generated-regressor s.e. via =w_cov=)
+The one-pass slope $\hat\delta=(z'u)/(z'z)$ --- with $u=M_{tm}(y-\gamma d-A(r))$
+and $z=M_{tm}(\beta w)$ --- is a /generated-regressor/ statistic: the
+regressor $z$ is built from the estimated $\hat w$.  Two channels feed
+$\Var(\hat\delta)$:
+1. the level-regression noise (the usual OLS term, "naive"); and
+2. the sampling error in $\hat w$, whose covariance $V_w$ we already have
+   from =w_cov=.
+
+Conditioning on $A(r)$, $\hat\delta$ is a smooth function of the cell vector
+$\hat w$, so the delta method gives
+\[
+   \Var(\hat\delta) \approx \underbrace{\frac{\sigma_e^2}{z'z}}_{\text{naive}}
+      \;+\; g'\,V_w\,g,\qquad
+   g_a=\frac{\partial\hat\delta}{\partial \hat w_a},
+\]
+with (writing $s_c=\sum_{j\in O_c}\beta_j$, $n_{tm}$ the obs count, and
+$\phi_{cj}=(u_{cj}-2\hat\delta z_{cj})/z'z$)
+\[
+   g_a=\sum_{j\in O_a}\beta_j\phi_{aj}
+       \;-\;\frac{s_a}{n_{tm(a)}}\sum_{c\in tm(a)}\sum_j\phi_{cj}.
+\]
+The quadratic form $g'V_wg$ uses the =w_cov= factors directly (no dense
+matrix).  The statistic $z=(\hat\delta-1)/\se(\hat\delta)$ tests the null
+that $\beta w$ at its SVD scale needs no rescaling --- i.e. a specification
+check that the two residualizations agree.  (This is the one-pass test;
+inference on the /iterated/ cumulative $\Delta$ is a further step.)
+#+name: code:wdelta
+#+begin_src python
+from collections import namedtuple
+
+WDelta = namedtuple('WDelta',['delta','se','se_naive','se_gen','z','grad'])
+RectifyResult = namedtuple('RectifyResult',['Delta','applied','wd','history'])
+
+def _delta_components(L,beta,w,Ar):
+    """One-pass delta and the demeaned pieces. L = (y - gamma_d).dropna()."""
+    def offset(A):
+        return pd.Series(A.reindex(L.index.droplevel('i')).values,index=L.index)
+    bw  = outer(w,beta).stack().reindex(L.index)
+    lhs = L - offset(Ar)
+    u = lhs - lhs.groupby(['t','m']).transform('mean')   # M_tm(y - gamma_d - A(r))
+    z = bw  - bw.groupby(['t','m']).transform('mean')    # M_tm(beta*w)
+    den = (z**2).sum()
+    delta = (u*z).sum()/den
+    return delta,u,z,den
+
+def w_delta(y,gamma_d,beta,w,Ar,V=None):
+    """One-pass global scale delta on beta*w, with generated-regressor s.e.
+
+    Parameters
+    ----------
+    V : WCov or None
+        If given (e.g. from ``w_cov``), add the propagated uncertainty in the
+        estimated w to the naive level-regression variance.  Conditions on
+        A(r); see notes.  Cells with <2 observed goods have undefined V_w and
+        do not contribute to the generated-regressor term, so se_gen is mildly
+        understated (the delta=1 test slightly anti-conservative) under heavy
+        missingness.
+
+    Returns
+    -------
+    WDelta(delta, se, se_naive, se_gen, z, grad)
+        z = (delta-1)/se tests the null that the SVD scale of w is right.
+    """
+    L = (y - gamma_d).dropna()
+    beta = pd.Series(beta).squeeze() if hasattr(beta,'squeeze') else pd.Series(beta)
+    delta,u,z,den = _delta_components(L,beta,w,Ar)
+
+    e = u - delta*z                                   # level-regression residual
+    sigma2 = (e**2).sum()/(e.shape[0]-1)
+    var_naive = sigma2/den
+
+    var_gen = 0.0
+    grad = None
+    if V is not None:
+        bj = pd.Series(beta.reindex(u.index.get_level_values('j')).values,index=u.index)
+        phi = (u - 2*delta*z)/den
+        G      = (phi*bj).groupby(['i','t','m']).sum()         # sum_j beta_j phi_cj
+        gcell  = phi.groupby(['i','t','m']).sum()              # sum_j phi_cj
+        s      = bj.groupby(['i','t','m']).sum()               # s_c = sum_{O_c} beta_j
+        ntm    = u.groupby(['t','m']).size()                   # n_tm
+        tm_sum = gcell.groupby(['t','m']).sum()                # sum_{c in tm} sum_j phi_cj
+        tm = G.index.droplevel('i')
+        grad = G - s*(tm_sum.reindex(tm).values)/(ntm.reindex(tm).values)
+        # g' V_w g via factors (cells with undefined V_w contribute 0)
+        D  = V.D.reindex(grad.index).fillna(0.0)
+        Uc = V.U.reindex(grad.index).fillna(0.0)
+        gtm = (Uc*grad).groupby(['t','m']).sum()
+        var_gen = (D*grad**2).sum() + V.sigma2*(V.V22*gtm**2).sum()
+
+    se = np.sqrt(var_naive + var_gen)
+    zstat = (delta-1)/se if se>0 else np.nan
+    return WDelta(delta,se,np.sqrt(var_naive),np.sqrt(var_gen),zstat,grad)
+#+end_src
+
 ** Predicting $y$
 #+name: code:predict
 #+begin_src python
@@ -1471,6 +1697,78 @@ class Regression:
         self.e4 = e4
 
         return self.pi
+
+    def rectify(self,inplace=False,econ_tol=0.1,z_tol=3.0,
+                max_iter=20,tol=1e-4,verbose=False):
+        """PROTOTYPE: pin the global scale of w, gated on BOTH significance.
+
+        Iterates a global slope delta on beta*w (recomputing A(r) and pi each
+        pass; see rectify_w) for the point estimate Delta, and computes the
+        one-pass delta with its generated-regressor s.e. (see delta_test) for
+        the statistical test.  The rescaling is treated as warranted only when
+        it is both
+
+          - economically significant : |Delta - 1| > econ_tol, and
+          - statistically significant: |z| = |delta-1|/se > z_tol,
+
+        guarding against both negligible-but-real and large-but-noisy
+        corrections.  With inplace=True the rescaling w_tilde = Delta*w (and
+        recomputed A(r), pi, e3) is written back ONLY if the gate passes;
+        otherwise w is left on its SVD scale.  A warning fires when the gate
+        passes (a notable correction is being applied).
+
+        Returns RectifyResult(Delta, applied, wd, history) where wd is the
+        WDelta from the one-pass test.
+        """
+        beta = self.get_beta(verbose=verbose)
+        gamma_d = self.get_gamma_d(verbose=verbose)
+        w = self.get_w(verbose=verbose)
+        Ar = self.get_Ar(verbose=verbose)
+
+        # statistical test (one-pass delta with generated-regressor s.e.)
+        wd = w_delta(self.y,gamma_d,beta,w,Ar,V=w_cov(self.e3,beta))
+
+        # point estimate (iterated cumulative Delta)
+        w2,Ar2,pi2,Delta,history,e3 = rectify_w(self.y,gamma_d,beta,w,Ar,
+                                                max_iter=max_iter,tol=tol,verbose=verbose)
+
+        economic    = abs(Delta-1) > econ_tol
+        significant = np.isfinite(wd.z) and abs(wd.z) > z_tol
+        applied = bool(economic and significant)
+
+        if applied:
+            warnings.warn(
+                f"rectify: applying w-rescaling Delta={Delta:.4g} "
+                f"(|Delta-1|={abs(Delta-1):.3g} > {econ_tol}, "
+                f"|z|={abs(wd.z):.3g} > {z_tol}).")
+            if inplace:
+                self.w = w2
+                self.Ar = Ar2
+                self.pi = pi2
+                self.e3 = e3          # so w_se/w_cov reflect rectified w
+                self.yhat = None      # predictions stale
+                self.e4 = None
+        elif verbose:
+            why = ("economically negligible" if not economic else
+                   "not statistically significant")
+            print(f"  rectify: no rescaling ({why}); "
+                  f"Delta={Delta:.4g}, z={wd.z:.3g}")
+
+        return RectifyResult(Delta,applied,wd,history)
+
+    def delta_test(self):
+        """PROTOTYPE: one-pass global scale delta with generated-regressor s.e.
+
+        Propagates the uncertainty in the estimated w (via w_cov) into the
+        slope on beta*w, conditioning on A(r).  Returns a WDelta; the z-stat
+        (delta-1)/se tests the null that w's SVD scale needs no rescaling --
+        a specification check that the two residualizations agree.
+        """
+        beta = self.get_beta()
+        gamma_d = self.get_gamma_d()
+        self.get_w()
+        V = w_cov(self.e3,beta)
+        return w_delta(self.y,gamma_d,beta,self.w,self.Ar,V=V)
 
 
     def get_predicted_log_expenditures(self,fill_missing=True,verbose=None):
@@ -2018,7 +2316,8 @@ handling, and the finite-$J$ coverage behavior of the =cov= options.
 import numpy as np
 import pandas as pd
 import pytest
-from cfe.regression import w_var, w_cov
+from cfe.regression import (w_var, w_cov, rectify_w, outer,
+                            w_delta, _delta_components)
 
 
 def _cells(rows):
@@ -2181,6 +2480,107 @@ def test_w_cov_diag_exceeds_homoskedastic_marginal():
     assert np.all(W.var().values >= homo.values - 1e-12)
 
 
+def _exact_w_model(N=200, J=6, seed=3):
+    # y - gamma_d = A(r)_tmj + beta_j w_c exactly (complete data, pi=0).
+    rng = np.random.default_rng(seed)
+    beta = pd.Series(np.linspace(.5,3,J), index=pd.Index(range(J),name='j'))
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(N), np.zeros(N,int), np.zeros(N,int)], names=['i','t','m'])
+    w = pd.Series(rng.standard_normal(N), index=cells)
+    aj = rng.standard_normal(J); aj -= aj.mean()
+    Ar = pd.Series(aj, index=pd.MultiIndex.from_tuples(
+        [(0,0,j) for j in range(J)], names=['t','m','j']))
+    bw = outer(w,beta).stack()
+    bw.index.names = ['i','t','m','j']
+    y = bw + pd.Series(Ar.reindex(bw.index.droplevel('i')).values, index=bw.index)
+    return y, y*0, beta, w, Ar
+
+
+def test_rectify_complete_data_delta_one():
+    y,gd,beta,w,Ar = _exact_w_model()
+    w2,Ar2,pi2,Delta,hist,e3 = rectify_w(y,gd,beta,w,Ar)
+    assert abs(Delta-1) < 1e-6
+    assert np.allclose(w2.values, w.values, atol=1e-6)
+
+
+def test_rectify_sign_flip_raises():
+    y,gd,beta,w,Ar = _exact_w_model()
+    with pytest.raises(ValueError):
+        rectify_w(y,gd,-beta,w,Ar)
+
+
+def test_rectify_aitken_matches_unaccelerated():
+    # Aitken acceleration must reach the same limit, in fewer passes.
+    y,gd,beta,w,Ar = _messy_w_model(N=200, miss=0.4, seed=8)
+    Da = rectify_w(y,gd,beta,w,Ar, accelerate=True,  max_iter=50)[3]
+    wb,Ab,pb,Db,hb,eb = rectify_w(y,gd,beta,w,Ar, accelerate=False,
+                                  max_iter=500, tol=1e-9)
+    ha = rectify_w(y,gd,beta,w,Ar, accelerate=True, max_iter=50)[4]
+    assert abs(Da - Db) < 1e-3, (Da, Db)
+    assert len(ha) < len(hb), (len(ha), len(hb))
+
+
+def _messy_w_model(N=120, J=6, miss=0.3, seed=5):
+    # Missing goods + noise, so delta != 1 and the gradient is nontrivial.
+    rng = np.random.default_rng(seed)
+    beta = pd.Series(np.linspace(.4,3,J), index=pd.Index(range(J),name='j'))
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(N), np.zeros(N,int), np.zeros(N,int)], names=['i','t','m'])
+    w = pd.Series(rng.standard_normal(N), index=cells)
+    aj = rng.standard_normal(J); aj -= aj.mean()
+    Ar = pd.Series(aj, index=pd.MultiIndex.from_tuples(
+        [(0,0,j) for j in range(J)], names=['t','m','j']))
+    bw = outer(w,beta).stack(); bw.index.names=['i','t','m','j']
+    y = (bw + pd.Series(Ar.reindex(bw.index.droplevel('i')).values, index=bw.index)
+         + rng.standard_normal(len(bw))*0.4)
+    keep = rng.random(len(y)) >= miss
+    y = y[keep]
+    return y, y*0, beta, w, Ar
+
+
+def test_w_delta_gradient_matches_finite_difference():
+    # The hard part: verify grad = d delta / d w (conditioning on A(r)).
+    y,gd,beta,w,Ar = _messy_w_model()
+    V = w_cov((y-gd), beta)
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    L = (y-gd).dropna()
+    rng = np.random.default_rng(7)
+    v = pd.Series(rng.standard_normal(len(w)), index=w.index)
+    h = 1e-6
+    dp = _delta_components(L, beta, w+h*v, Ar)[0]
+    dm = _delta_components(L, beta, w-h*v, Ar)[0]
+    numerical = (dp - dm)/(2*h)
+    analytic = float((wd.grad*v).sum())
+    assert abs(numerical - analytic) < 1e-4*(abs(analytic)+1), (numerical, analytic)
+
+
+def test_w_delta_gen_variance_equals_dense_quadratic_form():
+    # var_gen (factor form) must equal grad' V_w grad (dense) on clean data.
+    rng = np.random.default_rng(9)
+    y,gd,beta,w,Ar = _exact_w_model(N=150, J=5)
+    y = y + pd.Series(rng.standard_normal(len(y))*0.3, index=y.index)
+    gd = y*0
+    V = w_cov((y-gd), beta)
+    assert not V.D.isna().any()                # complete data -> no undefined cells
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    Vd = V.todense((0,0)); g = wd.grad.reindex(Vd.index).values
+    assert np.isclose(wd.se_gen, np.sqrt(g @ Vd.values @ g))
+
+
+def test_w_delta_se_components():
+    y,gd,beta,w,Ar = _messy_w_model()
+    V = w_cov((y-gd), beta)
+    wd = w_delta(y, gd, beta, w, Ar, V=V)
+    # combined se exceeds the naive (generated-regressor adds variance)
+    assert wd.se >= wd.se_naive - 1e-12
+    assert wd.se_gen > 0
+    assert np.isclose(wd.se, np.sqrt(wd.se_naive**2 + wd.se_gen**2))
+    # complete, exact data -> delta==1 and z ~ 0
+    y2,gd2,b2,w2,Ar2 = _exact_w_model()
+    wd2 = w_delta(y2, gd2, b2, w2, Ar2, V=w_cov((y2-gd2), b2))
+    assert abs(wd2.delta - 1) < 1e-6
+
+
 if __name__=='__main__':
     test_hc0_matches_sandwich_scale()
     test_hc2_leverage_correction()
@@ -2190,5 +2590,11 @@ if __name__=='__main__':
     test_coverage_hc2_unbiased_hc0_low()
     test_w_cov_matches_partitioned_inverse()
     test_w_cov_diag_exceeds_homoskedastic_marginal()
+    test_rectify_complete_data_delta_one()
+    test_rectify_sign_flip_raises()
+    test_rectify_aitken_matches_unaccelerated()
+    test_w_delta_gradient_matches_finite_difference()
+    test_w_delta_gen_variance_equals_dense_quadratic_form()
+    test_w_delta_se_components()
     print("ok")
 #+end_src
