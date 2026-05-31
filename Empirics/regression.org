@@ -962,17 +962,20 @@ $\delta$ (a generated-regressor slope; its s.e. follows from =w_cov=) is
 deferred --- see notes.
 #+name: code:rectify_w
 #+begin_src python
-def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,
+def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,accelerate=True,
               warn_band=None,verbose=False):
     """Estimate a global scale delta on beta*w, iterating with A(r) recomputed.
 
     Model: y - gamma_d = pi_tm + A(r)_tmj + delta*(beta_j w_itm) + e.
 
     Convergence is geometric and can be slow (~10-15 passes under heavy
-    missingness); max_iter defaults to 20.  Sign flip (delta<=0) raises;
-    non-convergence warns.  warn_band, if given, warns when the cumulative
-    Delta leaves the band -- but the economic+statistical gate lives in
-    Regression.rectify (which has the delta s.e.).
+    missingness).  Since the net effect is always w = Delta * w_in and the
+    cumulative-Delta sequence converges geometrically, accelerate=True
+    (default) applies Aitken delta^2 to extrapolate the limit and jump there
+    in a few passes.  Sign flip (delta<=0) raises; non-convergence warns.
+    warn_band, if given, warns when the cumulative Delta leaves the band --
+    but the economic+statistical gate lives in Regression.rectify (which has
+    the delta s.e.).
 
     Returns
     -------
@@ -983,20 +986,25 @@ def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,
     """
     L = (y - gamma_d).dropna()
     beta = pd.Series(beta).squeeze() if hasattr(beta,'squeeze') else pd.Series(beta)
+    w0 = w.copy()                       # net effect is always w = Delta * w0
     Ar = Ar.copy()
     Delta = 1.0
     history = []
+    Dseq = []
+    aitken_prev = None
+    converged = False
 
     def offset(Ar):
         return pd.Series(Ar.reindex(L.index.droplevel('i')).values,index=L.index)
 
-    for it in range(max_iter):
+    def recompute_Ar(w):
+        # A(r): (t,m,j) mean of (y - gamma_d - beta*w), centered over j.
         bw = outer(w,beta).stack().reindex(L.index)
-        lhs = L - offset(Ar)
-        # FWL: partial the (t,m) level (pi) out of both sides, read delta off beta*w
-        lhs_d = lhs - lhs.groupby(['t','m']).transform('mean')
-        bw_d  = bw  - bw.groupby(['t','m']).transform('mean')
-        delta = (lhs_d*bw_d).sum()/(bw_d**2).sum()
+        A = (L - bw).groupby(['t','m','j']).mean()
+        return A - A.groupby(['t','m']).transform('mean')
+
+    for it in range(max_iter):
+        delta = _delta_components(L,beta,w,Ar)[0]   # FWL slope on beta*w (A(r) offset)
 
         if not np.isfinite(delta):
             raise ValueError(f"rectify: non-finite delta at iter {it}.")
@@ -1007,19 +1015,37 @@ def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,
                 "dramatically wrong upstream (sign of beta or w?).")
 
         history.append(delta)
-        w = delta*w
         Delta *= delta
-
-        # Recompute A(r): (t,m,j) mean of (y - gamma_d - beta*w), centered over j.
-        bw = outer(w,beta).stack().reindex(L.index)
-        Ar = (L - bw).groupby(['t','m','j']).mean()
-        Ar = Ar - Ar.groupby(['t','m']).transform('mean')
+        Dseq.append(Delta)
+        w = delta*w
+        Ar = recompute_Ar(w)
 
         if verbose:
             print(f"  rectify iter {it}: delta={delta:.6f}  Delta={Delta:.6f}")
         if abs(delta-1) < tol:
+            converged = True
             break
-    else:
+
+        # Aitken delta^2 on the (geometrically convergent) cumulative-Delta
+        # sequence: extrapolate the limit and jump w = Delta_inf * w0.
+        if accelerate and len(Dseq) >= 3:
+            d0,d1,d2 = Dseq[-3:]
+            denom = d2 - 2*d1 + d0
+            if abs(denom) > 1e-12:
+                aitken = d0 - (d1-d0)**2/denom
+                if (1e-3 < aitken < 1e3 and aitken_prev is not None
+                        and abs(aitken-aitken_prev) < tol):
+                    Delta = aitken
+                    w = Delta*w0
+                    Ar = recompute_Ar(w)
+                    converged = True
+                    if verbose:
+                        print(f"  rectify: Aitken-accelerated to Delta={Delta:.6f} "
+                              f"at iter {it}")
+                    break
+                aitken_prev = aitken
+
+    if not converged:
         warnings.warn(
             f"rectify did not converge in {max_iter} iterations "
             f"(last delta={history[-1]:.4g}, Delta={Delta:.4g}).")
@@ -2483,6 +2509,17 @@ def test_rectify_sign_flip_raises():
         rectify_w(y,gd,-beta,w,Ar)
 
 
+def test_rectify_aitken_matches_unaccelerated():
+    # Aitken acceleration must reach the same limit, in fewer passes.
+    y,gd,beta,w,Ar = _messy_w_model(N=200, miss=0.4, seed=8)
+    Da = rectify_w(y,gd,beta,w,Ar, accelerate=True,  max_iter=50)[3]
+    wb,Ab,pb,Db,hb,eb = rectify_w(y,gd,beta,w,Ar, accelerate=False,
+                                  max_iter=500, tol=1e-9)
+    ha = rectify_w(y,gd,beta,w,Ar, accelerate=True, max_iter=50)[4]
+    assert abs(Da - Db) < 1e-3, (Da, Db)
+    assert len(ha) < len(hb), (len(ha), len(hb))
+
+
 def _messy_w_model(N=120, J=6, miss=0.3, seed=5):
     # Missing goods + noise, so delta != 1 and the gradient is nontrivial.
     rng = np.random.default_rng(seed)
@@ -2555,6 +2592,7 @@ if __name__=='__main__':
     test_w_cov_diag_exceeds_homoskedastic_marginal()
     test_rectify_complete_data_delta_one()
     test_rectify_sign_flip_raises()
+    test_rectify_aitken_matches_unaccelerated()
     test_w_delta_gradient_matches_finite_difference()
     test_w_delta_gen_variance_equals_dense_quadratic_form()
     test_w_delta_se_components()
