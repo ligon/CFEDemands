@@ -962,11 +962,17 @@ $\delta$ (a generated-regressor slope; its s.e. follows from =w_cov=) is
 deferred --- see notes.
 #+name: code:rectify_w
 #+begin_src python
-def rectify_w(y,gamma_d,beta,w,Ar,max_iter=10,tol=1e-4,
-              warn_band=(0.5,2.0),verbose=False):
+def rectify_w(y,gamma_d,beta,w,Ar,max_iter=20,tol=1e-4,
+              warn_band=None,verbose=False):
     """Estimate a global scale delta on beta*w, iterating with A(r) recomputed.
 
     Model: y - gamma_d = pi_tm + A(r)_tmj + delta*(beta_j w_itm) + e.
+
+    Convergence is geometric and can be slow (~10-15 passes under heavy
+    missingness); max_iter defaults to 20.  Sign flip (delta<=0) raises;
+    non-convergence warns.  warn_band, if given, warns when the cumulative
+    Delta leaves the band -- but the economic+statistical gate lives in
+    Regression.rectify (which has the delta s.e.).
 
     Returns
     -------
@@ -1018,7 +1024,7 @@ def rectify_w(y,gamma_d,beta,w,Ar,max_iter=10,tol=1e-4,
             f"rectify did not converge in {max_iter} iterations "
             f"(last delta={history[-1]:.4g}, Delta={Delta:.4g}).")
 
-    if not (warn_band[0] <= Delta <= warn_band[1]):
+    if warn_band is not None and not (warn_band[0] <= Delta <= warn_band[1]):
         warnings.warn(
             f"rectify: cumulative Delta={Delta:.4g} outside {warn_band}; "
             "large global w-rescaling -- check specification.")
@@ -1067,6 +1073,7 @@ inference on the /iterated/ cumulative $\Delta$ is a further step.)
 from collections import namedtuple
 
 WDelta = namedtuple('WDelta',['delta','se','se_naive','se_gen','z','grad'])
+RectifyResult = namedtuple('RectifyResult',['Delta','applied','wd','history'])
 
 def _delta_components(L,beta,w,Ar):
     """One-pass delta and the demeaned pieces. L = (y - gamma_d).dropna()."""
@@ -1665,32 +1672,63 @@ class Regression:
 
         return self.pi
 
-    def rectify(self,inplace=False,max_iter=10,tol=1e-4,warn_band=(0.5,2.0),verbose=False):
-        """PROTOTYPE: pin the global scale of w (see rectify_w).
+    def rectify(self,inplace=False,econ_tol=0.1,z_tol=3.0,
+                max_iter=20,tol=1e-4,verbose=False):
+        """PROTOTYPE: pin the global scale of w, gated on BOTH significance.
 
         Iterates a global slope delta on beta*w (recomputing A(r) and pi each
-        pass) and rescales w_tilde = Delta*w.  Not on the main path; with
-        inplace=True it overwrites self.w/self.Ar/self.pi (and scales w-related
-        standard errors by Delta) and clears cached predictions.
+        pass; see rectify_w) for the point estimate Delta, and computes the
+        one-pass delta with its generated-regressor s.e. (see delta_test) for
+        the statistical test.  The rescaling is treated as warranted only when
+        it is both
 
-        Returns the diagnostic (Delta, delta_history).
+          - economically significant : |Delta - 1| > econ_tol, and
+          - statistically significant: |z| = |delta-1|/se > z_tol,
+
+        guarding against both negligible-but-real and large-but-noisy
+        corrections.  With inplace=True the rescaling w_tilde = Delta*w (and
+        recomputed A(r), pi, e3) is written back ONLY if the gate passes;
+        otherwise w is left on its SVD scale.  A warning fires when the gate
+        passes (a notable correction is being applied).
+
+        Returns RectifyResult(Delta, applied, wd, history) where wd is the
+        WDelta from the one-pass test.
         """
         beta = self.get_beta(verbose=verbose)
         gamma_d = self.get_gamma_d(verbose=verbose)
         w = self.get_w(verbose=verbose)
         Ar = self.get_Ar(verbose=verbose)
 
+        # statistical test (one-pass delta with generated-regressor s.e.)
+        wd = w_delta(self.y,gamma_d,beta,w,Ar,V=w_cov(self.e3,beta))
+
+        # point estimate (iterated cumulative Delta)
         w2,Ar2,pi2,Delta,history,e3 = rectify_w(self.y,gamma_d,beta,w,Ar,
-                                                max_iter=max_iter,tol=tol,
-                                                warn_band=warn_band,verbose=verbose)
-        if inplace:
-            self.w = w2
-            self.Ar = Ar2
-            self.pi = pi2
-            self.e3 = e3              # so w_se/w_cov reflect rectified w
-            self.yhat = None          # predictions stale
-            self.e4 = None
-        return Delta,history
+                                                max_iter=max_iter,tol=tol,verbose=verbose)
+
+        economic    = abs(Delta-1) > econ_tol
+        significant = np.isfinite(wd.z) and abs(wd.z) > z_tol
+        applied = bool(economic and significant)
+
+        if applied:
+            warnings.warn(
+                f"rectify: applying w-rescaling Delta={Delta:.4g} "
+                f"(|Delta-1|={abs(Delta-1):.3g} > {econ_tol}, "
+                f"|z|={abs(wd.z):.3g} > {z_tol}).")
+            if inplace:
+                self.w = w2
+                self.Ar = Ar2
+                self.pi = pi2
+                self.e3 = e3          # so w_se/w_cov reflect rectified w
+                self.yhat = None      # predictions stale
+                self.e4 = None
+        elif verbose:
+            why = ("economically negligible" if not economic else
+                   "not statistically significant")
+            print(f"  rectify: no rescaling ({why}); "
+                  f"Delta={Delta:.4g}, z={wd.z:.3g}")
+
+        return RectifyResult(Delta,applied,wd,history)
 
     def delta_test(self):
         """PROTOTYPE: one-pass global scale delta with generated-regressor s.e.
