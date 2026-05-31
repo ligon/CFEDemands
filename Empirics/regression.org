@@ -936,6 +936,105 @@ def estimate_pi(y,b,w,Ar,gamma_d,verbose=False):
     return pi, pi_se, e4
 #+end_src
 
+** Rectifying the global scale of $w$ (prototype)
+=estimate_pi= forces the coefficient on $\beta w$ to one --- it is the
+$\delta=1$ restriction of the level/scale regression
+\[
+   y_{itmj} - (\gamma d)_{itmj} = \pi_{tm} + A(r)_{tmj} + \delta\,(\beta_j w_{itm}) + e_{itmj}.
+\]
+Freeing $\delta$ pins the /global scale/ of $w$: the SVD scale that $\beta$
+carries (from the doubly-residualized covariance) need not be the scale at
+which $\beta w$ best reproduces the level equation (built from the
+singly-residualized data), and $\delta$ is the correction.  We rescale
+$\tilde w=\delta w$ (so $\beta$ keeps its SVD scale).
+
+This iterates, recomputing $A(r)$ each pass (it was built under $\delta=1$):
+given $w$, partial the $(t,m)$ level out of both $y-\gamma d-A(r)$ and
+$\beta w$ and read off $\delta$ (OLS slope, $A(r)$ held as offset); rescale
+$w\leftarrow\delta w$; recompute $A(r)$ as the $(t,m,j)$ mean of
+$y-\gamma d-\beta w$, centered over $j$.  At a fixed point $\delta\to1$ and
+the cumulative $\Delta=\prod_k\delta_k$ settles.  A sign flip ($\delta\le0$)
+raises (the $\beta$-direction is anti-correlated with the $w$-variation ---
+something is badly wrong); non-convergence or a $\Delta$ far from 1 warns.
+
+This is a prototype: it is /not/ wired into =get_pi= yet.  Inference on
+$\delta$ (a generated-regressor slope; its s.e. follows from =w_cov=) is
+deferred --- see notes.
+#+name: code:rectify_w
+#+begin_src python
+def rectify_w(y,gamma_d,beta,w,Ar,max_iter=10,tol=1e-4,
+              warn_band=(0.5,2.0),verbose=False):
+    """Estimate a global scale delta on beta*w, iterating with A(r) recomputed.
+
+    Model: y - gamma_d = pi_tm + A(r)_tmj + delta*(beta_j w_itm) + e.
+
+    Returns
+    -------
+    (w, Ar, pi, Delta, history, e3)
+        Rectified w (= Delta * w_in), recomputed A(r), pi and (t,m,j)-demeaned
+        residual e3, the cumulative scale Delta = prod_k delta_k, and the
+        per-iteration delta history.
+    """
+    L = (y - gamma_d).dropna()
+    beta = pd.Series(beta).squeeze() if hasattr(beta,'squeeze') else pd.Series(beta)
+    Ar = Ar.copy()
+    Delta = 1.0
+    history = []
+
+    def offset(Ar):
+        return pd.Series(Ar.reindex(L.index.droplevel('i')).values,index=L.index)
+
+    for it in range(max_iter):
+        bw = outer(w,beta).stack().reindex(L.index)
+        lhs = L - offset(Ar)
+        # FWL: partial the (t,m) level (pi) out of both sides, read delta off beta*w
+        lhs_d = lhs - lhs.groupby(['t','m']).transform('mean')
+        bw_d  = bw  - bw.groupby(['t','m']).transform('mean')
+        delta = (lhs_d*bw_d).sum()/(bw_d**2).sum()
+
+        if not np.isfinite(delta):
+            raise ValueError(f"rectify: non-finite delta at iter {it}.")
+        if delta <= 0:
+            raise ValueError(
+                f"rectify: delta={delta:.3g} <= 0 at iter {it}; the beta-direction "
+                "is anti-correlated with the w-variation -- something is "
+                "dramatically wrong upstream (sign of beta or w?).")
+
+        history.append(delta)
+        w = delta*w
+        Delta *= delta
+
+        # Recompute A(r): (t,m,j) mean of (y - gamma_d - beta*w), centered over j.
+        bw = outer(w,beta).stack().reindex(L.index)
+        Ar = (L - bw).groupby(['t','m','j']).mean()
+        Ar = Ar - Ar.groupby(['t','m']).transform('mean')
+
+        if verbose:
+            print(f"  rectify iter {it}: delta={delta:.6f}  Delta={Delta:.6f}")
+        if abs(delta-1) < tol:
+            break
+    else:
+        warnings.warn(
+            f"rectify did not converge in {max_iter} iterations "
+            f"(last delta={history[-1]:.4g}, Delta={Delta:.4g}).")
+
+    if not (warn_band[0] <= Delta <= warn_band[1]):
+        warnings.warn(
+            f"rectify: cumulative Delta={Delta:.4g} outside {warn_band}; "
+            "large global w-rescaling -- check specification.")
+
+    bw = outer(w,beta).stack().reindex(L.index)
+    resid = L - offset(Ar) - bw
+    pi = resid.groupby(['t','m']).mean()
+    pi.name = 'pi'
+
+    pi_b = pd.Series(pi.reindex(L.index.droplevel(['i','j'])).values,index=L.index)
+    e = resid - pi_b
+    e3 = e - e.groupby(['t','m','j']).transform('mean')
+
+    return w,Ar,pi,Delta,history,e3
+#+end_src
+
 ** Predicting $y$
 #+name: code:predict
 #+begin_src python
@@ -1471,6 +1570,33 @@ class Regression:
         self.e4 = e4
 
         return self.pi
+
+    def rectify(self,inplace=False,max_iter=10,tol=1e-4,warn_band=(0.5,2.0),verbose=False):
+        """PROTOTYPE: pin the global scale of w (see rectify_w).
+
+        Iterates a global slope delta on beta*w (recomputing A(r) and pi each
+        pass) and rescales w_tilde = Delta*w.  Not on the main path; with
+        inplace=True it overwrites self.w/self.Ar/self.pi (and scales w-related
+        standard errors by Delta) and clears cached predictions.
+
+        Returns the diagnostic (Delta, delta_history).
+        """
+        beta = self.get_beta(verbose=verbose)
+        gamma_d = self.get_gamma_d(verbose=verbose)
+        w = self.get_w(verbose=verbose)
+        Ar = self.get_Ar(verbose=verbose)
+
+        w2,Ar2,pi2,Delta,history,e3 = rectify_w(self.y,gamma_d,beta,w,Ar,
+                                                max_iter=max_iter,tol=tol,
+                                                warn_band=warn_band,verbose=verbose)
+        if inplace:
+            self.w = w2
+            self.Ar = Ar2
+            self.pi = pi2
+            self.e3 = e3              # so w_se/w_cov reflect rectified w
+            self.yhat = None          # predictions stale
+            self.e4 = None
+        return Delta,history
 
 
     def get_predicted_log_expenditures(self,fill_missing=True,verbose=None):
@@ -2018,7 +2144,7 @@ handling, and the finite-$J$ coverage behavior of the =cov= options.
 import numpy as np
 import pandas as pd
 import pytest
-from cfe.regression import w_var, w_cov
+from cfe.regression import w_var, w_cov, rectify_w, outer
 
 
 def _cells(rows):
@@ -2181,6 +2307,35 @@ def test_w_cov_diag_exceeds_homoskedastic_marginal():
     assert np.all(W.var().values >= homo.values - 1e-12)
 
 
+def _exact_w_model(N=200, J=6, seed=3):
+    # y - gamma_d = A(r)_tmj + beta_j w_c exactly (complete data, pi=0).
+    rng = np.random.default_rng(seed)
+    beta = pd.Series(np.linspace(.5,3,J), index=pd.Index(range(J),name='j'))
+    cells = pd.MultiIndex.from_arrays(
+        [np.arange(N), np.zeros(N,int), np.zeros(N,int)], names=['i','t','m'])
+    w = pd.Series(rng.standard_normal(N), index=cells)
+    aj = rng.standard_normal(J); aj -= aj.mean()
+    Ar = pd.Series(aj, index=pd.MultiIndex.from_tuples(
+        [(0,0,j) for j in range(J)], names=['t','m','j']))
+    bw = outer(w,beta).stack()
+    bw.index.names = ['i','t','m','j']
+    y = bw + pd.Series(Ar.reindex(bw.index.droplevel('i')).values, index=bw.index)
+    return y, y*0, beta, w, Ar
+
+
+def test_rectify_complete_data_delta_one():
+    y,gd,beta,w,Ar = _exact_w_model()
+    w2,Ar2,pi2,Delta,hist,e3 = rectify_w(y,gd,beta,w,Ar)
+    assert abs(Delta-1) < 1e-6
+    assert np.allclose(w2.values, w.values, atol=1e-6)
+
+
+def test_rectify_sign_flip_raises():
+    y,gd,beta,w,Ar = _exact_w_model()
+    with pytest.raises(ValueError):
+        rectify_w(y,gd,-beta,w,Ar)
+
+
 if __name__=='__main__':
     test_hc0_matches_sandwich_scale()
     test_hc2_leverage_correction()
@@ -2190,5 +2345,7 @@ if __name__=='__main__':
     test_coverage_hc2_unbiased_hc0_low()
     test_w_cov_matches_partitioned_inverse()
     test_w_cov_diag_exceeds_homoskedastic_marginal()
+    test_rectify_complete_data_delta_one()
+    test_rectify_sign_flip_raises()
     print("ok")
 #+end_src
