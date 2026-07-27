@@ -1,0 +1,24 @@
+{
+  "upload_type": "software",
+  "title": "CFEDemands: estimation and computation of Constant Frisch Elasticity demand systems",
+  "creators": [
+    {
+      "name": "Ligon, Ethan",
+      "affiliation": "University of California, Berkeley",
+      "orcid": "0000-0003-4928-0616"
+    }
+  ],
+  "description": "<p>Tools for estimating and computing Constant Frisch Elasticity (CFE) demand systems. The CFE demand system delivers demands that are linear in the logarithm of the marginal utility of expenditure, which makes estimation tractable in household panel data with unobserved heterogeneity and permits welfare and demand counterfactuals to be computed directly from estimated elasticities.</p><p>The package is distributed on PyPI as <code>CFEDemands</code> and imported as <code>cfe</code>.</p>",
+  "license": "cc-by-nc-sa-4.0",
+  "access_right": "open",
+  "keywords": [
+    "demand systems",
+    "Frisch elasticity",
+    "consumer demand",
+    "household economics",
+    "development economics",
+    "econometrics",
+    "welfare analysis",
+    "Python"
+  ]
+}
