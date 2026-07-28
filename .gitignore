@@ -48,3 +48,6 @@ cfe/stochastic_test/
 # Python/build artifacts
 .venv/
 __pycache__/
+
+# SuCoder per-mirror session state
+.coder-session/
