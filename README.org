@@ -8,7 +8,7 @@ This repository contains code for working with Constant Frisch
 Elasticity (CFE) demand systems.
 
 #+CAPTION: DOI
-[[https://doi.org/10.5281/zenodo.17258292][https://zenodo.org/badge/827044619.svg]]
+[[https://doi.org/10.5281/zenodo.17258292][https://img.shields.io/badge/DOI-10.5281%2Fzenodo.17258292-blue.svg]]
 
 * Installation
 
