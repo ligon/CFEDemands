@@ -640,7 +640,9 @@ def estimate_w(y,beta,verbose=False):
 
     e3 = e - eg.transform("mean")
 
-    what = pd.Series(b[len(A.columns):(len(A.columns)+len(B.columns))],index=B.columns)
+    # A has (t,m) columns while B has (i,t,m) columns. Concatenation can
+    # truncate the combined labels; extract coefficients by solver position.
+    what = pd.Series(rslt[0][len(A.columns):],index=B.columns)
 
     return what,Ar,Ar_se,e3
 #+end_src
@@ -1003,6 +1005,20 @@ def predict_y(pi,Ar,gamma_d,beta,wr):
 #+end_src
 
 ** Data preparation
+
+Preparation selects the sample used to fit common parameters. Marginal
+support uses the same inclusive =min_obs= boundary as the covariance
+helper. Goods are removed monotonically, but household eligibility is
+reconsidered from the original matched data whenever the goods change.
+This permits households to return when the item-fraction denominator falls.
+The covariance helper remains a greedy heuristic, not an optimal sample
+selector (ledger sections 2, 4, and 5).
+
+The default return remains =(y,d)=. With =return_diagnostics=True= a third
+return value reports household and good exclusions and the number of
+selection iterations. Inputs are copied, so the caller can retain the
+original data for subsequent scoring.
+
 #+name: code:data_preparation
 #+begin_src python
 from .df_utils import broadcast_binary_op
@@ -1011,76 +1027,127 @@ import matplotlib.pyplot as plt
 from types import SimpleNamespace
 from scipy.optimize import minimize_scalar
 
-def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False):
-    assert y.index.names == ['i','t','m','j'], "Fix index names."
+def _prepare_inputs(y,d):
+    """Copy and normalize labelled log expenditures and characteristics.
 
-    # Deal with repeated observations
-    # observed=True prevents categorical indices from expanding to unobserved combinations
-    y = np.log(np.exp(y).groupby(y.index.names, observed=True).sum())
-
-    y_in = y.copy()
-
-    Y = y.unstack('j')
-
-    if alltm:
-        alltm = Y.groupby(['t','m'], observed=True).count().replace(0,np.nan).dropna(axis=1).columns.tolist()
-        Y = Y[alltm]
+    No sample selection: shared by fitting and frozen-parameter scoring.
+    Non-finite logs are unavailable observations; a finite log of zero is
+    retained. Duplicate expenditure records are summed in levels.
+    """
+    if isinstance(y,pd.DataFrame):
+        if y.index.names != ['i','t','m'] or y.columns.name != 'j':
+            raise ValueError("Wide y must have index (i,t,m) and columns j.")
+        # Preserve empty rows and goods in diagnostics on every supported
+        # pandas version; legacy stack otherwise drops their observations.
+        try:
+            y = y.stack('j',future_stack=True)
+        except TypeError:  # pandas before future_stack was introduced
+            y = y.stack('j',dropna=False)
     else:
-        Y.loc[:,Y.count()>min_obs] # Guaranteed to drop in drop_covariance
+        y = y.copy()
+    if y.index.names != ['i','t','m','j']:
+        raise ValueError("y must have index (i,t,m,j).")
+    y = y.astype(float).replace([np.inf,-np.inf],np.nan)
+    if not y.index.is_unique:
+        grouped = y.groupby(y.index.names,observed=True)
+        maxima = grouped.transform('max')
+        totals = np.exp(y-maxima).groupby(y.index.names,observed=True).sum(min_count=1)
+        y = grouped.max() + np.log(totals)
+    y = y.sort_index().rename('y')
+    y.index = y.index.remove_unused_levels()
 
-    # Drop household observations with fewer items than
-    # min_prop_items*number of items
-    items = Y.count(axis=1)
-    Y = Y[items>(min_prop_items*Y.shape[1])]
-
-    y = Y.stack('j').dropna()
-
-
-    # Make d a dataframe, with columns k
     if 'k' in d.index.names:
         d = d.unstack('k')
+    d = pd.DataFrame(d).copy()
+    if d.index.names != ['i','t','m']:
+        raise ValueError("d must have index (i,t,m) and columns k.")
+    if not d.index.is_unique or not d.columns.is_unique:
+        raise ValueError("d must have unique household-periods and characteristics.")
+    d.columns.name = 'k'
+    return y,d.sort_index()
 
-    assert d.index.names==['i','t','m'], "Check names of index for d."
-    for l in range(3):
-        assert d.index.levels[l].dtype == y.index.levels[l].dtype, f"Mis-matched types for index of d & y in level {y.index.names[l]}."
 
-    # Match up rows of d with y
-    YD = pd.DataFrame({'y':y}).join(d,how='left')
+def prepare_data(y,d,min_obs=30,min_prop_items=0.1,alltm=False,
+                 return_diagnostics=False):
+    """Select fitting observations, reconsidering households as goods fall.
 
-    YD = YD.dropna()
+    Returns (y,d), or (y,d,diagnostics) when requested. Diagnostics contains
+    household/good DataFrames with retained flags, reasons, and support
+    counts, plus the number of selection iterations. It includes all cells
+    appearing in either input. No input is changed in place.
+    """
+    if not isinstance(min_obs,(int,np.integer)) or min_obs < 1:
+        raise ValueError("min_obs must be a positive integer.")
+    if not 0 <= min_prop_items < 1:
+        raise ValueError("min_prop_items must lie in [0,1).")
+    y,d = _prepare_inputs(y,d)
+    original = y.unstack('j')
+    complete = d.notna().all(axis=1)
+    numeric = d.select_dtypes(include='number')
+    complete &= np.isfinite(numeric).all(axis=1)
+    matched = original.loc[original.index.isin(d.index[complete])].dropna(how='all')
+    if matched.empty:
+        raise ValueError("Join of y & d is empty after removing unavailable observations.")
 
-    assert YD.shape[0]>0, "Join of y & d is empty."
+    goods = matched.columns
+    reasons = pd.Series('retained',index=original.columns,dtype=object)
+    iterations = 0
+    while True:
+        iterations += 1
+        # Inclusive boundary matches the existing covariance helper (ledger 4).
+        Y = matched[goods]
+        keep = Y.count() >= min_obs
+        reasons.loc[goods[~keep]] = 'min_obs'
+        Y = Y.loc[:,keep]
+        if alltm:
+            keep = (Y.groupby(['t','m'],observed=True).count() > 0).all()
+            reasons.loc[Y.columns[~keep]] = 'not_all_markets'
+            Y = Y.loc[:,keep]
+        if not len(Y.columns):
+            raise ValueError("No goods satisfy the fitting support requirements.")
 
-    y = YD['y']  # Drops expenditures that lack corresponding d
+        goods = Y.columns
+        # Always reconsider the original matched rows, including prior exclusions.
+        Y = Y.loc[Y.count(axis=1) > min_prop_items*len(goods)]
+        if Y.empty:
+            raise ValueError("No households satisfy min_prop_items.")
+        selected = drop_columns_wo_covariance(Y,min_obs=min_obs)
+        reasons.loc[goods.difference(selected.columns)] = 'covariance_support'
+        if alltm:
+            keep = (selected.groupby(['t','m'],observed=True).count() > 0).all()
+            reasons.loc[selected.columns[~keep]] = 'not_all_markets'
+            selected = selected.loc[:,keep]
+        if not len(selected.columns):
+            raise ValueError("No goods have adequate paired support in the fitting sample.")
+        if selected.columns.equals(goods):
+            break
+        goods = selected.columns
 
-    # Drop goods from y if not enough observations to calculate
-    # covariance matrix
-    Y = drop_columns_wo_covariance(y.unstack('j'),min_obs=min_obs)
+    fitted_y = selected.stack('j').dropna().rename('y')
+    fitted_y.index = fitted_y.index.remove_unused_levels()
+    fitted_d = d.reindex(selected.index).copy()
+    fitted_d.index = fitted_d.index.remove_unused_levels()
+    if not return_diagnostics:
+        return fitted_y,fitted_d
 
-    y = Y.stack('j').dropna()
-
-    Ds =[]
-    # If no variation in d across j, collapse
-    numg = YD.iloc[:,1:].select_dtypes(exclude='category').groupby(['i','t','m'])
-    if numg.count().shape[1]:  # There are some non-categorical ds
-        if numg.std().mean().max()<1e-12:
-            Ds.append(numg.head(1).droplevel('j')) # And vice versa
-
-    catg = YD.iloc[:,1:].select_dtypes(include='category').groupby(['i','t','m'])
-    if catg.count().shape[1]: # There are some categorical ds
-        Ds.append(catg.head(1).droplevel('j')) # And vice versa
-
-    d = pd.concat(Ds,axis=1)
-    assert d.index.names == ['i','t','m']
-    d.columns.name='k'
-
-    if y_in.shape==y.shape:
-        return y,d
-    else:
-        # Repeat this, because if we drop some goods because not alltm,
-        # then that may drop some households below min_prop_item threshold
-        # and vice versa.
-        return prepare_data(y,d,min_obs=min_obs,min_prop_items=min_prop_items,alltm=alltm)
+    cells = original.index.union(d.index)
+    households = pd.DataFrame(index=cells)
+    households['n_goods_input'] = original.count(axis=1).reindex(cells,fill_value=0)
+    households['n_goods_retained'] = original[goods].count(axis=1).reindex(cells,fill_value=0)
+    households['retained'] = cells.isin(selected.index)
+    households['reason'] = 'min_prop_items'
+    households.loc[households.n_goods_retained == 0,'reason'] = 'no_retained_goods'
+    households.loc[households.n_goods_input == 0,'reason'] = 'no_expenditures'
+    households.loc[~complete.reindex(cells,fill_value=False),'reason'] = 'missing_characteristics'
+    households.loc[households.retained,'reason'] = 'retained'
+    goods_report = pd.DataFrame({'n_obs_input':original.count(),
+                                'n_obs_matched':matched.count(),
+                                'n_obs_retained':selected.count().reindex(original.columns,fill_value=0),
+                                'retained':original.columns.isin(goods),
+                                'reason':reasons})
+    diagnostics = {'households':households,'goods':goods_report,
+                   'iterations':iterations}
+    return fitted_y,fitted_d,diagnostics
 
 def find_optimal_K(y,d,shuffles=30,verbose=False):
     nstar = int(minimize_scalar(lambda k: -kmean_controls(k,Mp(y),Mp(d),
@@ -1230,7 +1297,7 @@ class Regression:
     """
 
 
-    __slots__ = list(arrs.keys()) + ['attrs','Md','MpMd','Mp','Mpd']
+    __slots__ = list(arrs.keys()) + ['attrs','Md','MpMd','Mp','Mpd','preparation']
 
     def __init__(self,
                  correct_miss=False,
@@ -1278,9 +1345,13 @@ class Regression:
             self.attrs=attrs
 
         if 'y' in kwargs.keys() and 'd' in kwargs.keys():
-            self.y,self.d = prepare_data(self.y,self.d,min_obs=min_obs,
-                                         min_prop_items=min_prop_items,
-                                         alltm=alltm)
+            self.y,self.d,diagnostics = prepare_data(
+                self.y,self.d,
+                min_obs=self.attrs.get('min_obs',min_obs),
+                min_prop_items=self.attrs.get('min_prop_items',min_prop_items),
+                alltm=self.attrs.get('alltm',alltm),return_diagnostics=True)
+            if self.preparation is None:
+                self.preparation = diagnostics
 
 #+end_src
 ** Persistence
@@ -1298,6 +1369,7 @@ class Regression:
             except AttributeError: continue
 
         d['attrs'] = self.attrs.copy()
+        d['preparation'] = self.preparation
 
         #with open(fn,'wb') as f:
         #    pickle.dump(d,f)
@@ -1487,6 +1559,98 @@ class Regression:
         if self.e3 is None: self.e3 = e3
 
         return self.w
+
+    def score_w(self,y,d,min_goods=1,return_diagnostics=False):
+        """Estimate welfare for additional households using this fitted model.
+
+        Parameters
+        ----------
+        y : Series (i,t,m,j) or DataFrame (i,t,m) x j
+            Log expenditures. Non-finite entries are unavailable; finite
+            zero logs are valid. Duplicate records are summed in levels.
+        d : DataFrame (i,t,m) x k or Series (i,t,m,k)
+            Numeric characteristics with the same meaning as in the fit.
+            Extra columns are ignored; required columns must be present.
+        min_goods : int, default 1
+            Minimum number of observed fitted goods for a score. A positive
+            sum of squared loadings is also required.
+        return_diagnostics : bool, default False
+            Return (w,diagnostics), with observed/usable-good counts,
+            sum_beta2, and a status for every cell in either input.
+
+        Returns
+        -------
+        Series (i,t,m), or (Series, DataFrame)
+            Scores on the fitted normalization; NaN for unscoreable cells.
+            Parameters are fitted lazily from self.y/self.d if needed,
+            never from these new observations. Only linear numeric controls
+            and fitted market-periods are currently supported. This method
+            does not report parameter-estimation or selection uncertainty.
+        """
+        if not isinstance(min_goods,(int,np.integer)) or min_goods < 1:
+            raise ValueError("min_goods must be a positive integer.")
+        if self.attrs.get('method','linear') != 'linear' or self.attrs.get('K') is not None:
+            raise NotImplementedError("score_w currently supports linear numeric controls with K=None.")
+        if self.d is None or any(not pd.api.types.is_numeric_dtype(x) for x in self.d.dtypes):
+            raise NotImplementedError("score_w requires numeric fitting characteristics.")
+        y,d = _prepare_inputs(y,d)
+        self.get_w()
+        beta = self.beta
+        gamma = self.get_gamma()
+        if not np.isfinite(beta.to_numpy()).all() or not np.isfinite(gamma.to_numpy()).all():
+            raise ValueError("Fitted beta and gamma must be finite.")
+
+        # Ed centers controls on the fitting sample (ledger 2 and 4).
+        features = gamma.columns.drop('Constant')
+        missing = features.difference(d.columns)
+        if len(missing):
+            raise ValueError(f"Missing scoring characteristics: {missing.tolist()}.")
+        if any(not pd.api.types.is_numeric_dtype(x) for x in d[features].dtypes):
+            raise NotImplementedError("score_w requires numeric scoring characteristics.")
+        Y = y.unstack('j')
+        cells = Y.index.union(d.index)
+        # Float conversion makes nullable numeric missing values ordinary
+        # NaNs. With no controls, completeness is true for every scoring cell.
+        controls = d[features].reindex(cells).astype(float)
+        complete = np.isfinite(controls).all(axis=1)
+        design = controls - self.d[features].mean()
+        design['Constant'] = 1.
+        expected = design[gamma.columns] @ gamma.T
+
+        # Recover the intercept in the existing joint fit, including its
+        # Mpi centering. Ar is a post-fit summary, not this intercept (ledger 4).
+        train_index = self.y.index
+        bw = (self.w.reindex(train_index.droplevel('j')).to_numpy() *
+              beta.reindex(train_index.get_level_values('j')).to_numpy())
+        training_residual = self.y - self.gamma_d.reindex(train_index) - bw
+        offset = training_residual.groupby(['t','m'],observed=True).mean()
+
+        n_observed = Y.count(axis=1).reindex(cells,fill_value=0)
+        Y = Y.reindex(index=cells,columns=beta.index)
+        market = cells.droplevel('i')
+        fitted_offset = pd.Series(offset.reindex(market).to_numpy(),index=cells)
+        residual = Y - expected.reindex(cells)
+        residual = residual.sub(fitted_offset,axis=0)
+        observed = Y.notna()
+        n_goods = observed.sum(axis=1)
+        sum_beta2 = observed.mul(beta**2,axis=1).sum(axis=1)
+        numerator = residual.mul(beta,axis=1).sum(axis=1,min_count=1)
+        w = numerator / sum_beta2.where(sum_beta2 > 0)
+
+        status = pd.Series('scored',index=cells,dtype=object)
+        status.loc[sum_beta2 <= 0] = 'zero_loading'
+        status.loc[n_goods < min_goods] = 'too_few_goods'
+        status.loc[n_goods == 0] = 'no_supported_goods'
+        status.loc[n_observed == 0] = 'no_expenditures'
+        status.loc[~np.isfinite(fitted_offset)] = 'unknown_market'
+        status.loc[~complete] = 'missing_characteristics'
+        status.loc[(status == 'scored') & ~np.isfinite(w)] = 'nonfinite_score'
+        w = w.where(status == 'scored').rename('w')
+        if not return_diagnostics:
+            return w
+        diagnostics = pd.DataFrame({'n_observed':n_observed,'n_goods':n_goods,
+                                    'sum_beta2':sum_beta2,'status':status})
+        return w,diagnostics
 
     def get_Ar(self,verbose=None):
         """
@@ -2065,6 +2229,345 @@ def test_main():
 if __name__=='__main__':
     s = main()
 #+end_src
+** Preparation and scoring
+
+=Regression.preparation= records selection diagnostics. To recover scores
+for households excluded from fitting, retain the original inputs and call
+=r.score_w(y,d,return_diagnostics=True)= after fitting =r=. The method
+returns scores and support diagnostics for cells appearing in either
+input, including explicit reasons for unavailable scores. A single observed
+fitted good can suffice, conditional on a nonzero loading and fitted
+controls and market effects. The training item-fraction cutoff is not
+applied to scoring.
+
+This first interface supports linear numeric controls and existing
+market-periods. Its centering and market intercept come entirely from the
+fit. In particular, the post-fit =Ar= summary must not be substituted for
+the market intercept of =estimate_w=. The tests check agreement with the
+original estimator, scoring independent of batch composition, persistence,
+and sample restoration. They do not assert coverage for an uncertainty
+estimator with estimated nuisance parameters.
+
+#+begin_src python :tangle ../cfe/test/test_preparation_scoring.py :eval never-export
+import copy
+import numpy as np
+import pandas as pd
+import pytest
+from pandas.testing import assert_frame_equal, assert_series_equal
+from cfe.regression import Regression, prepare_data, read_pickle, estimate_w, Mpi
+
+
+def _inputs(N,J):
+    index = pd.MultiIndex.from_arrays(
+        [np.arange(N),np.zeros(N,int),np.zeros(N,int)],names=['i','t','m'])
+    columns = pd.Index([f'g{j:02d}' for j in range(J)],name='j')
+    Y = pd.DataFrame(np.nan,index=index,columns=columns)
+    d = pd.DataFrame({'size':2+np.arange(N)%5},index=index)
+    d.columns.name = 'k'
+    return Y,d
+
+
+def test_prepare_filters_sparse_goods_before_households():
+    Y,d = _inputs(60,20)
+    Y.iloc[:40,:4] = np.arange(40)[:,None]/20 + np.arange(4)[None,:]
+    Y.iloc[40:,:2] = np.arange(20)[:,None]/20 + np.arange(2)[None,:]
+    for j in range(4,20):
+        Y.iloc[j-4,j] = 1.
+    before = Y.copy()
+    y,dd,report = prepare_data(Y,d,return_diagnostics=True)
+    assert y.index.droplevel('j').nunique() == 60
+    assert len(y.index.get_level_values('j').unique()) == 4
+    assert len(dd) == 60
+    assert report['households'].retained.all()
+    assert (report['goods'].loc[Y.columns[4:],'reason'] == 'min_obs').all()
+    assert_frame_equal(Y,before)
+
+
+def test_prepare_includes_exact_min_obs():
+    Y,d = _inputs(60,3)
+    Y.iloc[:,:2] = np.arange(60)[:,None]/20 + np.arange(2)[None,:]
+    Y.iloc[:30,2] = np.arange(30)/10
+    y,_ = prepare_data(Y,d,min_obs=30,min_prop_items=0)
+    assert y.xs('g02',level='j').count() == 30
+
+
+def test_prepare_restores_households_after_covariance_filter():
+    Y,d = _inputs(100,20)
+    Y.iloc[:80,:4] = np.arange(80)[:,None]/20 + np.arange(4)[None,:]
+    Y.iloc[80:,:2] = np.arange(20)[:,None]/20 + np.arange(2)[None,:]
+    Y.iloc[:40,4:12] = np.arange(40)[:,None]/10 + np.arange(8)[None,:]
+    Y.iloc[40:80,12:] = np.arange(40)[:,None]/10 + np.arange(8)[None,:]
+    y,dd,report = prepare_data(Y,d,return_diagnostics=True)
+    assert len(dd) == 100
+    assert y.unstack('j').shape == (100,12)
+    assert report['iterations'] == 2
+    assert (report['goods'].reason == 'covariance_support').sum() == 8
+    assert y.unstack('j').cov(min_periods=30).notna().all().all()
+    yy,ddd = prepare_data(y,dd)
+    assert_series_equal(y,yy)
+    assert_frame_equal(dd,ddd)
+
+
+def test_prepare_matches_characteristics_before_support_counts():
+    Y,d = _inputs(80,4)
+    Y.iloc[:,:3] = np.arange(80)[:,None]/10 + np.arange(3)[None,:]
+    Y.iloc[50:,3] = np.arange(30)/10
+    d.iloc[50:] = np.nan
+    y,dd,report = prepare_data(Y,d,return_diagnostics=True)
+    assert len(dd) == 50
+    assert 'g03' not in y.index.get_level_values('j')
+    assert (report['households'].iloc[50:].reason == 'missing_characteristics').all()
+    assert report['goods'].loc['g03','n_obs_matched'] == 0
+
+
+def test_prepare_alltm_and_input_order():
+    Y,d = _inputs(80,3)
+    index = pd.MultiIndex.from_arrays(
+        [np.arange(80),np.arange(80)%2,np.zeros(80,int)],names=['i','t','m'])
+    Y.index = d.index = index
+    Y.iloc[:,:2] = np.arange(80)[:,None]/20 + np.arange(2)[None,:]
+    Y.iloc[::2,2] = np.arange(40)/10
+    y,dd,report = prepare_data(Y,d,alltm=True,return_diagnostics=True)
+    assert y.index.get_level_values('j').unique().tolist() == ['g00','g01']
+    assert report['goods'].loc['g02','reason'] == 'not_all_markets'
+    yy,ddd = prepare_data(Y.iloc[::-1,::-1],d.iloc[::-1],alltm=True)
+    assert_series_equal(y,yy)
+    assert_frame_equal(dd,ddd)
+    y_all,_ = prepare_data(Y,d,alltm=False)
+    assert 'g02' in y_all.index.get_level_values('j')
+
+
+@pytest.mark.parametrize('empty_row_has_controls',[False,True])
+def test_prepare_preserves_empty_axes_without_requiring_empty_market(empty_row_has_controls):
+    Y,d = _inputs(41,4)
+    index = pd.MultiIndex.from_arrays(
+        [np.arange(41),[0]*40+[1],np.zeros(41,int)],names=['i','t','m'])
+    Y.index = d.index = index
+    Y.iloc[:40,:3] = np.arange(40)[:,None]/10 + np.arange(3)[None,:]
+    if not empty_row_has_controls:
+        d = d.iloc[:-1]
+    y,dd,report = prepare_data(Y,d,alltm=True,return_diagnostics=True)
+    assert y.unstack('j').shape == (40,3)
+    assert len(dd) == 40
+    assert len(report['households']) == 41
+    assert len(report['goods']) == 4
+    assert report['households'].loc[index[-1],'n_goods_input'] == 0
+    expected = 'no_expenditures' if empty_row_has_controls else 'missing_characteristics'
+    assert report['households'].loc[index[-1],'reason'] == expected
+    assert report['goods'].loc['g03','reason'] == 'min_obs'
+
+
+def test_prepare_zero_logs_duplicates_and_missing_logs():
+    Y,d = _inputs(40,3)
+    Y.iloc[:,:] = np.arange(40)[:,None]/10 + np.arange(3)[None,:]
+    Y.iloc[0,0] = 0.
+    Y.iloc[1,0] = -np.inf
+    Y.iloc[2,0] = np.inf
+    y = Y.stack('j')
+    extra = pd.Series([np.log(2.)],index=y.index[:1])
+    y = pd.concat([y,extra])
+    prepared,_ = prepare_data(y,d,min_obs=2,min_prop_items=0)
+    assert np.isclose(prepared.loc[(0,0,0,'g00')],np.log(3.))
+    assert (1,0,0,'g00') not in prepared.index
+    assert (2,0,0,'g00') not in prepared.index
+    assert np.isfinite(prepared).all()
+
+
+@pytest.mark.parametrize('log_level',[-800.,800.])
+def test_prepare_duplicate_level_sums_are_numerically_stable(log_level):
+    Y,d = _inputs(40,3)
+    Y.iloc[:,:] = 1.
+    Y.iloc[0,0] = log_level
+    y = Y.stack('j')
+    extra = pd.Series([log_level],index=y.index[:1])
+    prepared,_ = prepare_data(pd.concat([y,extra]),d,min_obs=2)
+    assert np.isfinite(prepared).all()
+    assert np.isclose(prepared.loc[(0,0,0,'g00')],log_level+np.log(2.))
+
+
+def test_prepare_retains_finite_zero_and_handles_no_controls():
+    Y,d = _inputs(40,3)
+    Y.iloc[:,:] = 0.
+    y,dd = prepare_data(Y,d.iloc[:,:0],min_obs=2)
+    assert len(y) == 120 and (y == 0).all()
+    assert dd.shape == (40,0)
+
+
+def test_prepare_reports_empty_selection():
+    Y,d = _inputs(40,3)
+    with pytest.raises(ValueError,match='Join of y & d is empty'):
+        prepare_data(Y,d)
+    Y.iloc[:,:] = 1.
+    with pytest.raises(ValueError,match='No goods satisfy'):
+        prepare_data(Y,d,min_obs=41)
+
+
+@pytest.fixture
+def fit():
+    rng = np.random.default_rng(451)
+    cells = pd.MultiIndex.from_product([range(45),[0,1],[0,1]],names=['i','t','m'])
+    d = pd.DataFrame(rng.normal(size=(len(cells),2)),index=cells,columns=['size','adults'])
+    d.columns.name = 'k'
+    beta = np.array([.4,.8,1.2,1.8,2.5])
+    w = rng.normal(size=len(cells))
+    prices = (.3*cells.get_level_values('t') + .5*cells.get_level_values('m')).to_numpy()
+    data = (2 + prices[:,None] + np.arange(5)[None,:]/5 +
+            np.outer(w,beta) + d.to_numpy() @ rng.normal(size=(2,5)) +
+            rng.normal(scale=.1,size=(len(cells),5)))
+    Y = pd.DataFrame(data,index=cells,columns=pd.Index(range(5),name='j'))
+    Y = Y.mask(rng.random(Y.shape) < .15)
+    Y.iloc[-2:,:] = np.nan
+    Y.iloc[-2:,0] = 1.
+    r = Regression(y=Y,d=d,min_obs=10,min_prop_items=.4,alltm=True)
+    r.get_w()
+    return r,Y,d
+
+
+def test_estimate_w_preserves_market_labels_and_known_scores():
+    cells = pd.MultiIndex.from_product([range(8),[0,1],[0,1]],names=['i','t','m'])
+    beta = pd.Series([.5,1.,2.],index=pd.Index(range(3),name='j'))
+    expected = pd.Series(np.arange(len(cells))/10-1.,index=cells)
+    offset = 3*cells.get_level_values('t') - 2*cells.get_level_values('m')
+    Y = pd.DataFrame(np.outer(expected,beta)+offset.to_numpy()[:,None],
+                     index=cells,columns=beta.index)
+    w,_,_,_ = estimate_w(Mpi(Y.stack('j')),beta)
+    assert_series_equal(w,expected,check_exact=False,rtol=1e-10,atol=1e-10)
+
+
+def test_score_reproduces_training_fit_with_missing_goods(fit):
+    r,_,_ = fit
+    scored = r.score_w(r.y,r.d)
+    assert_series_equal(scored,r.w.rename('w').sort_index(),check_exact=False,rtol=1e-8,atol=1e-9)
+
+
+def test_score_recovers_excluded_single_good_households(fit):
+    r,Y,d = fit
+    scored,report = r.score_w(Y,d,return_diagnostics=True)
+    assert scored.loc[Y.index[-2:]].notna().all()
+    assert (report.loc[Y.index[-2:],'n_goods'] == 1).all()
+    assert (~r.preparation['households'].loc[Y.index[-2:],'retained']).all()
+    assert r.score_w(Y,d,min_goods=2).loc[Y.index[-2:]].isna().all()
+
+
+def test_score_batch_invariance_and_no_mutation(fit):
+    r,Y,d = fit
+    before = {key:copy.deepcopy(getattr(r,key)) for key in ['y','d','beta','gamma','w','Ar','e3','attrs','preparation']}
+    expected = r.score_w(Y,d)
+    idx = Y.index[10:14]
+    alone = r.score_w(Y.loc[idx],d.loc[idx])
+    assert_series_equal(alone,expected.loc[idx])
+    reversed_score = r.score_w(Y.iloc[::-1,::-1],d.iloc[::-1])
+    assert_series_equal(reversed_score,expected)
+    for key,value in before.items():
+        current = getattr(r,key)
+        if isinstance(value,pd.Series):
+            assert_series_equal(current,value)
+        elif isinstance(value,pd.DataFrame):
+            assert_frame_equal(current,value)
+        elif key == 'preparation':
+            assert current['iterations'] == value['iterations']
+            for name in ['households','goods']:
+                assert_frame_equal(current[name],value[name])
+        else:
+            assert current == value
+
+
+def test_score_new_ids_and_frozen_demographic_center(fit):
+    r,_,_ = fit
+    cell = r.w.index[0]
+    Y = r.y.unstack('j').loc[[cell]].copy()
+    d = r.d.loc[[cell]].copy()
+    delta_w = 2.3
+    shift_d = pd.Series({'size':7.,'adults':-3.})
+    Y += delta_w*r.beta + r.gamma[shift_d.index] @ shift_d
+    d += shift_d
+    new_index = pd.MultiIndex.from_tuples([(999,cell[1],cell[2])],names=['i','t','m'])
+    Y.index = d.index = new_index
+    score = r.score_w(Y,d)
+    assert np.isclose(score.iloc[0],r.w.loc[cell]+delta_w,rtol=1e-8,atol=1e-9)
+
+
+def test_score_reports_unavailable_cells(fit):
+    r,Y,d = fit
+    Y = Y.iloc[:4].copy()
+    d = d.iloc[:4].copy()
+    d.iloc[0,0] = np.nan
+    Y.iloc[1,:] = np.nan
+    index = pd.MultiIndex.from_tuples(
+        [Y.index[0],Y.index[1],(500,99,99),Y.index[3]],names=['i','t','m'])
+    Y.index = d.index = index
+    Y = Y.rename(columns={j:j+100 for j in Y.columns})
+    score,report = r.score_w(Y,d,return_diagnostics=True)
+    assert score.isna().all()
+    assert report.status.tolist() == ['missing_characteristics','no_expenditures','no_supported_goods','unknown_market']
+
+
+@pytest.mark.parametrize('dtype',['Float64','Int64'])
+def test_score_nullable_controls_report_missing_values(fit,dtype):
+    r,Y,d = fit
+    Y = Y.iloc[:3]
+    d = d.iloc[:3].round().astype(dtype)
+    expected = r.score_w(Y,d.astype(float))
+    d.iloc[0,0] = pd.NA
+    scored,report = r.score_w(Y,d,return_diagnostics=True)
+    assert pd.isna(scored.iloc[0])
+    assert report.status.iloc[0] == 'missing_characteristics'
+    assert (report.status.iloc[1:] == 'scored').all()
+    assert_series_equal(scored.iloc[1:],expected.iloc[1:])
+
+
+def test_score_preserves_empty_expenditure_rows_without_controls(fit):
+    r,Y,d = fit
+    Y = Y.iloc[:2].copy()
+    Y.iloc[:,:] = np.nan
+    scored,report = r.score_w(Y,d.iloc[:0],return_diagnostics=True)
+    assert scored.index.equals(Y.index)
+    assert scored.isna().all()
+    assert (report.n_observed == 0).all()
+    assert (report.status == 'missing_characteristics').all()
+
+
+def test_score_intercept_only_fit_needs_no_characteristic_rows(fit):
+    _,Y,d = fit
+    r = Regression(y=Y,d=d.iloc[:,:0],min_obs=10,min_prop_items=.4,alltm=True)
+    r.get_w()
+    scored,report = r.score_w(r.y,d.iloc[:0,:0],return_diagnostics=True)
+    assert_series_equal(scored,r.w.rename('w').sort_index(),check_exact=False,rtol=1e-8,atol=1e-9)
+    assert (report.status == 'scored').all()
+
+
+def test_score_persistence_and_saved_preparation_settings(fit,tmp_path):
+    r,Y,d = fit
+    path = tmp_path/'fit.rgsn'
+    r.to_pickle(path)
+    loaded = read_pickle(path)
+    assert_series_equal(loaded.score_w(Y,d),r.score_w(Y,d))
+    assert_frame_equal(loaded.preparation['households'],r.preparation['households'])
+    # Also read legacy dictionaries that predate preparation diagnostics.
+    stored = pd.read_pickle(path)
+    stored.pop('preparation')
+    pd.to_pickle(stored,path)
+    legacy = read_pickle(path)
+    assert_series_equal(legacy.score_w(Y,d),r.score_w(Y,d))
+
+
+def test_score_respects_loading_normalization(fit):
+    r,Y,d = fit
+    expected = r.score_w(Y,d)
+    r.beta = 3*r.beta
+    r.w = r.w/3
+    assert np.allclose(r.score_w(Y,d),expected/3,equal_nan=True)
+
+
+def test_score_rejects_unsupported_controls_and_schema(fit):
+    r,Y,d = fit
+    with pytest.raises(ValueError,match='Missing scoring characteristics'):
+        r.score_w(Y,d.drop(columns='size'))
+    r.attrs['method'] = 'categorical'
+    with pytest.raises(NotImplementedError,match='linear numeric controls'):
+        r.score_w(Y,d)
+#+end_src
+
 ** Tests for =w_var=
 These guard the welfare-weight sampling variance: its scale (sums over the
 observed good set $O_c$, not the global $\beta'\beta$), its missing-data
