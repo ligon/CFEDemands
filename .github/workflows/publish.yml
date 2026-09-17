@@ -1,0 +1,117 @@
+# Publish CFEDemands to PyPI when a GitHub Release is published.
+#
+# The package modules under cfe/ are tangled from the Org sources and are not
+# in the repository, so this workflow must tangle (which needs Emacs) before it
+# builds.  tangle.sh pipes Emacs through grep and so cannot fail the step on its
+# own; the explicit checks below are what catch a silent tangle failure before
+# anything reaches PyPI.
+#
+# Uploading uses PyPI Trusted Publishing (OIDC), so there is no API token to
+# store or rotate.  It requires a trusted publisher registered on PyPI for
+# project CFEDemands with owner "ligon", repository "CFEDemands", workflow
+# "publish.yml" and environment "pypi".
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  # Allows a dry run (build and test, no upload) from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Tangle, test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Emacs (the package sources are tangled from Org)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends emacs-nox
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Tangle the Org sources
+        run: make tangle
+
+      - name: Check that tangling produced the package modules
+        run: |
+          missing=0
+          for f in cfe/__init__.py cfe/regression.py cfe/estimation.py \
+                   cfe/df_utils.py cfe/dgp.py cfe/input_files.py \
+                   cfe/test/test_regression.py; do
+            if [ ! -s "$f" ]; then echo "::error::tangle did not produce $f"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Check the tag matches the packaged version
+        if: github.event_name == 'release'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(poetry version -s)"
+          echo "tag=$tag pyproject=$version"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::release tag $GITHUB_REF_NAME does not match pyproject version $version"
+            exit 1
+          fi
+
+      - name: Run the test suite
+        env:
+          OPENBLAS_NUM_THREADS: 1
+          OMP_NUM_THREADS: 1
+          MKL_NUM_THREADS: 1
+        run: poetry run pytest cfe/test/
+
+      - name: Build the sdist and wheel
+        run: |
+          rm -rf dist
+          poetry build
+
+      - name: Check the wheel contains the tangled modules
+        run: |
+          poetry run python - <<'PY'
+          import glob, sys, zipfile
+          wheels = glob.glob('dist/*.whl')
+          if len(wheels) != 1:
+              sys.exit(f'expected exactly one wheel, found {wheels}')
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          required = ['cfe/__init__.py', 'cfe/regression.py',
+                      'cfe/estimation.py', 'cfe/df_utils.py']
+          missing = [n for n in required if n not in names]
+          if missing:
+              sys.exit(f'{wheels[0]} is missing {missing}')
+          print(f'{wheels[0]}: {len(names)} entries, tangled modules present')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Upload to PyPI
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # required for Trusted Publishing; no API token needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

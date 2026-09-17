@@ -21,6 +21,7 @@ test: .test
 	touch .test
 
 build: pyproject.toml tangle test CHANGES.txt
+	rm -rf dist
 	poetry build
 
 wheel: build
@@ -38,13 +39,18 @@ upload: wheel
 	poetry publish
 
 # Usage: make release BUMP=patch  (or minor, major, prepatch, etc.)
+# Bumps and tags only; it deliberately does not build, because the artifact must
+# come from the bumped version.  Publishing to PyPI is done by the
+# publish-to-pypi workflow when a GitHub Release is published; 'make upload' is
+# the manual fallback.
 BUMP ?= patch
-release: wheel
+release: tangle test
 	$(eval NEW_VER := $(shell poetry version $(BUMP) -s))
 	git add pyproject.toml
 	git commit -m "Bump version to $(NEW_VER)"
 	git tag v$(NEW_VER)
-	@echo "Tagged v$(NEW_VER). Run 'git push && git push --tags && make upload' to publish."
+	@echo "Tagged v$(NEW_VER). Run 'git push && git push --tags', then publish a"
+	@echo "GitHub Release for v$(NEW_VER) to build and upload to PyPI."
 
 clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
