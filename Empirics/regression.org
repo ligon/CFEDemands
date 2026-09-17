@@ -695,6 +695,29 @@ only in how $\hat\sigma_{cj}^2$ is estimated and corrected.
 #+begin_src python
 import warnings
 
+def fitted_sigma2(e,cov='homoskedastic'):
+    """Per-good error variance sigma_cj^2 estimated from fitted residuals.
+
+    Returns a scalar for cov='homoskedastic' (one pooled sigma^2 with the
+    proper d.o.f.) or a wide DataFrame indexed (t,m) with columns j for
+    cov='pooled' (Var_i(e) within (t,m,j)).  These are the two w_var
+    estimators that do not use the scored cell's own residuals, so they
+    are defined for cells outside the fit, including single-good cells;
+    Regression.score_w uses them for its w_se diagnostic.
+    """
+    if cov not in ('homoskedastic','pooled'):
+        raise ValueError(f"fitted_sigma2 needs cov 'homoskedastic' or 'pooled', not {cov!r}.")
+    E = e.unstack('j') if e.ndim==1 else e
+    if cov=='pooled':
+        return E.groupby(['t','m'],observed=True).var()
+    Jc = E.notna().sum(axis=1)
+    dof = (Jc-1).clip(lower=0).sum()                     # pooled, proper d.o.f.
+    if dof <= 0:
+        warnings.warn("w_var(cov='homoskedastic'): no residual degrees of "
+                      "freedom (every cell saturated); returning NaN.")
+        return np.nan
+    return (E**2).sum().sum()/dof
+
 def w_var(e,beta,cov=None,min_goods=2):
     """Sampling variance of the estimated welfare weights w_hat_c.
 
@@ -781,14 +804,7 @@ def w_var(e,beta,cov=None,min_goods=2):
     # Var(w_hat_c) is unestimable when fewer than 2 goods are observed
     # (saturated fit, no residual d.o.f.); such cells return NaN.
     if cov=='homoskedastic':
-        ssr = (E**2).sum().sum()
-        dof = (Jc-1).clip(lower=0).sum()                 # pooled, proper d.o.f.
-        if dof <= 0:
-            warnings.warn("w_var(cov='homoskedastic'): no residual degrees of "
-                          "freedom (every cell saturated); returning NaN.")
-            sigma2 = np.nan
-        else:
-            sigma2 = ssr/dof
+        sigma2 = fitted_sigma2(E,cov='homoskedastic')
         return (sigma2/den).where(Jc>=min_goods)
 
     if cov=='pooled':
@@ -1560,7 +1576,7 @@ class Regression:
 
         return self.w
 
-    def score_w(self,y,d,min_goods=1,return_diagnostics=False):
+    def score_w(self,y,d,min_goods=1,return_diagnostics=False,cov='homoskedastic'):
         """Estimate welfare for additional households using this fitted model.
 
         Parameters
@@ -1576,7 +1592,13 @@ class Regression:
             sum of squared loadings is also required.
         return_diagnostics : bool, default False
             Return (w,diagnostics), with observed/usable-good counts,
-            sum_beta2, and a status for every cell in either input.
+            sum_beta2, a sampling standard error w_se, and a status for
+            every cell in either input.
+        cov : {'homoskedastic','pooled'}, default 'homoskedastic'
+            Error-variance estimator behind w_se, taken from the fitting
+            residuals (see fitted_sigma2 and w_var).  The hc* estimators
+            of w_var are not offered: they need the cell's own residuals,
+            which a single-good cell does not have.
 
         Returns
         -------
@@ -1584,11 +1606,19 @@ class Regression:
             Scores on the fitted normalization; NaN for unscoreable cells.
             Parameters are fitted lazily from self.y/self.d if needed,
             never from these new observations. Only linear numeric controls
-            and fitted market-periods are currently supported. This method
-            does not report parameter-estimation or selection uncertainty.
+            and fitted market-periods are currently supported. The w_se
+            diagnostic treats beta, gamma and the market offsets as known,
+            exactly as w_var does for the fitting sample; it carries no
+            parameter-estimation or selection uncertainty. With one good
+            w_se is sigma/|beta_j|, several times the fitting-sample se for
+            typical elasticities, so filter on w_se rather than on n_goods
+            alone. Under cov='pooled', w_se is NaN for a scored cell none of
+            whose observed goods has a training variance in its (t,m).
         """
         if not isinstance(min_goods,(int,np.integer)) or min_goods < 1:
             raise ValueError("min_goods must be a positive integer.")
+        if cov not in ('homoskedastic','pooled'):
+            raise ValueError(f"cov must be 'homoskedastic' or 'pooled', not {cov!r}.")
         if self.attrs.get('method','linear') != 'linear' or self.attrs.get('K') is not None:
             raise NotImplementedError("score_w currently supports linear numeric controls with K=None.")
         if self.d is None or any(not pd.api.types.is_numeric_dtype(x) for x in self.d.dtypes):
@@ -1648,8 +1678,21 @@ class Regression:
         w = w.where(status == 'scored').rename('w')
         if not return_diagnostics:
             return w
+        # Sampling variance of the score with beta known (the w_var sandwich):
+        # sum_{j in O_c} beta_j^2 sigma_cj^2 / (sum_{j in O_c} beta_j^2)^2,
+        # with sigma^2 from the fitting residuals so it is defined off-sample.
+        sigma2 = fitted_sigma2(self.e3,cov=cov)
+        if cov=='pooled':
+            S2 = sigma2.reindex(index=market,columns=beta.index)
+            S2 = pd.DataFrame(S2.to_numpy(),index=cells,columns=beta.index)
+            valid = observed & np.isfinite(S2)
+            B2 = observed.mul(beta**2,axis=1)
+            var = (B2*S2).where(valid).sum(axis=1)/B2.where(valid).sum(axis=1)**2
+        else:
+            var = sigma2/sum_beta2.where(sum_beta2 > 0)
+        w_se = np.sqrt(var).where(status == 'scored').rename('w_se')
         diagnostics = pd.DataFrame({'n_observed':n_observed,'n_goods':n_goods,
-                                    'sum_beta2':sum_beta2,'status':status})
+                                    'sum_beta2':sum_beta2,'w_se':w_se,'status':status})
         return w,diagnostics
 
     def get_Ar(self,verbose=None):
@@ -2248,13 +2291,23 @@ original estimator, scoring independent of batch composition, persistence,
 and sample restoration. They do not assert coverage for an uncertainty
 estimator with estimated nuisance parameters.
 
+The diagnostics also carry =w_se=, the =w_var= sandwich with $\beta$ known
+and $\hat\sigma^2$ taken from the fitting residuals (=cov='homoskedastic'=
+or =cov='pooled'=; see =fitted_sigma2=). Because $\hat\sigma^2$ does not
+come from the scored cell, =w_se= is defined for every scored cell,
+including single-good ones, and on the fitting sample it coincides with
+=w_var= under the same =cov=. It is the quantity to filter on: the training
+cutoff =min_prop_items= picks a point on the precision curve, and a scored
+cell with one good has $\hat\sigma/|\beta_j|$, which for typical
+elasticities is several times the fitting-sample standard error.
+
 #+begin_src python :tangle ../cfe/test/test_preparation_scoring.py :eval never-export
 import copy
 import numpy as np
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
-from cfe.regression import Regression, prepare_data, read_pickle, estimate_w, Mpi
+from cfe.regression import Regression, prepare_data, read_pickle, estimate_w, Mpi, w_var, fitted_sigma2
 
 
 def _inputs(N,J):
@@ -2566,6 +2619,30 @@ def test_score_rejects_unsupported_controls_and_schema(fit):
     r.attrs['method'] = 'categorical'
     with pytest.raises(NotImplementedError,match='linear numeric controls'):
         r.score_w(Y,d)
+
+
+def test_score_se_matches_w_var_on_training_cells(fit):
+    r,_,_ = fit
+    for cov in ('homoskedastic','pooled'):
+        _,report = r.score_w(r.y,r.d,return_diagnostics=True,cov=cov)
+        expected = np.sqrt(w_var(r.e3,r.beta,cov=cov)).rename('w_se')
+        assert_series_equal(report['w_se'].sort_index(),expected.sort_index(),
+                            check_exact=False,rtol=1e-10,atol=1e-12)
+
+
+def test_score_se_defined_for_excluded_single_good_households(fit):
+    r,Y,d = fit
+    scored,report = r.score_w(Y,d,return_diagnostics=True)
+    held = Y.index[-2:]
+    expected = np.sqrt(fitted_sigma2(r.e3))/abs(r.beta.loc[0])
+    assert np.allclose(report.loc[held,'w_se'],expected)
+    assert report['w_se'].notna().equals(report['status'] == 'scored')
+    assert (report.loc[report.n_goods > 1,'w_se'] < expected).all()
+    _,pooled = r.score_w(Y,d,return_diagnostics=True,cov='pooled')
+    assert pooled.loc[held,'w_se'].notna().all()
+    assert not pooled['w_se'].equals(report['w_se'])
+    with pytest.raises(ValueError,match="cov must be"):
+        r.score_w(Y,d,return_diagnostics=True,cov='hc2')
 #+end_src
 
 ** Tests for =w_var=

@@ -18,7 +18,10 @@ estimator, normalization, and the complete-covariance goods-selection heuristic.
 Design context: `../LSMS_Library/SkunkWorks/cfe_aggregation.org`, especially
 "Preparation and scoring in CFEDemands". Baseline after tangling: 42 tests pass.
 Implemented and reviewed on 2026-09-16: 67 tests pass (25 new), with the same
-pre-existing divide-by-zero log warning in `test_artificial_data`. Reproduce:
+pre-existing divide-by-zero log warning in `test_artificial_data`.
+Follow-up `feature/score-w-se` (2026-09-16): `fitted_sigma2` factored out of
+`w_var`; `score_w` diagnostics gain `w_se` (beta known, sigma^2 from the fit).
+69 tests pass on pandas 3.0.5 / numpy 1.26.4. Reproduce:
 
 ```sh
 (cd Empirics; ../tangle.sh regression.org)
