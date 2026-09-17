@@ -1560,7 +1560,24 @@ class Regression:
 
         return self.w
 
-    def score_w(self,y,d,min_goods=1,return_diagnostics=False):
+    def _training_min_goods(self,n_goods):
+        """Item-count cutoff `prepare_data` imposed over `n_goods` fitted goods.
+
+        `prepare_data` keeps households with strictly more than
+        ``min_prop_items*len(goods)`` observed goods, so the smallest
+        admissible count is ``floor(min_prop_items*n_goods)+1``.  The same
+        floating-point product is used here, so the cutoff recovered for
+        scoring is exactly the one the fitting rule applied.
+        """
+        min_prop_items = self.attrs.get('min_prop_items')
+        if min_prop_items is None:
+            raise ValueError(
+                "This fit does not record min_prop_items, so the training "
+                "item-count cutoff cannot be recovered; pass min_goods "
+                "explicitly (min_goods=1 restores the permissive behavior).")
+        return int(np.floor(min_prop_items*n_goods)) + 1
+
+    def score_w(self,y,d,min_goods=None,return_diagnostics=False):
         """Estimate welfare for additional households using this fitted model.
 
         Parameters
@@ -1571,9 +1588,14 @@ class Regression:
         d : DataFrame (i,t,m) x k or Series (i,t,m,k)
             Numeric characteristics with the same meaning as in the fit.
             Extra columns are ignored; required columns must be present.
-        min_goods : int, default 1
+        min_goods : int, optional
             Minimum number of observed fitted goods for a score. A positive
-            sum of squared loadings is also required.
+            sum of squared loadings is also required. Defaults to the fit's
+            own item-count cutoff, ``floor(min_prop_items*J)+1`` over the J
+            fitted goods, so the default scoring sample is the one the fit
+            would have admitted. Pass ``min_goods=1`` to score households
+            below that cutoff, subject to the precision note below. Raises
+            if the fit does not record ``min_prop_items``.
         return_diagnostics : bool, default False
             Return (w,diagnostics), with observed/usable-good counts,
             sum_beta2, and a status for every cell in either input.
@@ -1586,8 +1608,23 @@ class Regression:
             never from these new observations. Only linear numeric controls
             and fitted market-periods are currently supported. This method
             does not report parameter-estimation or selection uncertainty.
+
+        Notes
+        -----
+        Scores for households observed on few goods are far noisier than the
+        fitted w, and a score carries no indication of its own precision.
+        Lowering ``min_goods`` below the fit's cutoff therefore widens the w
+        distribution with measurement error rather than welfare dispersion.
+        On a Uganda panel fitted over 39 goods the cross-sectional sd of w
+        was 0.70 in the fitting sample, against 1.11, 1.44 and 2.15 for
+        households observed on three, two and one good; rescoring fitting
+        households on a random four of their twelve-or-more goods gave a
+        correlation of 0.79 with the full-information w and an error sd of
+        0.47. Filter on the ``n_goods`` diagnostic before pooling scored
+        cells with fitted ones.
         """
-        if not isinstance(min_goods,(int,np.integer)) or min_goods < 1:
+        if min_goods is not None and (not isinstance(min_goods,(int,np.integer))
+                                      or min_goods < 1):
             raise ValueError("min_goods must be a positive integer.")
         if self.attrs.get('method','linear') != 'linear' or self.attrs.get('K') is not None:
             raise NotImplementedError("score_w currently supports linear numeric controls with K=None.")
@@ -1596,6 +1633,8 @@ class Regression:
         y,d = _prepare_inputs(y,d)
         self.get_w()
         beta = self.beta
+        if min_goods is None:
+            min_goods = self._training_min_goods(len(beta))
         gamma = self.get_gamma()
         if not np.isfinite(beta.to_numpy()).all() or not np.isfinite(gamma.to_numpy()).all():
             raise ValueError("Fitted beta and gamma must be finite.")
@@ -2235,10 +2274,14 @@ if __name__=='__main__':
 for households excluded from fitting, retain the original inputs and call
 =r.score_w(y,d,return_diagnostics=True)= after fitting =r=. The method
 returns scores and support diagnostics for cells appearing in either
-input, including explicit reasons for unavailable scores. A single observed
-fitted good can suffice, conditional on a nonzero loading and fitted
-controls and market effects. The training item-fraction cutoff is not
-applied to scoring.
+input, including explicit reasons for unavailable scores. The training
+item-fraction cutoff carries over to scoring by default, as the equivalent
+count =floor(min_prop_items*J)+1= over the J fitted goods, so the default
+scoring sample is the one the fit would have admitted. Passing =min_goods=1=
+scores a household on a single observed good, conditional on a nonzero
+loading and fitted controls and market effects. Such scores are far noisier
+than the fitted w and the interface reports no uncertainty, so filter on the
+=n_goods= diagnostic before pooling them with fitted cells.
 
 This first interface supports linear numeric controls and existing
 market-periods. Its centering and market intercept come entirely from the
@@ -2442,11 +2485,41 @@ def test_score_reproduces_training_fit_with_missing_goods(fit):
 
 def test_score_recovers_excluded_single_good_households(fit):
     r,Y,d = fit
-    scored,report = r.score_w(Y,d,return_diagnostics=True)
+    scored,report = r.score_w(Y,d,min_goods=1,return_diagnostics=True)
     assert scored.loc[Y.index[-2:]].notna().all()
     assert (report.loc[Y.index[-2:],'n_goods'] == 1).all()
     assert (~r.preparation['households'].loc[Y.index[-2:],'retained']).all()
     assert r.score_w(Y,d,min_goods=2).loc[Y.index[-2:]].isna().all()
+
+
+def test_score_default_min_goods_is_the_fitting_cutoff(fit):
+    r,Y,d = fit
+    cutoff = int(np.floor(r.attrs['min_prop_items']*len(r.beta))) + 1
+    assert cutoff > 1  # otherwise this test cannot separate the two rules
+    default,report = r.score_w(Y,d,return_diagnostics=True)
+    assert_series_equal(default,r.score_w(Y,d,min_goods=cutoff))
+    # The cutoff is the rule prepare_data applied, so every fitted household
+    # is still scored, and the single-good rows it excluded are not.
+    assert default.reindex(r.w.index).notna().all()
+    assert default.loc[Y.index[-2:]].isna().all()
+    assert (report.loc[Y.index[-2:],'status'] == 'too_few_goods').all()
+    assert (report.loc[report.n_goods < cutoff,'status'] != 'scored').all()
+
+
+def test_score_requires_explicit_min_goods_without_recorded_cutoff(fit):
+    r,Y,d = fit
+    permissive = r.score_w(Y,d,min_goods=1)
+    r.attrs.pop('min_prop_items')
+    with pytest.raises(ValueError,match='pass min_goods'):
+        r.score_w(Y,d)
+    assert_series_equal(r.score_w(Y,d,min_goods=1),permissive)
+
+
+def test_score_rejects_invalid_min_goods(fit):
+    r,Y,d = fit
+    for bad in [0,-1,1.5,'2']:
+        with pytest.raises(ValueError,match='positive integer'):
+            r.score_w(Y,d,min_goods=bad)
 
 
 def test_score_batch_invariance_and_no_mutation(fit):
